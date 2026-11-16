@@ -34,6 +34,19 @@ No sounds come from ZONA.
 - This work is based on "MP7A1 Animations" (https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc) by TheParaziT (https://sketchfab.com/TheParaziT) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the pistol pack.
 
+- This work is based on "Scorpion | First Person Animations (2026 Remake)" (https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4) by 1Matzh (https://sketchfab.com/1Matzh) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/scorpion.glb`, `world/scorpion_lod1.glb`. Changes made: only the gun is used, taken off its skeleton and set in rigid pieces; its own arms and animation are left out; textures re-encoded as WebP; geometry compressed. Held in the arms of the pistol pack.
+- This work is based on "Animated AKs-74u" (https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/aks74u.glb`, `world/aks74u_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the sniper pack.
+- This work is based on "9A-91 Assault Rifle Gameready Lowpoly" (https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda) by valterjherson1 (https://sketchfab.com/valterjherson1) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/a91.glb`, `world/a91_lod1.glb`. Changes made: set in rigid pieces (the rifle, its stock and butt plate, its magazine, trigger and suppressor, its round); textures re-encoded as WebP at no more than 1024 a side; geometry compressed. Held in the arms of the sniper pack.
+- This work is based on "Barrett-M82 (Optimized)" (https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87) by Gintoki1234 (https://sketchfab.com/Gintoki1234) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/barrett.glb`, `world/barrett_lod1.glb`. Changes made: set in rigid pieces; textures at 1024; geometry compressed. Held in the arms of the sniper pack.
+- This work is based on "Shotgun animation set" (https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/db12.glb`, `world/db12_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; geometry compressed. Held in the arms of the sniper pack.
+
+Every gun and the arms are repainted in game (`src/client/finish.ts`, `skins.ts`): the models' own colours are replaced by a pattern and light-emitting lines drawn by a shader.
+
 ## Player character
 
 - This work is based on "Military tactical suit (LowPolyGameReady)" (https://sketchfab.com/3d-models/military-tactical-suit-lowpolygameready-ef698ce36b1545a78ce592dd3db4c7ed) by DanlyVostok (https://sketchfab.com/1799danly) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).

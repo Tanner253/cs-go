@@ -88,7 +88,8 @@ function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
   const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
   obj.traverse((o) => {
     // Optional attachments are stored in these files but not fitted.
-    if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name)) o.visible = false;
+    // (the 9A-91's suppressor is part of the gun)
+    if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = false;

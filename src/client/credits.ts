@@ -49,6 +49,11 @@ export const CREDITS: Credit[] = [
   { title: 'Desert Eagle', author: 'ELIZION', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95', note: 'Heavy pistol. Set in rigid pieces, held in the arms of the pistol pack.' },
   { title: 'Benelli M3 Tactical', author: 'Amapsis', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd', note: 'Shotgun. Set in rigid pieces, held in the arms of the sniper pack.' },
   { title: 'MP7A1 Animations', author: 'TheParaziT', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc', note: 'Defender SMG: the gun only, held in the arms of the pistol pack.' },
+  { title: 'Scorpion | First Person Animations (2026 Remake)', author: '1Matzh', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4', note: 'Machine pistol: the gun only, held in the arms of the pistol pack.' },
+  { title: 'Animated AKs-74u', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f', note: 'Attacker carbine: the gun only, held in the arms of the sniper pack.' },
+  { title: '9A-91 Assault Rifle Gameready Lowpoly', author: 'valterjherson1', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda', note: 'Defender suppressed rifle. Set in rigid pieces, held in the arms of the sniper pack.' },
+  { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Heavy sniper rifle. Set in rigid pieces, held in the arms of the sniper pack.' },
+  { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun: the gun only, held in the arms of the sniper pack.' },
   {
     title: 'The Free Firearm Sound Library', author: 'Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney', license: 'CC0 1.0',
     url: 'https://opengameart.org/content/the-free-firearm-sound-library',

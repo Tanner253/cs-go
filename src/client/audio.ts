@@ -50,6 +50,11 @@ export const CUES: Record<string, Cue> = {
   'shot.lumen': { files: takes('shot_ar', 2), level: -16.5, ...SHOT },
   'shot.breaker': { files: takes('shot_shotgun', 2), level: -14.5, ...SHOT },
   'shot.longsight': { files: takes('shot_bolt', 2), level: -14, rate: 0.94, ...SHOT, wet: 0.28 },
+  'shot.stinger': { files: takes('shot_pistol380', 2), level: -18, rate: 1.06, ...SHOT },
+  'shot.mako': { files: takes('shot_carbine', 2), level: -16, ...SHOT },
+  'shot.osprey': { files: takes('shot_blackout', 2), level: -19, rate: 0.96, ...SHOT, wet: 0.1 },
+  'shot.thresher': { files: takes('shot_shotgun_b', 2), level: -14, rate: 0.92, ...SHOT },
+  'shot.colossus': { files: takes('shot_magnum', 2), level: -13, rate: 0.86, ...SHOT, wet: 0.3 },
   // ---- weapon handling ----
   'reload.pistol': { files: ['reload_pistol'], level: -30, ref: 2, wet: 0.04 },
   'reload.rifle': { files: ['reload_rifle'], level: -29, ref: 2, wet: 0.04 },

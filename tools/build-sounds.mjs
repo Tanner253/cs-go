@@ -154,6 +154,11 @@ const GUNS = [
   ['shot_ar', 'AR-15/D_32P.wav', 2, 1.2],
   ['shot_shotgun', 'Nova/O_21P.wav', 2, 1.5],
   ['shot_bolt', 'Tikka/W_24P.wav', 3, 1.7],
+  ['shot_pistol380', 'Bersa/F_47P.wav', 2, 0.9],
+  ['shot_carbine', 'SKS/U_14P.wav', 2, 1.2],
+  ['shot_blackout', 'Savage 10 .300 Blackout/T_27P.wav', 2, 1.1],
+  ['shot_shotgun_b', 'Mossberg/N_30P.wav', 2, 1.5],
+  ['shot_magnum', 'Mosin Nagant/M_21P.wav', 2, 1.9],
 ];
 const manifest = {};
 for (const [name, rel, takes, len] of GUNS) {

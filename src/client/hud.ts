@@ -3,7 +3,8 @@
 
 import type { Sim } from '../sim/game';
 import { ATK, DEF, type Player } from '../sim/types';
-import { GEAR, WEAPONS, WEAPON_LIST } from '../sim/weapons';
+import { GEAR, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
+import { SKINS } from './skins';
 import { eyeHeight } from '../sim/movement';
 import { onSettings } from './settings';
 
@@ -18,24 +19,78 @@ function text(el: HTMLElement, cache: { v: string }, v: string): void {
 }
 const c = (): { v: string } => ({ v: '\u0000' });
 
+// ---- the armory -------------------------------------------------------------------------
+
 interface BuyEntry {
   id: string;
   name: string;
-  desc: string;
   price: number;
   team: number;
+  /** What kind of thing it is, in plain words (for guns: the real pattern it follows). */
+  kind: string;
+  blurb: string;
 }
 
-const BUY_ORDER: BuyEntry[] = [
-  ...['maul', 'wasp', 'hornet', 'breaker', 'hammerhead', 'lumen', 'longsight'].map((id) => {
-    const d = WEAPONS[id]!;
-    const kind = { rifle: 'Assault rifle', smg: 'SMG', pistol: 'Heavy pistol', sniper: 'Bolt-action sniper', shotgun: 'Shotgun', knife: '' }[d.kind];
-    return { id, name: d.name, desc: `${kind} · ${d.damage}${d.pellets > 1 ? `×${d.pellets}` : ''} dmg · ${d.rpm} rpm`, price: d.price, team: d.team };
-  }),
-  { id: 'armor', name: GEAR['armor']!.name, desc: 'Body armour (100)', price: 650, team: -1 },
-  { id: 'armorhelmet', name: GEAR['armorhelmet']!.name, desc: 'Armour + head protection', price: 1000, team: -1 },
-  { id: 'kit', name: GEAR['kit']!.name, desc: 'Disarm in 5s instead of 10s', price: 400, team: 1 },
+/** What each item is and what it is for. */
+const ABOUT: Record<string, [kind: string, blurb: string]> = {
+  kite: ['M9-pattern pistol', 'The attackers’ sidearm. A big magazine and a modest punch.'],
+  tern: ['M1911-pattern pistol', 'The defenders’ sidearm. Hits harder, holds twelve.'],
+  stinger: ['Škorpion machine pistol', 'A fully automatic sidearm. Vicious up close, empty in two seconds.'],
+  maul: ['Desert Eagle hand cannon', 'One to the head at any range. Seven rounds and a heavy kick.'],
+  wasp: ['Compact submachine gun', 'Cheap and very fast. Made for running and spraying.'],
+  hornet: ['MP7 personal defence weapon', 'Tighter than the Wasp and better against armour.'],
+  breaker: ['M3-pattern pump shotgun', 'Nine pellets a shell. Owns corners and doorways.'],
+  thresher: ['Sawn-off double-barrel shotgun', 'Two shells, each the hardest hit in the armory. Then you reload.'],
+  mako: ['AKS-74U carbine', 'The budget rifle. Rifle damage for SMG money, with a wild climb.'],
+  hammerhead: ['AK-74M-pattern assault rifle', 'The attackers’ rifle. Heavy hits, heavy recoil.'],
+  osprey: ['9A-91 suppressed rifle', 'The budget rifle. Quiet, steady, twenty rounds.'],
+  lumen: ['AR-15-pattern assault rifle', 'The defenders’ rifle. Fast, flat and accurate.'],
+  longsight: ['Bolt-action sniper rifle · AWP class', 'One shot to the body or head kills. Slow to cycle, slow to carry.'],
+  colossus: ['M82-pattern .50 rifle', 'Semi-automatic. Two body shots kill, ten rounds, the heaviest gun there is.'],
+  armor: ['Body armour', 'Soaks up most of the damage from shots to the body.'],
+  armorhelmet: ['Body armour and helmet', 'Protects the head as well: fewer guns kill with a single headshot.'],
+  kit: ['Disarm kit', 'Disarm the charge in 5 seconds instead of 10.'],
+};
+
+const entry = (id: string): BuyEntry => {
+  const d = WEAPONS[id] ?? GEAR[id]!;
+  const [kind, blurb] = ABOUT[id] ?? ['', ''];
+  return { id, name: d.name, price: d.price, team: d.team, kind, blurb };
+};
+
+/** The armory's columns. Items for the other side are left out when it is drawn. */
+const BUY_COLUMNS: { title: string; items: BuyEntry[] }[] = [
+  { title: 'Pistols', items: ['kite', 'tern', 'stinger', 'maul'].map(entry) },
+  { title: 'Close range', items: ['wasp', 'hornet', 'breaker', 'thresher'].map(entry) },
+  { title: 'Rifles', items: ['mako', 'osprey', 'hammerhead', 'lumen'].map(entry) },
+  { title: 'Snipers', items: ['longsight', 'colossus'].map(entry) },
+  { title: 'Gear', items: ['armor', 'armorhelmet', 'kit'].map(entry) },
 ];
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** A gun's numbers as bars, each 0..1 against the best in the armory. */
+function statBars(d: WeaponDef): [label: string, value: number][] {
+  let climb = 0;
+  for (let i = 0; i < d.pattern.length; i += 2) climb = Math.max(climb, d.pattern[i]!);
+  return [
+    ['Damage', clamp01((d.damage * d.pellets) / 120)],
+    ['Fire rate', clamp01(d.rpm / 800)],
+    ['Accuracy', clamp01(1 - Math.sqrt(d.spreadStand / 0.06))],
+    ['Control', clamp01(1 - (climb * 180) / Math.PI / 9)],
+    ['Armour piercing', clamp01(d.armorPen)],
+    ['Mobility', clamp01((d.maxSpeed - 4.4) / (6.35 - 4.4))],
+  ];
+}
+
+const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+
+/** Simple line drawings for the gear, which has no model. */
+const GEAR_ART: Record<string, string> = {
+  armor: '<svg viewBox="0 0 96 48"><path d="M30 6h10l8 5 8-5h10l6 8-6 6v20H30V20l-6-6z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M38 24h20M38 31h20" stroke="currentColor" stroke-width="2"/></svg>',
+  armorhelmet: '<svg viewBox="0 0 96 48"><path d="M14 10h8l6 4 6-4h8l5 6-5 5v17H14V21l-5-5z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M56 32c0-13 6-21 16-21s16 8 16 21h-9v-6H65v6z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>',
+  kit: '<svg viewBox="0 0 96 48"><rect x="28" y="14" width="40" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M40 14V9h16v5M48 21v12M42 27h12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+};
 
 export class Hud {
   private root = $('hud');
@@ -46,11 +101,11 @@ export class Hud {
     hint: $('hint'), prog: $('progress'), progFill: $('progress-fill'), progLabel: $('progress-label'),
     spectate: $('spectate'), cross: $('crosshair'), scope: $('scope'), vig: $('vignette'), white: $('whiteout'),
     carry: $('carry'), kit: $('kit'), slots: $('slots'), fps: $('fps'), hit: $('hitmarker'), dmg: $('dmgdir'),
-    buy: $('buy'), buyGrid: $('buy-grid'), buyMoney: $('buy-money'), board: $('scoreboard'),
+    buy: $('buy'), buyGrid: $('buy-grid'), buyMoney: $('buy-money'), buyDetail: $('buy-detail'), buyHint: $('buy-hint'), board: $('scoreboard'),
   };
   private k = {
     hp: c(), armor: c(), money: c(), mag: c(), res: c(), wname: c(), timer: c(), round: c(), sAtk: c(), sDef: c(),
-    pAtk: c(), pDef: c(), hint: c(), spectate: c(), slots: c(), fps: c(), progLabel: c(), buy: c(), board: c(),
+    pAtk: c(), pDef: c(), hint: c(), spectate: c(), slots: c(), fps: c(), progLabel: c(), buy: c(), buyDetail: c(), board: c(),
   };
   private gap = -1;
   private msgUntil = 0;
@@ -70,8 +125,15 @@ export class Hud {
   buyOpen = false;
   boardOpen = false;
   onBuy: (item: string) => void = () => {};
-  /** Items currently listed in the buy menu, in hotkey order. */
-  private buyList: BuyEntry[] = [];
+  /** A picture of a weapon for the armory ('' until it is ready). */
+  thumb: (id: string) => string = () => '';
+  /** The armory's columns as drawn for the player's side. */
+  private buyCols: { title: string; items: BuyEntry[] }[] = [];
+  /** The column picked with a number key, waiting for the item's number (-1 = none). */
+  private buyCol = -1;
+  /** The item the detail pane shows. */
+  private buyFocus = '';
+  private thumbsSeen = 0;
 
   constructor() {
     onSettings((st) => {
@@ -82,8 +144,14 @@ export class Hud {
       this.el.fps.style.display = st.showFps ? '' : 'none';
     });
     this.el.buyGrid.addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.buy-item');
-      if (b && !b.disabled) this.onBuy(b.dataset['id']!);
+      const b = (e.target as HTMLElement).closest<HTMLElement>('.buy-item');
+      if (!b) return;
+      this.focusBuy(b.dataset['id']!);
+      if (!b.classList.contains('off')) this.onBuy(b.dataset['id']!);
+    });
+    this.el.buyGrid.addEventListener('pointerover', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('.buy-item');
+      if (b) this.focusBuy(b.dataset['id']!);
     });
   }
 
@@ -208,39 +276,119 @@ export class Hud {
 
   setBuyOpen(open: boolean): void {
     this.buyOpen = open;
+    this.buyCol = -1;
     this.el.buy.classList.toggle('hidden', !open);
     this.k.buy.v = '\u0000';
+  }
+  /** Tell the armory that another weapon picture is ready. */
+  thumbsChanged(): void {
+    this.thumbsSeen++;
   }
   setBoardOpen(open: boolean): void {
     this.boardOpen = open;
     this.el.board.classList.toggle('hidden', !open);
   }
 
-  /** Buy by hotkey digit (1-based). Returns true if the menu consumed the key. */
+  /**
+   * A number key in the armory: the first picks a column, the second buys from it.
+   * Returns true if the armory consumed the key.
+   */
   buyDigit(d: number): boolean {
     if (!this.buyOpen) return false;
-    const item = this.buyList[d - 1];
-    if (item) this.onBuy(item.id);
+    if (this.buyCol < 0) {
+      const col = this.buyCols[d - 1];
+      if (col) {
+        this.buyCol = d - 1;
+        if (col.items[0]) this.buyFocus = col.items[0].id;
+      }
+    } else {
+      const item = this.buyCols[this.buyCol]?.items[d - 1];
+      if (item) {
+        this.buyFocus = item.id;
+        this.onBuy(item.id);
+      }
+      this.buyCol = -1;
+    }
+    this.k.buy.v = '\u0000';
     return true;
   }
 
+  private focusBuy(id: string): void {
+    if (this.buyFocus === id) return;
+    this.buyFocus = id;
+    for (const b of this.el.buyGrid.querySelectorAll<HTMLElement>('.buy-item')) b.classList.toggle('focus', b.dataset['id'] === id);
+    this.k.buyDetail.v = '\u0000';
+  }
+
+  /** What an item costs this player now, and whether they already have it. */
+  private buyState(p: Player, e: BuyEntry): { price: number; owned: boolean } {
+    const owned = p.weapons[0]?.def.id === e.id || p.weapons[1]?.def.id === e.id ||
+      (e.id === 'armor' && p.armor >= 100) || (e.id === 'armorhelmet' && p.armor >= 100 && p.helmet) || (e.id === 'kit' && p.kit);
+    return { owned, price: e.id === 'armorhelmet' && p.armor >= 100 && !p.helmet ? 350 : e.price };
+  }
+
   private renderBuy(sim: Sim, p: Player): void {
-    const list = BUY_ORDER.filter((e) => e.team === -1 || e.team === p.team);
-    this.buyList = list;
-    const key = `${p.money}|${p.team}|${p.armor}|${p.helmet}|${p.kit}|${p.weapons[0]?.def.id}|${p.weapons[1]?.def.id}|${sim.canBuy(p)}`;
-    if (this.k.buy.v === key) return;
-    this.k.buy.v = key;
-    this.el.buyMoney.textContent = `$${p.money}`;
     const can = sim.canBuy(p);
-    this.el.buyGrid.innerHTML = list.map((e, i) => {
-      const owned = p.weapons[0]?.def.id === e.id || p.weapons[1]?.def.id === e.id ||
-        (e.id === 'armor' && p.armor >= 100) || (e.id === 'armorhelmet' && p.armor >= 100 && p.helmet) || (e.id === 'kit' && p.kit);
-      const price = e.id === 'armorhelmet' && p.armor >= 100 && !p.helmet ? 350 : e.price;
-      const dis = !can || owned || p.money < price;
-      return `<button class="buy-item${owned ? ' owned' : ''}" data-id="${e.id}" ${dis ? 'disabled' : ''}>` +
-        `<span class="k">${i + 1}</span><span class="n">${e.name}</span><span class="p">${owned ? 'OWNED' : '$' + price}</span>` +
-        `<span class="d">${e.desc}</span></button>`;
-    }).join('');
+    const key = `${p.money}|${p.team}|${p.armor}|${p.helmet}|${p.kit}|${p.weapons[0]?.def.id}|${p.weapons[1]?.def.id}|${can}|${this.buyCol}|${this.thumbsSeen}`;
+    if (this.k.buy.v !== key) {
+      this.k.buy.v = key;
+      this.k.buyDetail.v = '\u0000';
+      const cols = BUY_COLUMNS.map((c) => ({ title: c.title, items: c.items.filter((e) => e.team === -1 || e.team === p.team) }));
+      this.buyCols = cols;
+      if (!cols.some((c) => c.items.some((e) => e.id === this.buyFocus))) {
+        this.buyFocus = p.weapons[0]?.def.id ?? cols[2]?.items.at(-1)?.id ?? '';
+      }
+      this.el.buyMoney.textContent = `$${p.money}`;
+      this.el.buyHint.textContent = this.buyCol < 0 ? '1–5 pick a column · B closes' : `1–${cols[this.buyCol]!.items.length} buy · B closes`;
+      this.el.buyGrid.innerHTML = cols.map((col, ci) => {
+        const picked = ci === this.buyCol;
+        return `<div class="buy-col${picked ? ' picked' : ''}${this.buyCol >= 0 && !picked ? ' dim' : ''}">` +
+          `<div class="buy-cat"><span class="k">${ci + 1}</span>${col.title}</div>` +
+          col.items.map((e, i) => {
+            const { owned, price } = this.buyState(p, e);
+            const off = !can || owned || p.money < price;
+            const glow = SKINS[e.id] ? hex(SKINS[e.id]!.glow) : '#9dff8a';
+            const src = this.thumb(e.id);
+            const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
+            return `<button class="buy-item${owned ? ' owned' : ''}${off ? ' off' : ''}${!owned && p.money < price ? ' poor' : ''}${e.id === this.buyFocus ? ' focus' : ''}" data-id="${e.id}" style="--glow:${glow}">` +
+              `<span class="art">${art}</span>` +
+              `<span class="n">${e.name}</span><span class="p">${owned ? 'OWNED' : '$' + price}</span>` +
+              `<span class="k">${picked ? i + 1 : ''}</span></button>`;
+          }).join('') + '</div>';
+      }).join('');
+    }
+    this.renderBuyDetail(p, can);
+  }
+
+  private renderBuyDetail(p: Player, can: boolean): void {
+    const e = this.buyCols.flatMap((c) => c.items).find((x) => x.id === this.buyFocus);
+    const key = `${this.buyFocus}|${p.money}|${can}|${this.thumbsSeen}|${e ? this.buyState(p, e).owned : ''}`;
+    if (this.k.buyDetail.v === key) return;
+    this.k.buyDetail.v = key;
+    if (!e) {
+      this.el.buyDetail.innerHTML = '';
+      return;
+    }
+    const d = WEAPONS[e.id];
+    const skin = SKINS[e.id];
+    const { owned, price } = this.buyState(p, e);
+    const src = this.thumb(e.id);
+    const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
+    const status = owned ? '<span class="st own">Owned</span>'
+      : !can ? '<span class="st">Armory closed</span>'
+        : p.money < price ? `<span class="st poor">$${price - p.money} short</span>`
+          : `<span class="st ok">Click to buy · $${price}</span>`;
+    const bars = d ? statBars(d).map(([label, v]) =>
+      `<div class="bar"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`).join('') : '';
+    const facts = d ? `<div class="facts">` +
+      `<span><b>${d.magSize}</b> / ${d.reserve}<small>magazine / spare</small></span>` +
+      `<span><b>${d.damage}${d.pellets > 1 ? `×${d.pellets}` : ''}</b><small>damage</small></span>` +
+      `<span><b>$${d.killReward}</b><small>per kill</small></span></div>` : '';
+    this.el.buyDetail.style.setProperty('--glow', skin ? hex(skin.glow) : '#9dff8a');
+    this.el.buyDetail.innerHTML =
+      `<div class="art">${art}</div>` +
+      `<div class="title">${e.name}${skin ? `<small>“${skin.name}” finish</small>` : ''}</div>` +
+      `<div class="kind">${e.kind}</div><p>${e.blurb}</p>${bars}${facts}${status}`;
   }
 
   private renderBoard(sim: Sim, me: Player | null): void {

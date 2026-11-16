@@ -28,6 +28,10 @@ export const SKINS: Record<string, Skin> = {
     name: 'Magma', pattern: 'tiger', scale: 34,
     a: 0x141315, b: 0x7a1a0a, accent: 0x2a1c18, glow: 0xff4a14, glowStrength: 2.8,
   },
+  mako: {
+    name: 'Rust Reef', pattern: 'digital', scale: 80,
+    a: 0x17181b, b: 0x7a3b10, accent: 0x2a2017, glow: 0xff8a1f, glowStrength: 2.6,
+  },
   // ---- defenders ----
   tern: {
     name: 'Glacier', pattern: 'digital', scale: 95,
@@ -41,7 +45,23 @@ export const SKINS: Record<string, Skin> = {
     name: 'Aurora', pattern: 'hex', scale: 56,
     a: 0x10151d, b: 0x1f3a6c, accent: 0x161c27, glow: 0x35e0ff, glow2: 0xb04aff, glowStrength: 2.1,
   },
+  osprey: {
+    name: 'Halo', pattern: 'carbon', scale: 140,
+    a: 0xc3ccd6, b: 0x77879a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
+  },
   // ---- both sides ----
+  stinger: {
+    name: 'Venom', pattern: 'tiger', scale: 60,
+    a: 0x101512, b: 0x1c5a2a, accent: 0x18201a, glow: 0x5dff7a, glowStrength: 2.4,
+  },
+  thresher: {
+    name: 'Brimstone', pattern: 'hex', scale: 48,
+    a: 0x1a1613, b: 0x4d2210, accent: 0x241a14, glow: 0xff5a1f, glowStrength: 1.7, metal: 0.35, rough: 0.55,
+  },
+  colossus: {
+    name: 'Monolith', pattern: 'hex', scale: 44,
+    a: 0x0d0e11, b: 0x3b3342, accent: 0x17161c, glow: 0xffc83a, glow2: 0xff3df0, glowStrength: 2.4,
+  },
   maul: {
     name: 'Regent', pattern: 'carbon', scale: 150,
     a: 0x8d94a1, b: 0x4f5562, accent: 0x1c1626, glow: 0xc050ff, glowStrength: 3.0, metal: 1, rough: 0.3,

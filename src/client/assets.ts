@@ -51,6 +51,8 @@ const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag',
 const LONG_JOINTS = { base: 'base', mag: 'clip' };
 /** Rifles are held where the long-gun pack's own rifle has its grip, which is further back than theirs. */
 const RIFLE_SEAT: V3 = [-0.125, 0.02, 0.004];
+/** The same for guns modelled with the grip near their own origin. */
+const SHORT_SEAT: V3 = [-0.345, 0.02, 0.004];
 
 export const PACKS: Record<string, PackInfo> = {
   m9: {
@@ -102,6 +104,7 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   wasp: { pack: 'm9', world: 'smg', mount: { file: 'smg.glb', ride: PISTOL_JOINTS } },
   // (the long-gun pack's bolt-action cycle is not for a self-loading rifle)
   hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: RIFLE_SEAT } },
+  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: SHORT_SEAT } },
   // ---- defenders ----
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS } },
   hornet: {
@@ -114,7 +117,17 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt'],
     mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: RIFLE_SEAT },
   },
+  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'a91.glb', ride: LONG_JOINTS, nudge: RIFLE_SEAT } },
   // ---- both sides ----
+  stinger: { pack: 'm9', world: 'scorpion', mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS } },
+  thresher: {
+    pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt'],
+    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.36, 0.016, 0.01] },
+  },
+  colossus: {
+    pack: 'sniper', world: 'barrett', skip: ['bolt'],
+    mount: { file: 'barrett.glb', ride: LONG_JOINTS, nudge: SHORT_SEAT },
+  },
   maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94 } },
   breaker: {
     pack: 'sniper', world: 'benelli', hold: LONG_HOLD,
@@ -131,11 +144,32 @@ const base = `${import.meta.env.BASE_URL}assets/weapons/`;
 const files = new Map<string, GLTF | null>();
 const pending = new Map<string, Promise<GLTF | null>>();
 
+/**
+ * Changes made to a model as it loads: [piece, scale along the barrel, about this point on it].
+ * (The double-barrel comes with long fowling barrels; they are cut down to a sawn-off.)
+ */
+const RESHAPE: Record<string, [piece: string, scale: number, about: number][]> = {
+  'db12.glb': [['barrels', 0.46, 0.22]],
+  'world/db12_lod1.glb': [['barrels', 0.46, 0.22]],
+};
+
+function reshape(name: string, g: GLTF): void {
+  for (const [piece, scale, about] of RESHAPE[name] ?? []) {
+    g.scene.traverse((o) => {
+      if (o.name.replace(/_\d+$/, '') !== piece) return;
+      // (pieces sit directly in the gun's own space: x runs along the barrel)
+      o.position.x = about + (o.position.x - about) * scale;
+      o.scale.x *= scale;
+      o.updateMatrix();
+    });
+  }
+}
+
 function loadFile(name: string): Promise<GLTF | null> {
   let p = pending.get(name);
   if (!p) {
     p = loader.loadAsync(base + name).then(
-      (g) => { files.set(name, g); return g; },
+      (g) => { reshape(name, g); files.set(name, g); return g; },
       (err) => { console.warn(`weapon file "${name}" failed to load`, err); files.set(name, null); return null; },
     );
     pending.set(name, p);
@@ -216,6 +250,11 @@ const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', grip: PISTOL_GRIP, support: PISTOL_SUPPORT, muzzle: [0.263, 0.06, 0] },
   sniper: { file: 'world/sniper_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.726, 0.03, 0] },
   benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.83, 0.03, 0] },
+  scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', grip: [-0.08, -0.02, 0.03], support: [0.173, 0.023, -0.064], muzzle: [0.396, 0.03, 0] },
+  aks74u: { file: 'world/aks74u_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.205, 0.033, -0.058], muzzle: [0.473, 0.03, 0.01] },
+  a91: { file: 'world/a91_lod1.glb', carry: 'rifle', grip: RIFLE_GRIP, support: [0.0137, 0.029, -0.049], muzzle: [0.485, 0.03, 0.01] },
+  barrett: { file: 'world/barrett_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.32, -0.002, -0.054], muzzle: [1.103, 0.03, 0] },
+  db12: { file: 'world/db12_lod1.glb', carry: 'rifle', grip: [-0.065, -0.016, 0.024], support: [0.334, -0.012, -0.066], muzzle: [0.565, 0.03, 0] },
   knife: { file: 'world/knife_lod1.glb', carry: 'knife', grip: [0.0146, -0.004, 0.076], support: [0, 0, 0], muzzle: [0, 0.24, 0], blade: true },
 };
 

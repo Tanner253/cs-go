@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import type { Charge, Phase, Player, SimEvent, Team, WinReason } from '../sim/types';
 import { WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;

@@ -12,6 +12,7 @@ import { buildWorld } from './world';
 import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
 import { Viewmodel } from './viewmodel';
 import { setFinishRenderer } from './finish';
+import { Thumbs } from './thumbs';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
 import { GameAudio } from './audio';
@@ -37,6 +38,8 @@ export class GameApp {
   private fx = new Effects();
   private audio = new GameAudio();
   private hud = new Hud();
+  /** Pictures of the guns for the armory, drawn one a frame once the models are in. */
+  private thumbs!: Thumbs;
   private input: Input;
   private gfx: Gfx;
   private chars: CharacterView[] = [];
@@ -100,6 +103,8 @@ export class GameApp {
     };
     this.input.onMenuKey = (d) => this.hud.buyDigit(d);
     this.hud.onBuy = (item) => this.input.queueBuy(item);
+    this.thumbs = new Thumbs(this.renderer, () => this.scene.environment);
+    this.hud.thumb = (id) => this.thumbs.get(id);
     this.canvas.addEventListener('click', () => {
       this.audio.unlock();
       if (this.mode !== 'menu' && !this.paused && !this.hud.buyOpen) {
@@ -532,6 +537,7 @@ export class GameApp {
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
     this.fx.charge.visible = false;
     this.fx.update(dt, 0);
+    if (this.thumbs.step()) this.hud.thumbsChanged();
     this.gfx.render(dt, false);
   }
 
@@ -651,6 +657,7 @@ export class GameApp {
     this.input.lookDX = 0;
     this.input.lookDY = 0;
 
+    if (this.thumbs.step()) this.hud.thumbsChanged();
     this.gfx.render(dt, showVm && view.scope === 0);
 
     // ---- HUD ----

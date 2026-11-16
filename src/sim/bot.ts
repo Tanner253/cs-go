@@ -1064,6 +1064,8 @@ export class Bot {
     this.bought = true;
     const rifle = me.team === ATK ? 'hammerhead' : 'lumen';
     const riflePrice = me.team === ATK ? 2700 : 3000;
+    const carbine = me.team === ATK ? 'mako' : 'osprey';
+    const carbinePrice = me.team === ATK ? 1800 : 2050;
     const full = riflePrice + 1000;
 
     // The team saves or buys together.
@@ -1086,6 +1088,7 @@ export class Bot {
       if (me.money >= full) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armorhelmet'); }
       else if (!B.eco) {
         if (me.money >= riflePrice + 650) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armor'); }
+        else if (me.money >= carbinePrice + 650) { sim.tryBuy(me, carbine); sim.tryBuy(me, 'armor'); }
         else if (me.money >= 1900) { sim.tryBuy(me, rng.next() < 0.8 ? (me.team === ATK ? 'wasp' : 'hornet') : 'breaker'); sim.tryBuy(me, 'armor'); }
         else if (me.money >= 1350) { sim.tryBuy(me, 'maul'); sim.tryBuy(me, 'armor'); }
         else if (me.money >= 650) sim.tryBuy(me, 'armor');

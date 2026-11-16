@@ -32,13 +32,18 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
 
 | | Attackers | Defenders |
 |---|---|---|
-| Sidearm | Kite-9 | Tern P7 (1911) |
-| SMG | Wasp SMG | Hornet PDW |
+| Sidearm | Kite-9 (M9) | Tern P7 (1911) |
+| SMG | Wasp SMG | Hornet PDW (MP7) |
+| Budget rifle | Mako Carbine (AKS-74U) | Osprey SD (9A-91, suppressed) |
 | Rifle | Hammerhead AR (AK) | Lumen AR (AR-15) |
-| Both sides | Maul .50, Breaker shotgun, Longsight sniper, Edge knife | |
+| Both sides | Stinger MP (machine pistol), Maul .50 (Desert Eagle), Breaker (pump shotgun), Thresher DB (sawn-off), Longsight (bolt-action sniper, AWP class), Colossus .50 (semi-auto sniper), Edge knife | |
 
-Each has its own model, sound and stats. Several guns share an animated pair of arms: the gun
-model is mounted piece by piece on the arm skeleton's joints (`src/client/assets.ts`).
+Each has its own model, sound, stats and painted skin (`src/client/skins.ts`): a pattern with
+light-emitting lines that flare as the gun heats up, and a magazine that glows as an ammo
+gauge. Every gun is held by the same pair of arms: the gun model is mounted piece by piece on
+the joints of one of three animated arm packs by the same artist (`src/client/assets.ts`).
+The armory (B) lists them in columns with a picture and stat bars for each; press a column's
+number, then the item's.
 
 ## Cheat resistance
 

@@ -106,6 +106,14 @@ const defs: WeaponDef[] = [
     pattern: makePattern(7, 5.5, 3, 0.8, 2, 5, 13), penetration: 0.6, kick: 1.6, range: 120,
   },
   {
+    // A machine pistol for the sidearm slot: sprays, runs dry fast, weak past a few metres.
+    id: 'stinger', name: 'Stinger MP', kind: 'pistol', slot: 1, price: 500, killReward: 300, team: -1,
+    damage: 24, armorPen: 0.6, rangeMod: 0.82, headMult: 4, rpm: 700, auto: true, pellets: 1,
+    magSize: 20, reserve: 60, reloadTime: 2.4, drawTime: 0.5, maxSpeed: 6.0,
+    spreadStand: 0.009, spreadCrouch: 0.007, spreadMove: 0.03, spreadAir: 0.2, spreadPerShot: 0.006, spreadDecay: 5,
+    pattern: makePattern(20, 5.5, 5, 1.6, 4, 7, 14), penetration: 0.25, kick: 0.6, range: 120,
+  },
+  {
     // Attackers' SMG: cheap, fast-firing and loose.
     id: 'wasp', name: 'Wasp SMG', kind: 'smg', slot: 0, price: 1050, killReward: 600, team: 0,
     damage: 29, armorPen: 0.575, rangeMod: 0.8, headMult: 4, rpm: 800, auto: true, pellets: 1,
@@ -129,6 +137,30 @@ const defs: WeaponDef[] = [
     pattern: makePattern(7, 6, 2, 1, 1, 4, 31), penetration: 0, kick: 2.2, range: 60,
   },
   {
+    // Two barrels, two shells: the hardest single hit in the game, then a reload.
+    id: 'thresher', name: 'Thresher DB', kind: 'shotgun', slot: 0, price: 1300, killReward: 900, team: -1,
+    damage: 26, armorPen: 0.45, rangeMod: 0.5, headMult: 2, rpm: 320, auto: false, pellets: 10,
+    magSize: 2, reserve: 24, reloadTime: 2.3, drawTime: 0.6, maxSpeed: 5.9,
+    spreadStand: 0.06, spreadCrouch: 0.055, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.01, spreadDecay: 4,
+    pattern: makePattern(2, 5, 1, 0, 9, 9, 32), penetration: 0, kick: 2.6, range: 45,
+  },
+  {
+    // Attackers' budget rifle: a short carbine, wilder than the full rifle.
+    id: 'mako', name: 'Mako Carbine', kind: 'rifle', slot: 0, price: 1800, killReward: 300, team: 0,
+    damage: 31, armorPen: 0.72, rangeMod: 0.93, headMult: 4, rpm: 650, auto: true, pellets: 1,
+    magSize: 30, reserve: 90, reloadTime: 2.6, drawTime: 0.65, maxSpeed: 5.7,
+    spreadStand: 0.0055, spreadCrouch: 0.0042, spreadMove: 0.1, spreadAir: 0.26, spreadPerShot: 0.0038, spreadDecay: 4.5,
+    pattern: makePattern(30, 7.0, 6, 2.8, 6, 9, 43), penetration: 0.8, kick: 0.9, range: 200,
+  },
+  {
+    // Defenders' budget rifle: suppressed, steady, a small magazine.
+    id: 'osprey', name: 'Osprey SD', kind: 'rifle', slot: 0, price: 2050, killReward: 300, team: 1,
+    damage: 30, armorPen: 0.7, rangeMod: 0.95, headMult: 4, rpm: 600, auto: true, pellets: 1,
+    magSize: 20, reserve: 80, reloadTime: 2.9, drawTime: 0.7, maxSpeed: 5.8,
+    spreadStand: 0.0036, spreadCrouch: 0.0028, spreadMove: 0.1, spreadAir: 0.26, spreadPerShot: 0.003, spreadDecay: 5.2,
+    pattern: makePattern(20, 5.2, 6, 1.6, 8, 10, 44), penetration: 0.8, kick: 0.7, range: 200,
+  },
+  {
     id: 'hammerhead', name: 'Hammerhead AR', kind: 'rifle', slot: 0, price: 2700, killReward: 300, team: 0,
     damage: 36, armorPen: 0.775, rangeMod: 0.96, headMult: 4, rpm: 600, auto: true, pellets: 1,
     magSize: 30, reserve: 90, reloadTime: 2.5, drawTime: 0.7, maxSpeed: 5.46,
@@ -149,6 +181,15 @@ const defs: WeaponDef[] = [
     spreadStand: 0.0008, spreadCrouch: 0.0005, spreadMove: 0.16, spreadAir: 0.4, spreadPerShot: 0.05, spreadDecay: 3,
     pattern: makePattern(5, 3, 2, 0, 9, 9, 51), penetration: 2.0, kick: 3.0, range: 300,
     spreadUnscoped: 0.055, scopedSpeed: 2.5, scopeFov: [40, 12],
+  },
+  {
+    // A .50 self-loader: two to the body or one to the head, ten rounds, and very heavy.
+    id: 'colossus', name: 'Colossus .50', kind: 'sniper', slot: 0, price: 5200, killReward: 100, team: -1,
+    damage: 82, armorPen: 0.98, rangeMod: 0.99, headMult: 4, rpm: 130, auto: false, pellets: 1,
+    magSize: 10, reserve: 30, reloadTime: 3.9, drawTime: 1.1, maxSpeed: 4.7,
+    spreadStand: 0.001, spreadCrouch: 0.0006, spreadMove: 0.18, spreadAir: 0.4, spreadPerShot: 0.06, spreadDecay: 2.4,
+    pattern: makePattern(10, 4, 2, 0.5, 2, 5, 52), penetration: 2.5, kick: 3.4, range: 300,
+    spreadUnscoped: 0.06, scopedSpeed: 2.2, scopeFov: [40, 12],
   },
 ];
 
