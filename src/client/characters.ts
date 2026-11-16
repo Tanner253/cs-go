@@ -8,6 +8,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
 import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
+import { WORLD_GUN_FINISH, applyFinish } from './finish';
 
 const TEAM_HEX = [0xff7a2e, 0x35e0ff];
 /** Body: a slight warm or cool cast. Accents (pads, cap, headset): a strong team colour. */
@@ -71,17 +72,9 @@ function prepare(assets: CharacterAssets): Shared {
   return { assets, clips, death: pick('death', 'deathB', 'deathFront'), mats, gunMats: new Map() };
 }
 
-function gunMaterial(s: Shared, src: THREE.Material): THREE.Material {
+function gunMaterial(s: Shared, src: THREE.Material, mesh: THREE.Mesh): THREE.Material {
   let m = s.gunMats.get(src);
-  if (!m) {
-    const c = src.clone() as THREE.MeshStandardMaterial;
-    if (c.isMeshStandardMaterial) {
-      c.metalness = Math.min(c.metalness, 0.6);
-      if (c.map) c.color.setScalar(1.5);
-      else c.color.multiplyScalar(1.5);
-    }
-    s.gunMats.set(src, (m = c));
-  }
+  if (!m) s.gunMats.set(src, (m = applyFinish(src, WORLD_GUN_FINISH, [mesh])));
   return m;
 }
 
@@ -275,7 +268,7 @@ export class CharacterView {
         if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name)) o.visible = false;
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
-          mesh.material = gunMaterial(shared!, mesh.material as THREE.Material);
+          mesh.material = gunMaterial(shared!, mesh.material as THREE.Material, mesh);
           mesh.castShadow = false;
         }
       });

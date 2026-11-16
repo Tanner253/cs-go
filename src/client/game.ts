@@ -11,6 +11,7 @@ import type { Replica } from '../net/replica';
 import { buildWorld } from './world';
 import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
 import { Viewmodel } from './viewmodel';
+import { setFinishRenderer } from './finish';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
 import { GameAudio } from './audio';
@@ -78,6 +79,7 @@ export class GameApp {
     document.body.classList.toggle('touch', touch);
     const quality: Quality = settings.quality === 'auto' ? (touch ? 'low' : 'high') : settings.quality;
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    setFinishRenderer(this.renderer);
     setupEnvironment(this.scene, this.renderer, quality);
     this.gfx = createGfx(this.renderer, this.scene, this.camera, this.vm.scene, this.vm.camera, quality);
     this.scene.add(this.fx.group);

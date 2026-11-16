@@ -45,8 +45,8 @@ export const CREDITS: Credit[] = [
     note: 'Player skeleton and movement animations.',
   },
   { title: 'AR-15', author: 'wafla', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/ar-15-33e225811b404192b89dcd4096603fbe', note: 'Defender rifle. Reduced, set in pieces, held in the arms of the AK pack.' },
-  { title: 'Colt 1911', author: 'AlexChuchvaga', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553', note: 'Defender pistol. Set in rigid pieces, held in the arms of the SMG pack.' },
-  { title: 'Desert Eagle', author: 'ELIZION', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95', note: 'Heavy pistol. Set in rigid pieces, held in the arms of the SMG pack.' },
+  { title: 'Colt 1911', author: 'AlexChuchvaga', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553', note: 'Defender pistol. Set in rigid pieces, held in the arms of the pistol pack.' },
+  { title: 'Desert Eagle', author: 'ELIZION', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95', note: 'Heavy pistol. Set in rigid pieces, held in the arms of the pistol pack.' },
   { title: 'Benelli M3 Tactical', author: 'Amapsis', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd', note: 'Shotgun. Set in rigid pieces, held in the arms of the sniper pack.' },
   { title: 'MP7A1 Animations', author: 'TheParaziT', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc', note: 'Defender SMG: the gun only, held in the arms of the SMG pack.' },
   {

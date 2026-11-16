@@ -53,6 +53,7 @@ export interface GunMount {
 
 const AK_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', safety: 'Safety_061', trigger: 'Trigger_060', mag: 'Pmag_062' };
 const SMG_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', trigger: 'Trigger_060', mag: 'Pmag_061' };
+const PISTOL_JOINTS = { base: 'base', slide: 'slide', mag: 'mag', hammer: 'hammer' };
 
 export const PACKS: Record<string, PackInfo> = {
   ak: {
@@ -67,7 +68,8 @@ export const PACKS: Record<string, PackInfo> = {
     file: 'smg_fp.glb', fps: 30,
     clips: { idle: [0, 49.45], draw: [51.45, 70.9], fire: [72.9, 82.35], reload: [84.35, 202.8], reloadEmpty: [204.8, 336.75], inspect: [338.75, 556.7], walk: [558.7, 580.65], run: [582.65, 597.1] },
     view: [-0.3443, 0, 0, 0, 0, 0.3443, 0, 0, 0, 0, -0.3443, 0, 0, 0, 0, 1],
-    hold: [0.05, -0.17, -0.12],
+    // (close in: further out, the left elbow hangs in the corner of the view)
+    hold: [0.07, -0.215, -0.02],
     frame: [0.0052278, 0.0347936, -0.3424975, 0, 0, 0.342537, 0.0347977, 0, 0.3442603, -0.0005284, 0.005201, 0, -0.1702436, -0.0486295, -0.0435524, 1],
     skinned: true,
   },
@@ -75,7 +77,9 @@ export const PACKS: Record<string, PackInfo> = {
     file: 'm9_fp.glb', fps: 30,
     clips: { fire: [0, 11], reload: [12, 82], fireLast: [83, 94], reloadEmpty: [95, 175], holster: [176, 187], draw: [187, 233], idle: [234, 264] },
     view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1],
-    hold: [0.095, -0.135, -0.31],
+    hold: [0.1, -0.19, -0.09],
+    frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.1514388, -0.0360554, 0.0042332, 1],
+    ownGun: ['base', 'stopper', 'mag', 'hammer', 'trigger', 'slide'],
   },
   knife: {
     file: 'knife_fp.glb', fps: 30,
@@ -100,10 +104,6 @@ export interface WeaponLook {
   mount?: GunMount;
   /** overrides the pack's hold position */
   hold?: V3;
-  /** colour multiplier for the gun's finish */
-  tint?: V3;
-  /** how far its dark studio paint is brightened (default 1.5; 1 = as painted) */
-  lift?: number;
   scale?: number;
   /** which model other players see this weapon as */
   world: string;
@@ -117,26 +117,22 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   wasp: { pack: 'smg', world: 'smg', mount: { file: 'smg.glb', ride: SMG_JOINTS, spare: ['Pmag_2_062', 'Pmag_061'] } },
   hammerhead: { pack: 'ak', world: 'ak', mount: { file: 'ak.glb', ride: AK_JOINTS, spare: ['Pmag2_063', 'Pmag_062'] } },
   // ---- defenders ----
-  tern: {
-    pack: 'smg', world: 'colt', hold: [0.035, -0.16, -0.12],
-    mount: { file: 'colt_1911.glb', ride: { base: SMG_JOINTS.base, slide: SMG_JOINTS.bolt, mag: SMG_JOINTS.mag }, alignMagTo: 'smg.glb' },
-  },
+  // (every pistol is held in the pistol pack's two-handed grip, so the hands never change between sidearms)
+  tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS } },
   hornet: {
-    pack: 'smg', world: 'mp7', lift: 0.95,
-    // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay)
-    mount: { file: 'mp7a1.glb', ride: SMG_JOINTS, hide: ['silencer', 'foregrip', 'sight'], spare: ['Pmag_2_062', 'Pmag_061'] },
+    pack: 'smg', world: 'mp7', hold: [0.08, -0.23, -0.05],
+    // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
+    // the stock is left off too: extended, its rails run past the camera)
+    mount: { file: 'mp7a1.glb', ride: SMG_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], spare: ['Pmag_2_062', 'Pmag_061'] },
   },
   lumen: {
     pack: 'ak', world: 'ar15',
     mount: { file: 'ar15_lod1.glb', ride: { base: AK_JOINTS.base, mag: AK_JOINTS.mag }, hide: ['silencer', 'foregrip', 'light'], spare: ['Pmag2_063', 'Pmag_062'] },
   },
   // ---- both sides ----
-  maul: {
-    pack: 'smg', world: 'deagle', hold: [0.035, -0.16, -0.12],
-    mount: { file: 'desert_eagle.glb', ride: { base: SMG_JOINTS.base, slide: SMG_JOINTS.bolt, mag: SMG_JOINTS.mag }, size: 0.85, alignMagTo: 'smg.glb' },
-  },
+  maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94 } },
   breaker: {
-    pack: 'sniper', world: 'benelli',
+    pack: 'sniper', world: 'benelli', hold: [0.11, -0.2, -0.12],
     mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0] },
   },
   longsight: { pack: 'sniper', world: 'sniper' },

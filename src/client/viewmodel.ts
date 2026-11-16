@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { WeaponDef } from '../sim/weapons';
 import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
+import { ARMS_FINISH, BLADE_FINISH, applyFinish, gunFinish } from './finish';
 
 /** Damped spring used for all secondary motion. */
 class Spring {
@@ -26,50 +27,26 @@ class Spring {
   }
 }
 
-/**
- * The packs are painted for a dark studio; under game lighting gloves and gunmetal come
- * out near black. Lift them so the weapon reads clearly against any background.
- */
-function liftMaterial(src: THREE.Material, look: WeaponLook): THREE.Material {
+/** The glass of a scope: dark, and a mirror for the sky. */
+function lensMaterial(src: THREE.Material): THREE.Material {
   const m = src.clone() as THREE.MeshStandardMaterial;
   if (!m.isMeshStandardMaterial) return m;
-  const isArm = /arm|glove|hand|sleeve/i.test(m.name);
-  if (/lens/i.test(m.name)) {
-    m.map = null;
-    m.color.set(0x0a1016);
-    m.metalness = 1;
-    m.metalnessMap = null;
-    m.roughness = 0.06;
-    m.roughnessMap = null;
-    m.envMapIntensity = 2.2;
-  } else if (isArm) {
-    m.metalness = 0;
-    m.metalnessMap = null;
-    if (m.map) m.color.setScalar(1.9);
-    else { m.color.set(0x2c3138); m.roughness = 0.85; }
-    m.envMapIntensity = 0.7;
-  } else if (/^knife$/i.test(m.name)) {
-    m.metalness = Math.min(m.metalness, 0.45);
-    m.roughness = Math.max(m.roughness, 0.5);
-    m.envMapIntensity = 1.2;
-  } else {
-    const lift = look.lift ?? 1.5;
-    m.metalness = Math.min(m.metalness, 0.6);
-    if (m.map) m.color.setScalar(lift);
-    else m.color.multiplyScalar(lift);
-    m.envMapIntensity = lift;
-    if (m.emissiveMap) m.emissiveIntensity = 0.22;
-  }
-  if (look.tint && !isArm) {
-    m.color.r *= look.tint[0];
-    m.color.g *= look.tint[1];
-    m.color.b *= look.tint[2];
-  }
-  if (m.transparent) {
-    m.depthWrite = true;
-    m.alphaTest = Math.max(m.alphaTest, 0.02);
-  }
+  m.map = null;
+  m.color.set(0x0a1016);
+  m.metalness = 1;
+  m.metalnessMap = null;
+  m.roughness = 0.06;
+  m.roughnessMap = null;
+  m.envMapIntensity = 2.2;
   return m;
+}
+
+/** Every weapon and every pair of arms wears the same finish (see finish.ts). */
+function finishFor(src: THREE.Material, team: number, meshes: readonly THREE.Mesh[]): THREE.Material {
+  if (/lens/i.test(src.name)) return lensMaterial(src);
+  if (/arm|glove|hand|sleeve/i.test(src.name)) return applyFinish(src, ARMS_FINISH, meshes);
+  if (/^knife$/i.test(src.name)) return applyFinish(src, BLADE_FINISH, meshes);
+  return applyFinish(src, gunFinish(team), meshes);
 }
 
 const _v = new THREE.Vector3();
@@ -115,7 +92,8 @@ class Rig {
   private mixer: THREE.AnimationMixer;
   private length: number;
 
-  constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook) {
+  /** @param team the side the weapon belongs to (-1 = both), which colours its edge light */
+  constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook, team: number) {
     const scene = SkeletonUtils.clone(files.pack.scene);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
@@ -199,7 +177,7 @@ class Rig {
       if (m && !Array.isArray(m) && /arm/i.test(m.name) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
     });
 
-    const own = new Map<THREE.Material, THREE.Material>();
+    const wearers = new Map<THREE.Material, THREE.Mesh[]>();
     const meshes: THREE.Mesh[] = [];
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -209,10 +187,15 @@ class Rig {
       mesh.castShadow = false;
       let src = mesh.material as THREE.Material;
       if (borrowedArms && /arm/i.test(src.name) && !(src as THREE.MeshStandardMaterial).map) src = borrowedArms;
-      if (!own.has(src)) own.set(src, liftMaterial(src, look));
-      mesh.material = own.get(src)!;
+      const list = wearers.get(src);
+      if (list) list.push(mesh);
+      else wearers.set(src, [mesh]);
       meshes.push(mesh);
     });
+    for (const [src, list] of wearers) {
+      const finished = finishFor(src, team, list);
+      for (const mesh of list) mesh.material = finished;
+    }
 
     this.pose('idle', 0);
 
@@ -338,10 +321,14 @@ export class Viewmodel {
   readonly muzzleWorld = new THREE.Vector3();
 
   constructor() {
-    this.scene.add(new THREE.HemisphereLight(0xdfeaff, 0x4a4f5a, 1.6));
-    const d = new THREE.DirectionalLight(0xfff2dd, 2.2);
-    d.position.set(-0.5, 1, 0.6);
-    this.scene.add(d);
+    // Lit like the level: cool sky light from above, a cool key over the left shoulder and a
+    // dim warm kick from the right so shapes keep some separation.
+    this.scene.add(new THREE.HemisphereLight(0xa9c1ee, 0x1c2028, 1.0));
+    const key = new THREE.DirectionalLight(0xdbe7ff, 1.8);
+    key.position.set(-0.6, 1, 0.5);
+    const kick = new THREE.DirectionalLight(0xffc9a0, 0.4);
+    kick.position.set(1, 0.2, 0.4);
+    this.scene.add(key, kick);
     this.scene.add(this.holder);
 
     const fm = new THREE.MeshBasicMaterial({
@@ -374,7 +361,7 @@ export class Viewmodel {
       void loadWeapon(def.id);
       return null;
     }
-    r = new Rig(files, PACKS[look.pack]!, look);
+    r = new Rig(files, PACKS[look.pack]!, look, def.team);
     r.root.visible = false;
     this.holder.add(r.root);
     this.rigs.set(def.id, r);

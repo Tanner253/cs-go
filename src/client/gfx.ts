@@ -397,7 +397,9 @@ export function createGfx(
     render(dt: number, drawViewmodel: boolean): void {
       time += dt;
       renderer.info.reset();
-      if (q === 'low' || !sceneRT) {
+      // No bloom buffers (low tier, or a view too small to hold them, e.g. a minimised window):
+      // draw straight to the screen.
+      if (q === 'low' || !sceneRT || mips.length === 0) {
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.setRenderTarget(null);
         renderer.clear();
