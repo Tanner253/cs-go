@@ -321,6 +321,7 @@ export class GameApp {
           } else {
             this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id, s.id);
             const m = this.chars[s.id]!.muzzle;
+            this.chars[s.id]!.shot();
             ox = m.x; oy = m.y; oz = m.z;
             this.fx.muzzleFlash(ox, oy, oz, 1);
           }

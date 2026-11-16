@@ -143,7 +143,7 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   thresher: {
     // (no magazine to change: the pack's reload is left out and the gun is simply broken open)
     pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt', 'reload'],
-    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.55, 0, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
+    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.33, 0.011, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
   },
   colossus: {
     pack: 'sniper', world: 'barrett', skip: ['bolt'], rack: true,
@@ -286,14 +286,20 @@ export type Carry = 'rifle' | 'smg' | 'pistol' | 'knife';
 export interface WorldGun {
   scene: THREE.Object3D;
   carry: Carry;
-  /** where the right hand grips it, in the gun's own space */
-  grip: V3;
-  /** where the supporting (left) hand holds it, in the gun's own space */
-  support: V3;
+  /**
+   * where its trigger is (x along the barrel, y up, in the gun's own space): the hands are
+   * placed from it and from the model's own shape
+   */
+  trigger: [number, number];
+  /** held by the wrist of a stock rather than by a pistol grip */
+  wrist?: boolean;
+  /** how far ahead of the trigger the supporting hand holds it (default: by kind) */
+  fore?: number;
   /** muzzle tip in the gun's own space */
   muzzle: V3;
-  /** a blade: its long axis is +y rather than +x */
+  /** a blade: its long axis is +y rather than +x, and it is held at `grip` in one hand */
   blade?: boolean;
+  grip?: V3;
 }
 
 export interface CharacterAssets {
@@ -302,26 +308,26 @@ export interface CharacterAssets {
   guns: Map<string, WorldGun>;
 }
 
-const RIFLE_GRIP: V3 = [-0.3, -0.02, 0.03];
-const LONG_GRIP: V3 = [-0.425, 0, 0.034];
-const PISTOL_GRIP: V3 = [-0.072, -0.018, 0.032];
-const PISTOL_SUPPORT: V3 = [-0.069, -0.071, -0.035];
+// (Triggers measured from the models; where a model has no separate trigger piece, taken from
+// where the gun was seated in the first-person hands.)
 const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
-  ak: { file: 'world/ak_lod1.glb', carry: 'rifle', grip: RIFLE_GRIP, support: [0.0137, 0.029, -0.049], muzzle: [0.455, 0.03, 0.01] },
-  ar15: { file: 'ar15_lod1.glb', carry: 'rifle', grip: RIFLE_GRIP, support: [0.0137, 0.029, -0.049], muzzle: [0.373, 0.03, 0.01] },
-  smg: { file: 'world/smg_lod1.glb', carry: 'smg', grip: [-0.08, -0.02, 0.03], support: [0.105, 0.016, -0.08], muzzle: [0.25, 0.03, 0] },
-  mp7: { file: 'world/mp7a1_lod1.glb', carry: 'smg', grip: [-0.08, -0.02, 0.03], support: [0.105, -0.027, -0.029], muzzle: [0.466, 0.03, 0] },
-  m9: { file: 'world/m9_lod1.glb', carry: 'pistol', grip: PISTOL_GRIP, support: PISTOL_SUPPORT, muzzle: [0.218, 0.06, 0] },
-  colt: { file: 'world/colt_1911_lod1.glb', carry: 'pistol', grip: PISTOL_GRIP, support: PISTOL_SUPPORT, muzzle: [0.181, 0.06, 0] },
-  deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', grip: PISTOL_GRIP, support: PISTOL_SUPPORT, muzzle: [0.263, 0.06, 0] },
-  sniper: { file: 'world/sniper_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.726, 0.03, 0] },
-  benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.83, 0.03, 0] },
-  scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', grip: [-0.056, -0.014, 0.021], support: [0.121, 0.016, -0.045], muzzle: [0.277, 0.021, 0] },
-  aks74u: { file: 'world/aks74u_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.205, 0.033, -0.058], muzzle: [0.473, 0.03, 0.01] },
-  a91: { file: 'world/a91_lod1.glb', carry: 'rifle', grip: RIFLE_GRIP, support: [0.0137, 0.029, -0.049], muzzle: [0.485, 0.03, 0.01] },
-  barrett: { file: 'world/barrett_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.32, -0.002, -0.054], muzzle: [1.103, 0.03, 0] },
-  db12: { file: 'world/db12_lod1.glb', carry: 'rifle', grip: [-0.065, -0.016, 0.024], support: [0.334, -0.012, -0.066], muzzle: [0.565, 0.03, 0] },
-  knife: { file: 'world/knife_lod1.glb', carry: 'knife', grip: [0.0146, -0.004, 0.076], support: [0, 0, 0], muzzle: [0, 0.24, 0], blade: true },
+  ak: { file: 'world/ak_lod1.glb', carry: 'rifle', trigger: [-0.145, 0.024], muzzle: [0.455, 0.03, 0.01] },
+  ar15: { file: 'ar15_lod1.glb', carry: 'rifle', trigger: [-0.127, 0.02], muzzle: [0.373, 0.03, 0.01] },
+  smg: { file: 'world/smg_lod1.glb', carry: 'smg', trigger: [0.059, 0.018], fore: 0.12, muzzle: [0.25, 0.03, 0] },
+  mp7: { file: 'world/mp7a1_lod1.glb', carry: 'smg', trigger: [0.026, 0.046], fore: 0.2, muzzle: [0.466, 0.03, 0] },
+  m9: { file: 'world/m9_lod1.glb', carry: 'pistol', trigger: [0.077, 0.031], muzzle: [0.218, 0.06, 0] },
+  colt: { file: 'world/colt_1911_lod1.glb', carry: 'pistol', trigger: [0.067, 0.031], muzzle: [0.181, 0.06, 0] },
+  deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', trigger: [0.095, 0.024], muzzle: [0.263, 0.06, 0] },
+  sniper: { file: 'world/sniper_lod1.glb', carry: 'rifle', trigger: [-0.261, -0.009], wrist: true, muzzle: [0.726, 0.03, 0] },
+  benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', trigger: [-0.31, -0.005], fore: 0.34, muzzle: [0.83, 0.03, 0] },
+  // (drawn at seven tenths: these are the model's own figures, before that)
+  scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', trigger: [0.079, 0.013], fore: 0.14, muzzle: [0.396, 0.03, 0] },
+  aks74u: { file: 'world/aks74u_lod1.glb', carry: 'rifle', trigger: [0.056, 0.029], muzzle: [0.473, 0.03, 0.01] },
+  a91: { file: 'world/a91_lod1.glb', carry: 'rifle', trigger: [-0.099, 0.009], muzzle: [0.485, 0.03, 0.01] },
+  barrett: { file: 'world/barrett_lod1.glb', carry: 'rifle', trigger: [0.026, -0.004], fore: 0.27, muzzle: [1.103, 0.03, 0] },
+  // (measured off its outline: the wrist of its stock is at x = 0, its guard just ahead)
+  db12: { file: 'world/db12_lod1.glb', carry: 'rifle', trigger: [0.07, -0.02], wrist: true, fore: 0.25, muzzle: [0.565, 0.08, 0] },
+  knife: { file: 'world/knife_lod1.glb', carry: 'knife', trigger: [0, 0], grip: [0.0146, -0.004, 0.076], muzzle: [0, 0.24, 0], blade: true },
 };
 
 let characters: CharacterAssets | null = null;

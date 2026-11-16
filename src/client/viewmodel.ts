@@ -102,6 +102,8 @@ class Rig {
   /** A break-action's barrels: what holds them, how they sit closed, and the hinge they swing on. */
   private hinged: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
   private hinge: { at: THREE.Vector3; angle: number } | null = null;
+  /** Bolts and slides that no animation moves: thrown back by hand, here, with every shot. */
+  private bolts: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
 
   /**
    * @param team the side the weapon belongs to (-1 = both), which tints its bare finish
@@ -179,7 +181,10 @@ class Rig {
         h.matrix.copy(placeOf(j)).invert().multiply(gunSpace);
         h.add(piece);
         j.add(h);
-        if (swings.has(pieceOf(piece.name))) this.hinged.push({ holder: h, closed: h.matrix.clone() });
+        const name = pieceOf(piece.name);
+        if (swings.has(name)) this.hinged.push({ holder: h, closed: h.matrix.clone() });
+        // (a bolt riding the gun's body, or a slide whose firing movement this weapon leaves out)
+        else if (/^(bolt|slide)$/.test(name) && (on === mount.ride['base'] || this.skip.has('fire'))) this.bolts.push({ holder: h, closed: h.matrix.clone() });
       };
       const pieces: THREE.Mesh[] = [];
       gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o as THREE.Mesh); });
@@ -333,6 +338,13 @@ class Rig {
     }
     if (this.hinge) this.swing(0);
   }
+  /** Throw the bolt: `k` runs 0..1 through one shot (back fast, forward slower). */
+  cycle(k: number): void {
+    if (this.bolts.length === 0) return;
+    const back = k <= 0 || k >= 1 ? 0 : k < 0.3 ? k / 0.3 : 1 - (k - 0.3) / 0.7;
+    _swing.makeTranslation(-BOLT_TRAVEL * back, 0, 0);
+    for (const { holder, closed } of this.bolts) holder.matrix.copy(closed).multiply(_swing);
+  }
   /** A break-action's barrels, swung `open` (0..1) of the way down. */
   private swing(open: number): void {
     if (!this.hinge) return;
@@ -421,6 +433,8 @@ export interface ViewState {
 }
 
 const SHELLS = 8;
+/** How far a bolt or slide is thrown back by a shot (metres). */
+const BOLT_TRAVEL = 0.04;
 /** How much of the spray's push the gun itself shows (the camera shows the rest: see VIEW_PUNCH in game.ts). */
 const GUN_FOLLOWS = 0.4;
 
@@ -456,6 +470,8 @@ export class Viewmodel {
 
   /** Seconds since the current one-shot animation started (<0 = none). */
   private fireT = -1;
+  /** Seconds since the last shot, for the bolt's throw (<0 = at rest). */
+  private shotT = -1;
   private fireDur = 0.2;
   private boltDur = 0;
   private meleeT = -1;
@@ -529,6 +545,7 @@ export class Viewmodel {
     this.flash.scale.set(s, s, s);
     this.inspectT = -1;
     this.fireT = 0;
+    this.shotT = 0;
     // Each shot heats the gun; slow, heavy guns more per shot.
     this.live.heat.value = Math.min(1, this.live.heat.value + 0.07 + 0.12 * k);
     const r = this.current;
@@ -620,6 +637,12 @@ export class Viewmodel {
         // The packs' own idle loops rock visibly; hold the rest pose and breathe procedurally.
         if (this.inspectT < 0) r.pose('idle', 0);
       }
+    }
+
+    r?.cycle(this.shotT >= 0 ? this.shotT / 0.085 : 0);
+    if (this.shotT >= 0) {
+      this.shotT += dt;
+      if (this.shotT > 0.085) this.shotT = -1;
     }
 
     // ---- spring layer --------------------------------------------------------------
