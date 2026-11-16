@@ -4,7 +4,8 @@
 import type { Sim } from '../sim/game';
 import { ATK, DEF, type Player } from '../sim/types';
 import { GEAR, WEAPONS, WEAPON_LIST } from '../sim/weapons';
-import { GRAPPLE_COOLDOWN } from '../sim/movement';
+import { eyeHeight } from '../sim/movement';
+import { onSettings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -26,7 +27,7 @@ interface BuyEntry {
 }
 
 const BUY_ORDER: BuyEntry[] = [
-  ...['maul', 'wasp', 'breaker', 'hammerhead', 'lumen', 'longsight'].map((id) => {
+  ...['maul', 'wasp', 'hammerhead', 'lumen', 'longsight'].map((id) => {
     const d = WEAPONS[id]!;
     const kind = { rifle: 'Assault rifle', smg: 'SMG', pistol: 'Heavy pistol', sniper: 'Bolt-action sniper', shotgun: 'Shotgun', knife: '' }[d.kind];
     return { id, name: d.name, desc: `${kind} · ${d.damage}${d.pellets > 1 ? `×${d.pellets}` : ''} dmg · ${d.rpm} rpm`, price: d.price, team: d.team };
@@ -44,7 +45,7 @@ export class Hud {
     pAtk: $('pips-atk'), pDef: $('pips-def'), feed: $('killfeed'), msg: $('msg'), sub: $('sub'),
     hint: $('hint'), prog: $('progress'), progFill: $('progress-fill'), progLabel: $('progress-label'),
     spectate: $('spectate'), cross: $('crosshair'), scope: $('scope'), vig: $('vignette'), white: $('whiteout'),
-    hookFill: $('hook-fill'), carry: $('carry'), kit: $('kit'), slots: $('slots'), fps: $('fps'),
+    carry: $('carry'), kit: $('kit'), slots: $('slots'), fps: $('fps'), hit: $('hitmarker'), dmg: $('dmgdir'),
     buy: $('buy'), buyGrid: $('buy-grid'), buyMoney: $('buy-money'), board: $('scoreboard'),
   };
   private k = {
@@ -55,6 +56,16 @@ export class Hud {
   private msgUntil = 0;
   private vig = 0;
   private white = 0;
+  private hit = 0;
+  private dmg = 0;
+  private dmgYaw = 0;
+  private radar = $<HTMLCanvasElement>('radar');
+  private radarCtx = this.radar.getContext('2d')!;
+  private radarBg: HTMLCanvasElement | null = null;
+  private radarTick = 0;
+  private seen: boolean[] = [];
+  /** Extra text for the corner readout (ping etc.). */
+  netText = '';
   private now = 0;
   buyOpen = false;
   boardOpen = false;
@@ -63,6 +74,13 @@ export class Hud {
   private buyList: BuyEntry[] = [];
 
   constructor() {
+    onSettings((st) => {
+      const root = document.documentElement.style;
+      root.setProperty('--cross', st.crosshairColor);
+      root.setProperty('--cross-size', `${st.crosshairSize}px`);
+      this.el.cross.classList.toggle('nodot', !st.crosshairDot);
+      this.el.fps.style.display = st.showFps ? '' : 'none';
+    });
     this.el.buyGrid.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.buy-item');
       if (b && !b.disabled) this.onBuy(b.dataset['id']!);
@@ -91,6 +109,94 @@ export class Hud {
     this.el.feed.appendChild(d);
     while (this.el.feed.childElementCount > 5) this.el.feed.firstElementChild!.remove();
     setTimeout(() => d.remove(), 6000);
+  }
+
+  /** Confirm one of the local player's bullets landed. */
+  hitMarker(kill: boolean): void {
+    this.hit = kill ? 1.6 : 1;
+    this.el.hit.classList.toggle('kill', kill);
+  }
+
+  /** Show which way damage came from. `worldYaw` is the direction from the player to the attacker. */
+  damageFrom(worldYaw: number): void {
+    this.dmg = 1;
+    this.dmgYaw = worldYaw;
+  }
+
+  private drawRadar(sim: Sim, view: Player, me: Player | null): void {
+    const S = this.radar.width;
+    const k = S / 74;
+    const X = (x: number): number => (x + 33) * (S / 66);
+    const Z = (z: number): number => (z + 37) * k;
+    if (!this.radarBg) {
+      const bg = document.createElement('canvas');
+      bg.width = bg.height = S;
+      const g = bg.getContext('2d')!;
+      g.fillStyle = 'rgba(70,82,98,0.55)';
+      g.fillRect(X(-30), Z(-36), X(30) - X(-30), Z(36) - Z(-36));
+      g.fillStyle = 'rgba(8,11,16,0.95)';
+      for (const b of sim.map.boxes) {
+        if (b.noCollide || b.hidden || b.maxY < 2.4 || b.minY > 0.5) continue;
+        g.fillRect(X(b.minX), Z(b.minZ), X(b.maxX) - X(b.minX), Z(b.maxZ) - Z(b.minZ));
+      }
+      g.fillStyle = 'rgba(8,11,16,0.55)';
+      for (const b of sim.map.boxes) {
+        if (b.noCollide || b.hidden || b.maxY >= 2.4 || b.maxY < 0.9 || b.minY > 0.5) continue;
+        g.fillRect(X(b.minX), Z(b.minZ), X(b.maxX) - X(b.minX), Z(b.maxZ) - Z(b.minZ));
+      }
+      g.font = '700 18px Rajdhani, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      sim.map.sites.forEach((site) => {
+        const z = site.zone;
+        g.strokeStyle = g.fillStyle = 'rgba(255,255,255,0.75)';
+        g.lineWidth = 1;
+        g.strokeRect(X(z.minX), Z(z.minZ), X(z.maxX) - X(z.minX), Z(z.maxZ) - Z(z.minZ));
+        g.fillText(site.name, X(site.center.x), Z(site.center.z));
+      });
+      this.radarBg = bg;
+    }
+    const g = this.radarCtx;
+    g.clearRect(0, 0, S, S);
+    g.drawImage(this.radarBg, 0, 0);
+    const pov = me ?? view;
+    const ey = view.pos.y + eyeHeight(view);
+    for (const p of sim.players) {
+      if (!p.alive) continue;
+      const friendly = p.team === pov.team;
+      if (!friendly) {
+        // Enemies only appear while the player being watched can actually see them.
+        const vis = view.alive && sim.world.lineOfSight(view.pos.x, ey, view.pos.z, p.pos.x, p.pos.y + 1.2, p.pos.z);
+        this.seen[p.id] = vis;
+        if (!vis) continue;
+      }
+      const x = X(p.pos.x), z = Z(p.pos.z);
+      if (p === view) {
+        g.save();
+        g.translate(x, z);
+        g.rotate(-p.yaw);
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.moveTo(0, -6); g.lineTo(4.5, 5); g.lineTo(0, 2.5); g.lineTo(-4.5, 5);
+        g.closePath();
+        g.fill();
+        g.restore();
+      } else {
+        g.fillStyle = friendly ? (p.team === ATK ? '#ff7a2e' : '#35e0ff') : '#ff3b2e';
+        g.beginPath();
+        g.arc(x, z, friendly ? 3.2 : 3.8, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    const c = sim.charge;
+    if (c.state === 'planted' || (c.state === 'dropped' && pov.team === ATK)) {
+      g.fillStyle = Math.floor(sim.time * 3) % 2 ? '#ff3b2e' : '#fff';
+      const x = X(c.pos.x), z = Z(c.pos.z);
+      g.beginPath();
+      g.moveTo(x, z - 5); g.lineTo(x + 5, z); g.lineTo(x, z + 5); g.lineTo(x - 5, z);
+      g.closePath();
+      g.fill();
+    }
   }
 
   damageFlash(amount: number): void {
@@ -211,9 +317,6 @@ export class Hud {
     this.pips(e.pAtk, k.pAtk, sim.aliveCount(ATK), size);
     this.pips(e.pDef, k.pDef, sim.aliveCount(DEF), size);
 
-    // Grapple cooldown.
-    const cd = view.grappleOn ? 0 : Math.min(1, Math.max(0, 1 - (view.grappleReadyAt - sim.time) / GRAPPLE_COOLDOWN));
-    e.hookFill.style.transform = `scaleX(${cd.toFixed(3)})`;
     e.carry.classList.toggle('on', view.hasCharge);
     e.kit.classList.toggle('on', view.kit);
 
@@ -221,7 +324,8 @@ export class Hud {
     let hint = '';
     const useKey = touch ? 'USE' : 'E';
     if (me && me.alive) {
-      if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : 'Press <b>B</b> to open the armory';
+      if (this.buyOpen) hint = '';
+      else if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : 'Press <b>B</b> to open the armory';
       else if (me.useTime > 0) hint = '';
       else if (sim.canPlant(me)) hint = `Hold <b>${useKey}</b> to plant the charge`;
       else if (sim.canDisarm(me)) hint = `Hold <b>${useKey}</b> to disarm`;
@@ -254,7 +358,19 @@ export class Hud {
       this.white = Math.max(0, this.white - dt * 0.9);
       e.white.style.opacity = this.white.toFixed(3);
     }
-    text(e.fps, k.fps, fps > 0 ? `${fps.toFixed(0)} fps` : '');
+    if (this.hit > 0.001) {
+      this.hit = Math.max(0, this.hit - dt * 5);
+      e.hit.style.opacity = Math.min(1, this.hit).toFixed(2);
+    }
+    if (this.dmg > 0.001) {
+      this.dmg = Math.max(0, this.dmg - dt * 0.9);
+      e.dmg.style.opacity = this.dmg.toFixed(2);
+      // Screen-relative: 0 = in front, positive = to the right.
+      const rel = view.yaw - this.dmgYaw;
+      e.dmg.style.transform = `rotate(${(rel * 180 / Math.PI).toFixed(1)}deg)`;
+    }
+    if (++this.radarTick % 4 === 0) this.drawRadar(sim, view, me);
+    text(e.fps, k.fps, (fps > 0 ? `${fps.toFixed(0)} fps` : '') + (this.netText ? ` · ${this.netText}` : ''));
 
     if (this.buyOpen && me) this.renderBuy(sim, me);
     if (this.boardOpen) this.renderBoard(sim, me);

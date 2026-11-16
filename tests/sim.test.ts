@@ -4,8 +4,8 @@ import { ATK, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, DEF, TICK, emptyCmd, type Cmd, ty
 import { WEAPONS, patternAt } from '../src/sim/weapons';
 
 /** A sim with one human and no opposition interfering: freeze time skipped. */
-function soloSim(): { sim: Sim; me: Player; step: (cmd: Partial<Cmd>, ticks?: number) => void } {
-  const sim = new Sim({ teamSize: 1, humanTeam: ATK, rules: { freezeTime: 0.02, roundTime: 9999 } });
+function soloSim(vertical = false): { sim: Sim; me: Player; step: (cmd: Partial<Cmd>, ticks?: number) => void } {
+  const sim = new Sim({ teamSize: 1, humanTeam: ATK, rules: { freezeTime: 0.02, roundTime: 9999, verticalKit: vertical } });
   const me = sim.human!;
   const cmd = emptyCmd();
   const step = (c: Partial<Cmd>, ticks = 1) => {
@@ -99,50 +99,71 @@ describe('movement', () => {
     expect(me.pos.x).toBeGreaterThan(25.5);
   });
 
-  it('mantles onto a 2.2 m container when holding jump into it', () => {
+  it('has no vertical kit by default: no mantle, wall-jump or grapple', () => {
     const { me, step } = soloSim();
-    // Container at (20,-16), 2.4 m square, 2.2 m tall. Approach from the south.
+    // Hold jump into a 2.2 m container: must not climb it.
     me.pos.x = 20; me.pos.z = -13.2; me.pos.y = 0.002;
-    me.yaw = 0; // face -Z
-    step({ fwd: 1, yaw: 0 }, 40); // walk up to it
+    step({ fwd: 1, yaw: 0 }, 40);
+    step({ fwd: 1, yaw: 0, buttons: BTN_JUMP }, 50);
+    step({ yaw: 0 }, 40);
     expect(me.pos.y).toBeLessThan(0.01);
-    step({ fwd: 1, yaw: 0, buttons: BTN_JUMP });
-    step({ fwd: 1, yaw: 0, buttons: BTN_JUMP }, 30);
+    // Tap jump in the air against a wall: no second jump.
+    me.pos.x = 4.55; me.pos.z = 2; me.pos.y = 0.002;
+    const yaw = -Math.PI / 2;
+    step({ fwd: 1, yaw }, 10);
+    step({ fwd: 1, yaw, buttons: BTN_JUMP });
+    step({ fwd: 1, yaw }, 18);
+    step({ yaw, buttons: BTN_JUMP });
+    expect(me.wallJumps).toBe(0);
+    step({ yaw }, 80);
+    // Grapple button does nothing.
+    step({ yaw: 0, pitch: 0.5, buttons: BTN_GRAPPLE }, 5);
+    expect(me.grappleOn).toBe(false);
+  });
+
+  it('vertical kit still works when the rule is switched on', () => {
+    const { me, step } = soloSim(true);
+    me.pos.x = 20; me.pos.z = -13.2; me.pos.y = 0.002;
+    step({ fwd: 1, yaw: 0 }, 40);
+    step({ fwd: 1, yaw: 0, buttons: BTN_JUMP }, 31);
     step({ yaw: 0 }, 20);
-    expect(me.pos.y).toBeGreaterThan(2.15);
-    expect(me.onGround).toBe(true);
-  });
-
-  it('wall-jumps off a wall for extra height', () => {
-    const { me, step } = soloSim();
-    // Stand against the west face of the east building (x = 5) in mid.
-    me.pos.x = 4.55; me.pos.z = 2; me.pos.y = 0.402; // on the mid platform? no: x 4.55 is off it
-    me.pos.y = 0.002;
-    me.yaw = -Math.PI / 2; // face +X, into the wall
-    step({ fwd: 1, yaw: me.yaw }, 10);
-    const y0 = me.pos.y;
-    step({ fwd: 1, yaw: me.yaw, buttons: BTN_JUMP });
-    step({ fwd: 1, yaw: me.yaw }, 18);
-    step({ fwd: 0, yaw: me.yaw, buttons: BTN_JUMP }); // tap again in the air
-    expect(me.wallJumps).toBe(1);
-    let apex = 0;
-    for (let i = 0; i < 60; i++) {
-      step({ yaw: me.yaw });
-      apex = Math.max(apex, me.pos.y - y0);
-    }
-    expect(apex).toBeGreaterThan(2.2);
-  });
-
-  it('grapples up to a rooftop', () => {
-    const { me, step } = soloSim();
+    expect(me.pos.y).toBeGreaterThan(2.15); // mantled onto the container
     me.pos.x = 0; me.pos.z = 14; me.pos.y = 0.002;
-    // Aim at the top of the mid pylon (0, 9, 10).
-    const yaw = 0;
-    const pitch = Math.atan2(8.5 - 1.63, 14 - 10.7);
-    step({ yaw, pitch, buttons: BTN_GRAPPLE }, 1);
-    expect(me.grappleOn).toBe(true);
-    step({ yaw, pitch, buttons: BTN_GRAPPLE }, 50);
-    expect(me.pos.y).toBeGreaterThan(4);
+    const pitch = Math.atan2(3.0 - 1.63, 3);
+    step({ yaw: 0, pitch, buttons: BTN_GRAPPLE }, 1);
+    expect(me.grappleOn).toBe(true); // hooked the mid core
+  });
+});
+
+describe('map', () => {
+  it('neither spawn can see the other', () => {
+    const sim = new Sim({ humanTeam: null });
+    const [atk, def] = sim.map.spawns;
+    for (const a of atk) {
+      for (const d of def) {
+        for (const ha of [1.63, 1.17]) {
+          expect(sim.world.lineOfSight(a.x, a.y + ha, a.z, d.x, d.y + 1.63, d.z), `spawn ${a.x},${a.z} -> ${d.x},${d.z}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('has no overlapping or coplanar-touching solid boxes that would z-fight when drawn', () => {
+    // Render-side culling handles shared faces; this guards the data against deep overlaps
+    // between differently-sized boxes, which are almost always a level-design mistake.
+    const sim = new Sim({ humanTeam: null });
+    const boxes = sim.map.boxes.filter((b) => !b.noCollide && !b.hidden);
+    const bad: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!, b = boxes[j]!;
+        const ox = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+        const oy = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
+        const oz = Math.min(a.maxZ, b.maxZ) - Math.max(a.minZ, b.minZ);
+        if (ox > 0.011 && oy > 0.011 && oz > 0.011) bad.push(`${i}:${j} overlap ${ox.toFixed(2)}x${oy.toFixed(2)}x${oz.toFixed(2)} at (${a.minX},${a.minY},${a.minZ}) / (${b.minX},${b.minY},${b.minZ})`);
+      }
+    }
+    expect(bad, bad.join('\n')).toHaveLength(0);
   });
 });
 

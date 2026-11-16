@@ -267,6 +267,34 @@ export class Nav {
     return Math.abs(this.height[b]! - ha) <= 0.05;
   }
 
+  /**
+   * Random walkable point in a ring around a position. Unlike `randomNear` this may return
+   * cells that touch geometry, which is exactly where cover is.
+   */
+  sampleRing(x: number, z: number, rMin: number, rMax: number, rng: Rng, y = NaN): Vec3 | null {
+    for (let tries = 0; tries < 8; tries++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = rMin + Math.sqrt(rng.next()) * (rMax - rMin);
+      const i = this.index(x + Math.cos(a) * r, z + Math.sin(a) * r);
+      if (!this.walkable(i)) continue;
+      if (!Number.isNaN(y) && Math.abs(this.height[i]! - y) > 1.2) continue;
+      return { x: this.cx(i), y: this.height[i]!, z: this.cz(i) };
+    }
+    return null;
+  }
+
+  /** True if the cell at this position touches something unwalkable (a wall, crate or ledge). */
+  nearCover(x: number, z: number): boolean {
+    const i = this.index(x, z);
+    return i >= 0 && this.edge[i] === 1;
+  }
+
+  /** Floor height at a position, or NaN if it is not on the nav grid. */
+  floorAt(x: number, z: number): number {
+    const i = this.index(x, z);
+    return i < 0 ? NaN : this.height[i]!;
+  }
+
   /** Random walkable point within `radius` of a position (or null). */
   randomNear(x: number, z: number, radius: number, rng: Rng, y = NaN): Vec3 | null {
     for (let tries = 0; tries < 16; tries++) {

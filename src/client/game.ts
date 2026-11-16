@@ -1,41 +1,52 @@
 // Client application: owns the renderer and glues input -> sim -> presentation.
 // The sim advances on a fixed 64 Hz clock; rendering interpolates between ticks.
+// Offline the client runs the Sim itself; online it predicts through a Replica.
 
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sim } from '../sim/game';
-import { eyeHeight } from '../sim/movement';
-import { lerp } from '../sim/math';
+import { lerp, yawTo } from '../sim/math';
 import { ATK, DEF, HIT_WORLD, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
 import { WEAPONS } from '../sim/weapons';
-import { buildSky, buildWorld } from './world';
+import type { Replica } from '../net/replica';
+import { buildWorld } from './world';
+import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
 import { Viewmodel } from './viewmodel';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
 import { GameAudio } from './audio';
 import { Input, isTouchDevice } from './input';
 import { Hud } from './hud';
+import { NetClient } from './net';
+import { preloadAssets } from './assets';
+import { Menu } from './menu';
+import { onSettings, settings } from './settings';
 
-const BASE_FOV = 74;
+/** Fraction of weapon recoil shown as camera kick; the rest only moves the bullets. */
+const VIEW_PUNCH = 0.6;
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
+
+type Mode = 'menu' | 'offline' | 'online';
 
 export class GameApp {
   private canvas = $<HTMLCanvasElement>('game');
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.05, 600);
+  private camera = new THREE.PerspectiveCamera(74, 1, 0.1, 900);
   private vm = new Viewmodel();
   private fx = new Effects();
   private audio = new GameAudio();
   private hud = new Hud();
   private input: Input;
+  private gfx: Gfx;
   private chars: CharacterView[] = [];
-  private worldGroup: THREE.Group | null = null;
-  private sun: THREE.DirectionalLight;
+  private net = new NetClient();
+  private menu: Menu;
+  private replica: Replica | null = null;
 
-  sim: Sim | null = null;
-  private playing = false;
+  sim: Sim;
+  private mode: Mode = 'menu';
   private paused = false;
+  private ready = false;
   private acc = 0;
   private last = 0;
   private cmd = emptyCmd();
@@ -44,170 +55,186 @@ export class GameApp {
 
   private punchP = 0;
   private punchY = 0;
-  private fov = BASE_FOV;
+  private fov = 74;
   private fovKick = 0;
   private shake = 0;
   private roll = 0;
   private landDip = 0;
   private landVel = 0;
+  private eyeY = 0;
   private specYaw = 0;
   private specPitch = 0;
   private deathAt = -99;
   private beepAt = 0;
   private blink = 0;
   private fps = 60;
-  private endTimer: number | null = null;
+  private endTimer = 0;
   private tmp = new THREE.Vector3();
-  private tmp2 = new THREE.Vector3();
 
   constructor() {
     const touch = isTouchDevice();
     document.body.classList.toggle('touch', touch);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !touch, powerPreference: 'high-performance', stencil: false });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, touch ? 1.5 : 2));
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
-    this.renderer.autoClear = false;
-    this.renderer.shadowMap.enabled = !touch;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.shadowMap.autoUpdate = false;
-
-    // One small prefiltered environment gives every metal surface something to reflect.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    this.scene.environment = env;
-    this.scene.environmentIntensity = 0.45;
-    this.vm.scene.environment = env;
-    this.vm.scene.environmentIntensity = 0.9;
-
-    this.scene.fog = new THREE.Fog(0xc4d9ee, 70, 260);
-    this.scene.add(buildSky());
-    this.scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x5b5f6a, 1.25));
-    this.sun = new THREE.DirectionalLight(0xfff0da, 2.6);
-    this.sun.position.set(-42, 72, 35);
-    this.sun.castShadow = !touch;
-    const sc = this.sun.shadow.camera;
-    sc.left = -52; sc.right = 52; sc.top = 52; sc.bottom = -52; sc.near = 10; sc.far = 190;
-    this.sun.shadow.mapSize.set(4096, 4096);
-    this.sun.shadow.bias = -0.0005;
-    this.sun.shadow.normalBias = 0.03;
-    this.scene.add(this.sun, this.sun.target);
+    const quality: Quality = settings.quality === 'auto' ? (touch ? 'low' : 'high') : settings.quality;
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    setupEnvironment(this.scene, this.renderer, quality);
+    this.gfx = createGfx(this.renderer, this.scene, this.camera, this.vm.scene, this.vm.camera, quality);
     this.scene.add(this.fx.group);
     this.camera.rotation.order = 'YXZ';
 
     this.input = new Input(this.canvas, $('touch'));
     this.input.onFirstGesture = () => this.audio.unlock();
     this.input.onToggleBuy = () => this.toggleBuy();
-    this.input.onScoreboard = (show) => this.playing && this.hud.setBoardOpen(show);
-    this.input.onPause = () => {
-      if (this.playing && !this.hud.buyOpen && !this.noLock && !this.input.touch) this.setPaused(true);
+    this.input.onScoreboard = (show) => { if (this.mode !== 'menu') this.hud.setBoardOpen(show); };
+    this.input.onInspect = () => { if (this.mode !== 'menu') this.vm.onInspect(); };
+    this.input.onEscape = () => {
+      if (this.mode === 'menu') return;
+      if (this.hud.buyOpen) this.toggleBuy();
+      else this.setPaused(!this.paused);
+    };
+    this.input.onUnlock = () => {
+      if (this.mode !== 'menu' && !this.hud.buyOpen && !this.noLock && !this.input.touch) this.setPaused(true);
     };
     this.input.onMenuKey = (d) => this.hud.buyDigit(d);
     this.hud.onBuy = (item) => this.input.queueBuy(item);
     this.canvas.addEventListener('click', () => {
       this.audio.unlock();
-      if (this.playing && !this.paused && !this.hud.buyOpen) this.input.requestLock();
+      if (this.mode !== 'menu' && !this.paused && !this.hud.buyOpen) {
+        this.input.enterFullscreen();
+        this.input.requestLock();
+      }
+    });
+    // Ctrl+W and friends cannot be blocked outside fullscreen, but the browser will ask first.
+    addEventListener('beforeunload', (e) => {
+      if (this.mode !== 'menu') { e.preventDefault(); e.returnValue = ''; }
     });
 
-    // Debug handle for the console and automated checks.
-    (window as unknown as Record<string, unknown>)['__np'] = this;
-    this.bindMenu();
+    this.menu = new Menu(this.net, this.input.touch);
+    this.menu.onPractice = (team, size, skill) => { this.input.enterFullscreen(); this.startOffline(team, size, skill); };
+    this.menu.onClick = () => { this.audio.unlock(); this.audio.ui('click'); };
+    this.menu.onResume = () => { this.input.enterFullscreen(); this.setPaused(false); this.input.requestLock(); };
+    this.menu.onLeave = () => this.leave();
+
+    this.net.onStart = (r) => this.startOnline(r);
+    this.net.onEvents = (ev) => { if (this.mode === 'online') this.handleEvents(ev); };
+    this.net.onMatchEnd = (reason) => {
+      if (this.mode !== 'online') return;
+      this.toMenu();
+      this.menu.notice(reason);
+    };
+
+    onSettings((s) => {
+      this.audio.setVolume(s.volume);
+      const q: Quality = s.quality === 'auto' ? (touch ? 'low' : 'high') : s.quality;
+      if (this.gfx.quality !== q) this.gfx.setQuality(q);
+    });
     addEventListener('resize', () => this.resize());
     this.resize();
 
-    // A slow orbit behind the menu.
-    this.loadWorld(new Sim({ humanTeam: null, botSkill: 0.5 }), false);
+    // A bot match runs behind the menu as a living backdrop.
+    this.sim = new Sim({ humanTeam: null, botSkill: 0.5 });
+    // Debug handle for the console and automated checks.
+    (window as unknown as Record<string, unknown>)['__np'] = this;
+    void this.boot();
+  }
+
+  // ---- setup ------------------------------------------------------------------------
+
+  private async boot(): Promise<void> {
+    const fill = $('boot-fill'), text = $('boot-text');
+    let world = 0, assets = 0;
+    const show = () => { fill.style.width = `${Math.round((world * 0.6 + assets * 0.4) * 100)}%`; };
+    text.textContent = 'Building the arena';
+    const [group] = await Promise.all([
+      buildWorld(this.sim.map, this.renderer, this.gfx.quality, (f) => { world = f; show(); }),
+      preloadAssets((f) => { assets = f; show(); }),
+    ]);
+    this.scene.add(group);
+    this.renderer.shadowMap.needsUpdate = true;
+    this.ensureChars(this.sim);
+    this.ready = true;
+    $('boot').classList.add('hidden');
+    this.toMenu();
     requestAnimationFrame((t) => this.frame(t));
-    if (this.params.has('spectate')) this.start(null, 0.6);
+    if (this.params.has('spectate')) this.startOffline(null, 5, 0.6);
+    const arena = Number(this.params.get('arena'));
+    if (this.params.has('arena') && arena >= 1 && arena <= 5) this.menu.autoJoin(arena - 1);
   }
 
-  // ---- setup ----------------------------------------------------------------------
-
-  private bindMenu(): void {
-    const sens = $<HTMLInputElement>('opt-sens'), sensV = $('opt-sens-v');
-    sens.value = String(this.input.sensitivity);
-    sensV.textContent = this.input.sensitivity.toFixed(2);
-    sens.addEventListener('input', () => {
-      this.input.setSensitivity(Number(sens.value));
-      sensV.textContent = Number(sens.value).toFixed(2);
-    });
-    const vol = $<HTMLInputElement>('opt-vol');
-    vol.addEventListener('input', () => this.audio.setVolume(Number(vol.value)));
-    document.querySelectorAll<HTMLButtonElement>('#menu .big').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.audio.unlock();
-        this.audio.ui('click');
-        this.start(Number(b.dataset['team']) as Team, Number($<HTMLSelectElement>('opt-skill').value));
-      });
-    });
-    $('resume').addEventListener('click', () => { this.setPaused(false); this.input.requestLock(); });
-    $('quit').addEventListener('click', () => this.quit());
-    const keys: [string, string][] = this.input.touch
-      ? [['Left side', 'move'], ['Right side', 'look'], ['HOOK', 'grapple (hold)'], ['JUMP', 'tap in air at a wall to wall-jump']]
-      : [
-          ['WASD', 'move'], ['Mouse', 'aim / fire'], ['Space', 'jump · wall-jump'], ['Hold Space', 'mantle ledges'],
-          ['F / Mouse3', 'grapple (hold)'], ['C / Ctrl', 'crouch'], ['Shift', 'walk (silent)'], ['R', 'reload'],
-          ['E', 'plant / disarm'], ['B', 'armory'], ['1 2 3 · Q', 'weapons'], ['Right click', 'scope'], ['Tab', 'scoreboard'],
-        ];
-    $('keys').innerHTML = keys.map(([k, v]) => `<div><b>${k}</b>${v}</div>`).join('');
-  }
-
-  private loadWorld(sim: Sim, playing: boolean): void {
-    this.sim = sim;
-    if (!this.worldGroup) {
-      // The map is the same every match, so its meshes are built once.
-      this.worldGroup = buildWorld(sim.map, this.renderer.capabilities.getMaxAnisotropy() > 4 ? 4 : 1, this.renderer.shadowMap.enabled);
-      this.scene.add(this.worldGroup);
-      this.renderer.shadowMap.needsUpdate = true;
-    }
+  private ensureChars(sim: Sim): void {
     while (this.chars.length < sim.players.length) {
       const c = new CharacterView();
       this.chars.push(c);
       this.scene.add(c.group);
     }
     for (const c of this.chars) c.hideCorpse();
-    this.fx.clearRound();
-    this.playing = playing;
-    this.acc = 0;
   }
 
-  start(team: Team | null, skill: number): void {
-    if (this.endTimer !== null) { clearTimeout(this.endTimer); this.endTimer = null; }
-    const sim = new Sim({ humanTeam: team, botSkill: skill, seed: (Math.random() * 1e9) | 0 });
-    this.loadWorld(sim, true);
+  private enterMatch(sim: Sim, mode: Mode): void {
+    clearTimeout(this.endTimer);
+    this.sim = sim;
+    this.mode = mode;
     this.paused = false;
-    $('menu').classList.add('hidden');
-    $('pause').classList.add('hidden');
+    this.acc = 0;
+    this.deathAt = -99;
+    this.ensureChars(sim);
+    this.fx.clearRound();
+    this.menu.show(false);
+    this.menu.showPause(false);
     $('touch').classList.add('live');
     this.hud.show(true);
     this.hud.setBuyOpen(false);
+    this.hud.setBoardOpen(false);
     const me = sim.human;
-    if (me) { this.input.yaw = me.yaw; this.input.pitch = 0; }
+    if (me) { this.input.yaw = sim.map.spawnYaw[me.team]; this.input.pitch = 0; }
     this.input.requestLock();
+  }
+
+  startOffline(team: Team | null, size: number, skill: number): void {
+    this.replica = null;
+    const sim = new Sim({ humanTeam: team, teamSize: size, botSkill: skill, humanName: settings.name || 'You', seed: (Math.random() * 1e9) | 0 });
+    this.enterMatch(sim, 'offline');
     this.handleEvents(sim.events);
     sim.events.length = 0;
   }
 
-  private quit(): void {
-    this.playing = false;
+  private startOnline(r: Replica): void {
+    this.replica = r;
+    this.enterMatch(r.sim, 'online');
+  }
+
+  /** Leave whatever match is running and go back to the menu. */
+  private leave(): void {
+    if (this.mode === 'online') this.net.leave();
+    this.toMenu();
+  }
+
+  private toMenu(): void {
+    clearTimeout(this.endTimer);
+    // Swap the backdrop match back in.
+    if (this.mode !== 'menu') this.sim = new Sim({ humanTeam: null, botSkill: 0.5 });
+    this.mode = 'menu';
+    this.replica = null;
     this.paused = false;
     this.input.releaseLock();
     this.hud.show(false);
-    $('pause').classList.add('hidden');
-    $('menu').classList.remove('hidden');
+    this.menu.showPause(false);
+    this.menu.show(true);
     $('touch').classList.remove('live');
+    this.ensureChars(this.sim);
+    this.fx.clearRound();
   }
 
   private setPaused(p: boolean): void {
-    if (!this.playing) return;
+    if (this.mode === 'menu') return;
     this.paused = p;
-    $('pause').classList.toggle('hidden', !p);
+    this.menu.showPause(p);
+    if (p) this.input.releaseLock();
+    else this.input.requestLock();
   }
 
   private toggleBuy(): void {
-    const sim = this.sim, me = sim?.human;
-    if (!this.playing || !sim || !me || this.paused) return;
+    const sim = this.sim, me = sim.human;
+    if (this.mode === 'menu' || !me || this.paused) return;
     const open = !this.hud.buyOpen;
     if (open && !sim.canBuy(me)) {
       this.audio.ui('deny');
@@ -222,7 +249,7 @@ export class GameApp {
 
   private resize(): void {
     const w = innerWidth, h = innerHeight;
-    this.renderer.setSize(w, h, false);
+    this.gfx.resize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.vm.resize(w / h);
@@ -231,10 +258,9 @@ export class GameApp {
   // ---- events from the sim ------------------------------------------------------------
 
   private viewPlayer(): Player {
-    const sim = this.sim!;
+    const sim = this.sim;
     const me = sim.human;
     if (me && (me.alive || sim.time - this.deathAt < 1.6)) return me;
-    // Spectate: a living teammate if possible.
     let pick: Player | null = null;
     for (const p of sim.players) {
       if (!p.alive) continue;
@@ -245,7 +271,7 @@ export class GameApp {
   }
 
   private handleEvents(events: SimEvent[]): void {
-    const sim = this.sim!;
+    const sim = this.sim;
     const me = sim.human;
     const view = this.viewPlayer();
     for (const e of events) {
@@ -254,26 +280,31 @@ export class GameApp {
           const s = sim.players[e.player]!;
           const def = WEAPONS[e.weapon]!;
           const own = s === view;
-          let ox = e.ox, oy = e.oy, oz = e.oz;
+          let ox: number, oy: number, oz: number;
           if (own) {
             this.vm.onShot(def);
             this.fovKick = Math.min(2.5, this.fovKick + def.kick * 0.55);
-            this.audio.shot(def.kind, null);
+            this.audio.shot(def.kind, null, 0, 0, def.id);
             // Viewmodel muzzle -> world, compensating for the viewmodel's narrower FOV.
             const k = Math.tan((this.vm.camera.fov * Math.PI) / 360) / Math.tan((this.camera.fov * Math.PI) / 360);
             this.tmp.set(this.vm.muzzleWorld.x * k, this.vm.muzzleWorld.y * k, this.vm.muzzleWorld.z);
             this.camera.localToWorld(this.tmp);
             ox = this.tmp.x; oy = this.tmp.y; oz = this.tmp.z;
           } else {
-            this.audio.shot(def.kind, e.ox, e.oy, e.oz);
+            this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id);
             const m = this.chars[s.id]!.muzzle;
             ox = m.x; oy = m.y; oz = m.z;
+            this.fx.muzzleFlash(ox, oy, oz, 1);
           }
+          this.fx.flashLight(ox, oy, oz);
           for (let i = 0; i < e.hitKinds.length; i++) {
             const b = i * 6;
             const ex = e.ends[b]!, ey = e.ends[b + 1]!, ez = e.ends[b + 2]!;
             this.fx.tracer(ox, oy, oz, ex, ey, ez);
-            if (e.hitKinds[i] === HIT_WORLD) this.fx.impact(ex, ey, ez, e.ends[b + 3]!, e.ends[b + 4]!, e.ends[b + 5]!);
+            if (e.hitKinds[i] === HIT_WORLD) {
+              this.fx.impact(ex, ey, ez, e.ends[b + 3]!, e.ends[b + 4]!, e.ends[b + 5]!);
+              if (i === 0) this.audio.impact(ex, ey, ez);
+            }
           }
           break;
         }
@@ -285,28 +316,30 @@ export class GameApp {
           this.fx.blood(e.x, e.y, e.z, dx / d, 0.2, dz / d, e.head);
           if (v === view) {
             this.hud.damageFlash(e.damage);
+            if (a) this.hud.damageFrom(yawTo(v.pos.x, v.pos.z, a.pos.x, a.pos.z));
             this.shake = Math.min(1, this.shake + e.damage / 60);
             this.audio.hurt();
           }
-          if (a && a === me) this.audio.hit(e.head);
+          if (a && a === me) {
+            this.audio.hit(e.head);
+            this.hud.hitMarker(v.hp <= 0 || !v.alive);
+          }
           break;
         }
         case 'kill': {
           const v = sim.players[e.victim]!;
           const killer = e.killer >= 0 ? sim.players[e.killer]! : null;
           this.hud.kill(killer, v, e.weapon, e.head, e.wallbang, me);
+          if (killer === me && me) this.hud.hitMarker(true);
           if (v === me) {
             this.deathAt = sim.time;
-            this.hud.setBuyOpen(false);
-            if (!this.input.touch && !this.noLock) this.input.requestLock();
+            if (this.hud.buyOpen) { this.hud.setBuyOpen(false); this.input.requestLock(); }
           }
           break;
         }
-        case 'step': {
-          const own = sim.players[e.player] === view;
-          this.audio.step(own ? null : e.x, e.y, e.z);
+        case 'step':
+          this.audio.step(sim.players[e.player] === view ? null : e.x, e.y, e.z);
           break;
-        }
         case 'jump': {
           const p = sim.players[e.player]!;
           this.audio.jump(p === view ? null : p.pos.x, p.pos.y, p.pos.z);
@@ -316,19 +349,6 @@ export class GameApp {
           const p = sim.players[e.player]!;
           this.audio.land(p === view ? null : p.pos.x, p.pos.y, p.pos.z, Math.min(1, e.speed / 14));
           if (p === view) this.landVel -= Math.min(2.2, e.speed * 0.16);
-          break;
-        }
-        case 'walljump':
-        case 'mantle': {
-          const p = sim.players[e.player]!;
-          this.audio.whoosh(p === view ? null : p.pos.x, p.pos.y, p.pos.z);
-          if (p === view && e.type === 'walljump') this.fovKick = Math.min(3, this.fovKick + 1.5);
-          break;
-        }
-        case 'grapple': {
-          const p = sim.players[e.player]!;
-          this.audio.grapple(e.ok, p === view ? null : p.pos.x, p.pos.y, p.pos.z);
-          if (e.ok) this.fx.impact(e.x, e.y, e.z, 0, 1, 0);
           break;
         }
         case 'reload':
@@ -374,17 +394,18 @@ export class GameApp {
         case 'roundStart':
           this.fx.clearRound();
           for (const c of this.chars) c.hideCorpse();
-          if (me) { this.input.yaw = me.yaw; this.input.pitch = 0; }
+          if (me) { this.input.yaw = sim.map.spawnYaw[me.team]; this.input.pitch = 0; }
           this.deathAt = -99;
+          this.hud.setBoardOpen(false);
           this.hud.message(`ROUND ${e.round}`, me ? (me.team === ATK ? 'ATTACK — plant the charge' : 'DEFEND — hold both sites') : '', 3);
           break;
         case 'roundLive':
           this.audio.ui('start');
           break;
         case 'roundEnd': {
-          const reasons = { elimination: 'Enemy team eliminated', time: 'Time ran out', detonation: 'The charge detonated', disarm: 'The charge was disarmed' };
+          const reasons = { elimination: 'Enemy eliminated', time: 'Time ran out', detonation: 'The charge detonated', disarm: 'The charge was disarmed' };
           const won = me ? e.winner === me.team : null;
-          this.hud.message(won === null ? (e.winner === ATK ? 'ATTACK WINS' : 'DEFENCE WINS') : won ? 'ROUND WON' : 'ROUND LOST', reasons[e.reason], 4.5);
+          this.hud.message(won === null ? (e.winner === ATK ? 'ATTACK WINS' : 'DEFENCE WINS') : won ? 'ROUND WON' : 'ROUND LOST', reasons[e.reason], 4);
           this.audio.ui(won === false ? 'lose' : 'win');
           break;
         }
@@ -393,9 +414,10 @@ export class GameApp {
           break;
         case 'matchEnd': {
           const won = me ? (e.winner === -1 ? null : e.winner === me.team) : null;
-          this.hud.message(e.winner === -1 ? 'DRAW' : won === null ? 'MATCH OVER' : won ? 'VICTORY' : 'DEFEAT', `${sim.score[ATK]} — ${sim.score[DEF]}`, 8);
+          const online = this.mode === 'online';
+          this.hud.message(e.winner === -1 ? 'DRAW' : won === null ? 'MATCH OVER' : won ? 'VICTORY' : 'DEFEAT', `${sim.score[ATK]} — ${sim.score[DEF]}${online ? ' · rematch starting soon' : ''}`, 9);
           this.hud.setBoardOpen(true);
-          this.endTimer = window.setTimeout(() => { this.hud.setBoardOpen(false); this.quit(); }, 8000);
+          if (!online) this.endTimer = window.setTimeout(() => this.toMenu(), 9000);
           break;
         }
         default:
@@ -411,62 +433,80 @@ export class GameApp {
     const dt = Math.min(0.1, (t - this.last) / 1000 || 0.016);
     this.last = t;
     this.fps += (1 / Math.max(dt, 1e-4) - this.fps) * 0.05;
-    const sim = this.sim;
-    if (!sim) return;
+    if (!this.ready) return;
+    const now = t / 1000;
 
-    if (!this.playing) {
-      this.menuCamera(t / 1000, dt, sim);
+    if (this.mode === 'menu') {
+      this.menuFrame(now, dt);
       return;
     }
-
+    const sim = this.sim;
     const me = sim.human;
     const active = !this.paused && !this.hud.buyOpen && !!me && me.alive && (this.input.locked || this.input.touch || this.noLock);
-    if (!this.paused) {
+
+    if (this.mode === 'offline') {
+      if (!this.paused) {
+        this.acc += dt;
+        let n = 0;
+        while (this.acc >= TICK && n++ < 8) {
+          this.acc -= TICK;
+          this.buildCmd(me, active);
+          const cmd = this.cmd;
+          sim.tick((p) => (p === me ? cmd : null));
+        }
+        if (this.acc > TICK * 4) this.acc = 0;
+      }
+    } else if (this.replica) {
+      // Online never pauses: the menu only stops your own input.
       this.acc += dt;
       let n = 0;
       while (this.acc >= TICK && n++ < 8) {
         this.acc -= TICK;
-        this.input.build(this.cmd, active);
-        if (me && this.cmd.slot >= 4) this.cmd.slot = this.cycleSlot(me, this.cmd.slot === 4 ? 1 : -1);
-        const cmd = this.cmd;
-        sim.tick((p) => (p === me ? cmd : null));
+        this.buildCmd(me, active);
+        this.net.send(this.replica.input(this.cmd, performance.now() / 1000));
       }
       if (this.acc > TICK * 4) this.acc = 0;
-      if (sim.events.length > 0) {
-        this.handleEvents(sim.events);
-        sim.events.length = 0;
-      }
+      this.replica.frame(performance.now() / 1000, dt);
+      this.hud.netText = `${this.net.ping} ms`;
+    }
+    if (sim.events.length > 0) {
+      this.handleEvents(sim.events);
+      sim.events.length = 0;
     }
     this.render(sim, dt, this.acc / TICK);
   }
 
-  private cycleSlot(p: Player, dir: number): number {
-    for (let i = 1; i <= 3; i++) {
-      const s = (p.active + dir * i + 6) % 3;
-      if (p.weapons[s]) return s;
+  private buildCmd(me: Player | null, active: boolean): void {
+    this.input.build(this.cmd, active);
+    if (me && this.cmd.slot >= 4) {
+      const dir = this.cmd.slot === 4 ? 1 : -1;
+      this.cmd.slot = -1;
+      for (let i = 1; i <= 3; i++) {
+        const s = (me.active + dir * i + 6) % 3;
+        if (me.weapons[s]) { this.cmd.slot = s; break; }
+      }
     }
-    return -1;
   }
 
-  private menuCamera(time: number, dt: number, sim: Sim): void {
-    // Keep the background match running so the menu backdrop is alive.
+  private menuFrame(time: number, dt: number): void {
+    const sim = this.sim;
     this.acc += dt;
     let n = 0;
     while (this.acc >= TICK && n++ < 4) { this.acc -= TICK; sim.tick(); }
+    for (const e of sim.events) {
+      if (e.type === 'roundStart') { this.fx.clearRound(); for (const c of this.chars) c.hideCorpse(); }
+    }
     sim.events.length = 0;
     if (sim.phase === 'over') sim.restart();
-    const a = time * 0.06;
-    this.camera.position.set(Math.sin(a) * 46, 26, Math.cos(a) * 52);
+    const a = time * 0.05;
+    this.camera.position.set(Math.sin(a) * 40, 24, Math.cos(a) * 46);
     this.camera.lookAt(0, 0, -4);
-    this.camera.fov = 55;
-    this.camera.updateProjectionMatrix();
+    if (this.camera.fov !== 50) { this.camera.fov = 50; this.camera.updateProjectionMatrix(); }
     for (const p of sim.players) this.chars[p.id]!.update(p, this.acc / TICK, dt, false, false);
-    this.fx.beginRopes();
-    this.fx.endRopes();
+    for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
     this.fx.charge.visible = false;
     this.fx.update(dt, 0);
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
+    this.gfx.render(dt, false);
   }
 
   private render(sim: Sim, dt: number, alpha: number): void {
@@ -474,11 +514,16 @@ export class GameApp {
     const view = this.viewPlayer();
     const isMe = view === me;
     const def = sim.activeDef(view);
+    const predicted = isMe && this.replica !== null;
 
     // ---- camera ----
-    const x = lerp(view.prevPos.x, view.pos.x, alpha);
-    const y = lerp(view.prevPos.y, view.pos.y, alpha);
-    const z = lerp(view.prevPos.z, view.pos.z, alpha);
+    let x = lerp(view.prevPos.x, view.pos.x, alpha);
+    let y = lerp(view.prevPos.y, view.pos.y, alpha);
+    let z = lerp(view.prevPos.z, view.pos.z, alpha);
+    if (predicted) { x += this.replica!.errX; y += this.replica!.errY; z += this.replica!.errZ; }
+    // Stairs: the body steps instantly, the eye glides.
+    if (view.onGround && Math.abs(y - this.eyeY) < 0.7) this.eyeY += (y - this.eyeY) * Math.min(1, dt * 16);
+    else this.eyeY = y;
     const crouch = lerp(view.prevCrouchT, view.crouchT, alpha);
     const eye = lerp(1.63, 1.17, crouch);
     let yaw: number, pitch: number;
@@ -488,7 +533,6 @@ export class GameApp {
       this.specYaw = yaw;
       this.specPitch = pitch;
     } else {
-      // Smooth a spectated player's 64 Hz aim.
       let d = view.yaw - this.specYaw;
       d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       const k = Math.min(1, dt * 20);
@@ -498,37 +542,36 @@ export class GameApp {
       pitch = this.specPitch;
     }
     const pk = Math.min(1, dt * 32);
-    this.punchP += (view.punchPitch - this.punchP) * pk;
-    this.punchY += (view.punchYaw - this.punchY) * pk;
+    this.punchP += (view.punchPitch * VIEW_PUNCH - this.punchP) * pk;
+    this.punchY += (view.punchYaw * VIEW_PUNCH - this.punchY) * pk;
 
-    // Landing dip (spring), strafe roll, damage shake.
     this.landVel += (-140 * this.landDip - 16 * this.landVel) * dt;
     this.landDip += this.landVel * dt;
     const side = view.vel.x * Math.cos(yaw) - view.vel.z * Math.sin(yaw);
-    this.roll += (-side * 0.0035 - this.roll) * Math.min(1, dt * 8);
+    this.roll += (-side * 0.003 - this.roll) * Math.min(1, dt * 8);
     this.shake = Math.max(0, this.shake - dt * 3);
-    const sh = this.shake * this.shake * 0.02;
+    const sh = this.shake * this.shake * 0.018;
 
     const dead = !view.alive;
-    this.camera.position.set(x, y + (dead ? 0.45 : eye) + this.landDip * 0.06, z);
+    this.camera.position.set(x, this.eyeY + (dead ? 0.45 : eye) + this.landDip * 0.06, z);
     this.camera.rotation.set(
       pitch + this.punchP + (Math.random() - 0.5) * sh,
       yaw + this.punchY + (Math.random() - 0.5) * sh,
       this.roll + (dead ? 0.5 : 0),
     );
 
-    // FOV: scope zoom, shot kick, grapple rush.
-    let targetFov = BASE_FOV;
+    // FOV: scope zoom and a touch of shot kick.
+    const base = settings.fov;
+    let targetFov = base;
     if (view.scope > 0 && def.scopeFov) targetFov = def.scopeFov[view.scope - 1]!;
-    else if (view.grappleOn) targetFov = BASE_FOV + 7;
-    this.fov += (targetFov - this.fov) * Math.min(1, dt * (view.scope > 0 ? 22 : 10));
+    this.fov += (targetFov - this.fov) * Math.min(1, dt * (view.scope > 0 ? 22 : 12));
     this.fovKick = Math.max(0, this.fovKick - dt * 14);
     const fov = this.fov + this.fovKick * 0.5;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    this.input.zoomScale = this.fov / BASE_FOV;
+    this.input.zoomScale = (this.fov / base) * (view.scope > 0 ? settings.zoomSensitivity : 1);
     this.camera.updateMatrixWorld();
     this.audio.setListener(x, y + eye, z, yaw);
 
@@ -536,21 +579,7 @@ export class GameApp {
     for (const p of sim.players) {
       this.chars[p.id]!.update(p, alpha, dt, !!me && p.team === me.team && p !== me, p === view && view.alive);
     }
-
-    // ---- grapple ropes ----
-    this.fx.beginRopes();
-    for (const p of sim.players) {
-      if (!p.alive || !p.grappleOn) continue;
-      if (p === view) {
-        this.tmp.set(0.22, -0.2, -0.5);
-        this.camera.localToWorld(this.tmp);
-        this.fx.rope(this.tmp.x, this.tmp.y, this.tmp.z, p.grapplePoint.x, p.grapplePoint.y, p.grapplePoint.z);
-      } else {
-        const m = this.chars[p.id]!.muzzle;
-        this.fx.rope(m.x, m.y, m.z, p.grapplePoint.x, p.grapplePoint.y, p.grapplePoint.z);
-      }
-    }
-    this.fx.endRopes();
+    for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
 
     // ---- the charge ----
     const c = sim.charge;
@@ -588,26 +617,18 @@ export class GameApp {
         drawT: Math.max(0, Math.min(1, view.drawTimer / def.drawTime)),
         reloadT: view.reloadTimer > 0 ? 1 - view.reloadTimer / def.reloadTime : 0,
         scoped: view.scope > 0,
-        grappling: view.grappleOn,
-        mantling: view.mantleT >= 0,
+        grappling: false,
+        mantling: false,
       });
     }
     this.input.lookDX = 0;
     this.input.lookDY = 0;
 
-    // ---- draw ----
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
-    if (showVm) {
-      this.renderer.clearDepth();
-      this.renderer.render(this.vm.scene, this.vm.camera);
-    }
+    this.gfx.render(dt, showVm && view.scope === 0);
 
     // ---- HUD ----
     const spread = sim.spreadOf(view);
     const gapPx = (Math.tan(spread) / Math.tan((this.camera.fov * Math.PI) / 360)) * (innerHeight / 2);
     this.hud.update(sim, view, me, gapPx, dt, this.fps, this.input.touch);
-    void this.tmp2;
-    void eyeHeight;
   }
 }

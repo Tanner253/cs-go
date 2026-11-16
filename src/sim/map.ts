@@ -74,14 +74,14 @@ export function buildMap(): MapDef {
   /** Non-colliding emissive strip. */
   const glow = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, mat: Mat) => box(x1, y1, z1, x2, y2, z2, mat, true);
 
-  const WALL_H = 12;
+  const WALL_H = 8;
   const BLOCK_H = 4.4;
-  const TALL_H = 8;
+  const TALL_H = 6.5;
 
   // ---- ground and perimeter -------------------------------------------------
   box(-33, -1, -37, 33, 0, 37, Mat.Floor);
-  solid(-33, -37, 33, -36, WALL_H);
-  solid(-33, 36, 33, 37, WALL_H);
+  solid(-30, -37, 30, -36, WALL_H);
+  solid(-30, 36, 30, 37, WALL_H);
   solid(-33, -37, -30, 37, WALL_H);
   solid(30, -37, 33, 37, WALL_H);
 
@@ -123,9 +123,6 @@ export function buildMap(): MapDef {
   // A-long opens on the east side of the lane; B tunnels open on the inner side.
   solid(18, -9, 25, -8, 4.2);
   solid(-30, -9, -23, -8, 4.2);
-  // Back walls of the sites toward the defender corridor.
-  solid(19, -25, 30, -24, 4.2);
-  solid(-30, -25, -19, -24, 4.2);
 
   // ---- B tunnels roof (a darker, enclosed stretch of the west lane) ---------
   box(-30, 3.4, 0, -18, 3.9, 14, Mat.Roof);
@@ -140,28 +137,15 @@ export function buildMap(): MapDef {
   // Low mid platform that splits the mid lane.
   box(-2, 0, 0, 2, 0.4, 5, Mat.Deck);
 
-  // ---- vertical play: rooftops, catwalks and pylons --------------------------
-  // Building roofs (y = BLOCK_H) are playable. Low parapets give rooftop cover.
-  const parapet = (x1: number, z1: number, x2: number, z2: number) => box(x1, BLOCK_H, z1, x2, BLOCK_H + 0.9, z2, Mat.Wall);
-  parapet(17.6, -8, 18, 2);
-  parapet(17.6, 14, 18, 22);
-  parapet(5, -8, 5.4, 0);
-  parapet(-18, -8, -17.6, 4);
-  parapet(-5.4, 14, -5, 22);
-  parapet(5, -24, 14, -23.6);
-  parapet(-14, -24, -5, -23.6);
-  // Catwalk over A-long, from the east roof to the outer wall.
-  box(18, 3.0, 9.5, 30, 3.25, 12, Mat.Deck);
-  // Catwalk over mid joining the two building roofs.
-  box(-5, BLOCK_H - 0.25, 16, 5, BLOCK_H, 18.2, Mat.Deck);
-  // Stacked containers: mantle routes from the ground up to the roofs.
-  crate(16.2, 23.2, 2.4, 2.4, 2.2, Mat.Deck);
-  crate(-16.2, 23.2, 2.4, 2.4, 2.2, Mat.Deck);
-  crate(3.9, -6.6, 2.2, 2.2, 2.3, Mat.Deck);
-  // Grapple pylons.
-  solid(-0.7, 9.3, 0.7, 10.7, 9, Mat.Block);
-  solid(22.3, -3.2, 23.7, -1.8, 8, Mat.Block);
-  solid(-24.7, -5.2, -23.3, -3.8, 8, Mat.Block);
+  // ---- mid: break the long sightlines ------------------------------------------
+  // A solid core splits mid into two lanes; a baffle in front of the doors and a
+  // shield wall at the attackers' end mean neither spawn can see the other.
+  solid(-2.2, 7, 2.2, 11, 3.4, Mat.Block);
+  solid(-2.4, -21, 2.4, -20.2, 3.0);
+  solid(-3, 23.4, 3, 24.2, 2.6);
+  // Head-height cover on the open lanes.
+  crate(27.2, 8.4, 2.4, 2.0, 2.2, Mat.Deck);
+  crate(-21, 20, 2.4, 2.0, 2.2, Mat.Deck);
   // Invisible ceiling keeps everyone inside the play space.
   boxes.push({ minX: -33, minY: WALL_H, minZ: -37, maxX: 33, maxY: WALL_H + 1, maxZ: 37, mat: Mat.Roof, hidden: true });
 
@@ -191,7 +175,7 @@ export function buildMap(): MapDef {
   crate(3.6, 16, 1.6, 2.4, 2.2);
   crate(-3.6, -4, 1.6, 2.4, 1.3);
   crate(3.8, -11, 1.4, 1.4, 1.1);
-  crate(-3.4, -20, 1.8, 1.4, 1.4);
+  crate(-3.7, -16.6, 1.8, 1.4, 1.4);
   // Defender corridor
   crate(12, -27, 1.6, 1.2, 1.2);
   crate(-12.5, -25.2, 1.6, 1.2, 1.2);
@@ -270,15 +254,15 @@ export function buildMap(): MapDef {
     sites: [siteA, siteB],
     routes: [
       { site: 0, name: 'A long', points: [P(24, 24), P(25, 8), P(27.5, -6)] },
-      { site: 0, name: 'A short', points: [P(0, 20), P(0, 8), P(1.5, -12), P(11, -16)] },
-      { site: 0, name: 'A connector', points: [P(0, 20), P(2, 8), P(16, 8), P(26, 0), P(27.5, -6)] },
+      { site: 0, name: 'A short', points: [P(3.9, 20), P(3.6, 9), P(1.5, -12), P(11, -16)] },
+      { site: 0, name: 'A connector', points: [P(3.9, 20), P(3.6, 8), P(16, 8), P(26, 0), P(27.5, -6)] },
       { site: 1, name: 'B tunnels', points: [P(-24, 24), P(-24, 8), P(-20.5, -6)] },
-      { site: 1, name: 'B short', points: [P(0, 20), P(0, 8), P(-1.5, -10), P(-11, -13)] },
-      { site: 1, name: 'B connector', points: [P(0, 20), P(-2, 12), P(-16, 12), P(-22, 2), P(-20.5, -6)] },
+      { site: 1, name: 'B short', points: [P(-3.9, 20), P(-3.6, 9), P(-1.5, -10), P(-11, -13)] },
+      { site: 1, name: 'B connector', points: [P(-3.9, 20), P(-3.6, 12), P(-16, 12), P(-22, 2), P(-20.5, -6)] },
     ],
     midHolds: [
-      { pos: P(0.6, -22), look: P(0, 10) },
-      { pos: P(-2.6, -18.5), look: P(0, 10) },
+      { pos: P(3.5, -19.4), look: P(3.6, 4) },
+      { pos: P(-3.5, -22.4), look: P(-3.6, 4) },
     ],
   };
 }

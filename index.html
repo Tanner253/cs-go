@@ -13,8 +13,12 @@
     <div id="hud" class="hidden">
       <div id="vignette"></div>
       <div id="whiteout"></div>
+      <div id="dmgdir"></div>
       <div id="scope"><div class="scope-ring"></div><div class="scope-h"></div><div class="scope-v"></div></div>
       <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
+      <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+      <canvas id="radar" width="176" height="176"></canvas>
 
       <div id="top">
         <div class="team atk"><span class="pips" id="pips-atk"></span><span class="score" id="score-atk">0</span></div>
@@ -30,11 +34,10 @@
 
       <div id="bl">
         <div id="money">$800</div>
-        <div class="stat"><span class="lbl">HP</span><span id="hp">100</span></div>
-        <div class="stat"><span class="lbl">ARM</span><span id="armor">0</span></div>
+        <div class="stat"><span class="lbl">HEALTH</span><span id="hp">100</span></div>
+        <div class="stat"><span class="lbl">ARMOUR</span><span id="armor">0</span></div>
       </div>
       <div id="bc">
-        <div id="hook"><div id="hook-fill"></div><span>HOOK</span></div>
         <div id="carry">CHARGE</div>
         <div id="kit">KIT</div>
       </div>
@@ -54,28 +57,68 @@
 
     <div id="touch"></div>
 
-    <div id="menu" class="overlay">
-      <div class="menu-card">
-        <h1>NULL<span>POINT</span></h1>
-        <p class="tag">5v5 tactical breach &mdash; plant the charge, or stop it. Rooftops are in play.</p>
-        <div class="row">
-          <button class="big atk" data-team="0">PLAY ATTACK</button>
-          <button class="big def" data-team="1">PLAY DEFENCE</button>
-        </div>
-        <div class="opts">
-          <label>Bots <select id="opt-skill"><option value="0.2">Recruit</option><option value="0.5" selected>Regular</option><option value="0.8">Veteran</option><option value="1">Elite</option></select></label>
-          <label>Sensitivity <input id="opt-sens" type="range" min="0.3" max="6" step="0.05" /><output id="opt-sens-v"></output></label>
-          <label>Volume <input id="opt-vol" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
-        </div>
-        <div class="keys" id="keys"></div>
+    <div id="menu" class="overlay hidden">
+      <div class="menu-shell">
+        <aside class="menu-side">
+          <div class="brand">NULL<span>POINT</span></div>
+          <div class="brand-sub">TACTICAL 5v5 &middot; PLANT OR DEFEND</div>
+          <nav id="nav">
+            <button data-tab="online" class="on"><b>PLAY ONLINE</b><small>1v1 duel &middot; 5 arenas</small></button>
+            <button data-tab="practice"><b>PRACTICE</b><small>Offline against bots</small></button>
+            <button data-tab="settings"><b>SETTINGS</b><small>Mouse, video, crosshair</small></button>
+            <button data-tab="controls"><b>CONTROLS</b><small>Keys and touch layout</small></button>
+            <button data-tab="credits"><b>CREDITS</b><small>Models, sounds, licences</small></button>
+          </nav>
+          <label class="callsign">CALLSIGN<input id="opt-name" maxlength="14" spellcheck="false" autocomplete="off" placeholder="Operator" /></label>
+          <div class="build">Pre-alpha test build</div>
+        </aside>
+        <main class="menu-main">
+          <section id="tab-online" class="tab on">
+            <h2>Online duel</h2>
+            <p class="lede">Pick an arena. A match starts as soon as two players are in it: first to 7 rounds, sides swap after 6.</p>
+            <div id="net-status" class="net-status"></div>
+            <div id="arenas" class="arenas"></div>
+          </section>
+          <section id="tab-practice" class="tab">
+            <h2>Practice</h2>
+            <p class="lede">Play the full round loop against bots. Nothing here needs a connection.</p>
+            <div class="form">
+              <label>Side<div class="seg" id="opt-side"><button data-v="0" class="on">Attack</button><button data-v="1">Defence</button></div></label>
+              <label>Format<div class="seg" id="opt-size"><button data-v="1">1v1</button><button data-v="2">2v2</button><button data-v="3">3v3</button><button data-v="5" class="on">5v5</button></div></label>
+              <label>Bots<div class="seg" id="opt-skill"><button data-v="0.2">Recruit</button><button data-v="0.5" class="on">Regular</button><button data-v="0.8">Veteran</button><button data-v="1">Elite</button></div></label>
+            </div>
+            <button class="cta" id="start-practice">START PRACTICE</button>
+          </section>
+          <section id="tab-settings" class="tab">
+            <h2>Settings</h2>
+            <div class="form" id="settings-form"></div>
+          </section>
+          <section id="tab-controls" class="tab">
+            <h2>Controls</h2>
+            <div class="keys" id="keys"></div>
+          </section>
+          <section id="tab-credits" class="tab">
+            <h2>Credits</h2>
+            <div class="credits" id="credits"></div>
+          </section>
+        </main>
       </div>
     </div>
 
     <div id="pause" class="overlay hidden">
-      <div class="menu-card small">
+      <div class="pause-card">
         <h2>PAUSED</h2>
-        <button class="big" id="resume">RESUME</button>
-        <button class="ghost" id="quit">Quit to menu</button>
+        <button class="cta" id="resume">RESUME</button>
+        <div class="form" id="pause-settings"></div>
+        <button class="ghost" id="quit">Leave match</button>
+      </div>
+    </div>
+
+    <div id="boot" class="overlay">
+      <div class="boot-card">
+        <div class="brand">NULL<span>POINT</span></div>
+        <div class="boot-bar"><i id="boot-fill"></i></div>
+        <div id="boot-text">Loading…</div>
       </div>
     </div>
 

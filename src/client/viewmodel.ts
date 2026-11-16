@@ -1,16 +1,19 @@
-// First-person weapon rendering. Models are built from primitives and every motion is
-// procedural: spring sway, movement bob, recoil, draw, reload, melee, landing dip.
+// First-person weapons. Each weapon is an authored pack (gun + arms + hand-made
+// animation) played by name; spring-driven sway, bob, recoil and landing motion are
+// layered on top so the gun reacts to the player's own movement.
 
 import * as THREE from 'three';
-import type { WeaponDef, WeaponKind } from '../sim/weapons';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import type { WeaponDef } from '../sim/weapons';
+import { PACKS, WEAPON_LOOK, getPack, loadPack, type LoadedPack, type PackInfo, type WeaponLook } from './assets';
 
-/** Critically-damped-ish spring used for all viewmodel secondary motion. */
+/** Damped spring used for all secondary motion. */
 class Spring {
   x = 0;
   v = 0;
   constructor(private k: number, private c: number) {}
   step(target: number, dt: number): number {
-    // Sub-step for stability at low frame rates.
     const n = dt > 1 / 90 ? 2 : 1;
     const h = dt / n;
     for (let i = 0; i < n; i++) {
@@ -24,148 +27,166 @@ class Spring {
   }
 }
 
-interface GunModel {
-  root: THREE.Group;
-  mag: THREE.Object3D | null;
-  slide: THREE.Object3D | null;
-  muzzle: THREE.Vector3;
-  leftHand: THREE.Object3D | null;
-  /** Rest pose in camera space. */
-  rest: THREE.Vector3;
-}
-
-const mats = {
-  body: new THREE.MeshStandardMaterial({ color: 0x4a515c, roughness: 0.42, metalness: 0.75 }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.55, metalness: 0.55 }),
-  light: new THREE.MeshStandardMaterial({ color: 0xb9c2cc, roughness: 0.35, metalness: 0.8 }),
-  grip: new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.9, metalness: 0.0 }),
-  glowAtk: new THREE.MeshBasicMaterial({ color: 0xff7a2e, toneMapped: false }),
-  glowDef: new THREE.MeshBasicMaterial({ color: 0x35e0ff, toneMapped: false }),
-  sleeve: new THREE.MeshStandardMaterial({ color: 0x343a44, roughness: 0.85, metalness: 0.05 }),
-  glove: new THREE.MeshStandardMaterial({ color: 0x6a707a, roughness: 0.7, metalness: 0.1 }),
-  blade: new THREE.MeshStandardMaterial({ color: 0xd8e2ec, roughness: 0.2, metalness: 0.95 }),
-};
-
-const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-const cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
-
-function box(parent: THREE.Object3D, m: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(boxGeo, m);
-  mesh.scale.set(w, h, d);
-  mesh.position.set(x, y, z);
-  parent.add(mesh);
-  return mesh;
-}
-/** Cylinder lying along Z. */
-function barrel(parent: THREE.Object3D, m: THREE.Material, r: number, len: number, x: number, y: number, z: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(cylGeo, m);
-  mesh.scale.set(r * 2, len, r * 2);
-  mesh.rotation.x = Math.PI / 2;
-  mesh.position.set(x, y, z);
-  parent.add(mesh);
-  return mesh;
-}
-
-function arm(parent: THREE.Object3D, fromX: number, fromY: number, fromZ: number, toX: number, toY: number, toZ: number): THREE.Group {
-  const g = new THREE.Group();
-  const from = new THREE.Vector3(fromX, fromY, fromZ), to = new THREE.Vector3(toX, toY, toZ);
-  const len = from.distanceTo(to);
-  const sleeve = new THREE.Mesh(boxGeo, mats.sleeve);
-  sleeve.scale.set(0.062, 0.062, len * 0.78);
-  sleeve.position.z = len * 0.39;
-  const glove = new THREE.Mesh(boxGeo, mats.glove);
-  glove.scale.set(0.056, 0.066, len * 0.26);
-  glove.position.z = -len * 0.1;
-  g.add(sleeve, glove);
-  g.position.copy(to);
-  g.lookAt(from); // +Z of the group points back toward the shoulder
-  parent.add(g);
-  return g;
-}
-
-function buildGun(kind: WeaponKind, id: string, team: number): GunModel {
-  const root = new THREE.Group();
-  const glow = team === 0 ? mats.glowAtk : mats.glowDef;
-  let mag: THREE.Object3D | null = null;
-  let slide: THREE.Object3D | null = null;
-  let leftHand: THREE.Object3D | null = null;
-  const muzzle = new THREE.Vector3(0, 0.03, -0.6);
-  const rest = new THREE.Vector3(0.19, -0.19, -0.52);
-
-  if (kind === 'knife') {
-    box(root, mats.grip, 0.03, 0.035, 0.12, 0, 0, 0.02);
-    box(root, mats.dark, 0.05, 0.05, 0.015, 0, 0, -0.045);
-    const blade = box(root, mats.blade, 0.008, 0.045, 0.2, 0, 0.004, -0.15);
-    blade.rotation.x = 0.04;
-    box(root, glow, 0.01, 0.006, 0.19, 0, -0.02, -0.15);
-    arm(root, 0.1, -0.16, 0.42, 0.0, -0.03, 0.03);
-    rest.set(0.22, -0.2, -0.5);
-    return { root, mag, slide, muzzle, leftHand, rest };
-  }
-
-  if (kind === 'pistol') {
-    const big = id === 'maul';
-    const len = big ? 0.24 : 0.2;
-    box(root, mats.grip, 0.034, 0.11, 0.05, 0, -0.065, 0.03).rotation.x = -0.18;
-    box(root, mats.body, 0.036, 0.03, len, 0, -0.005, -len / 2 + 0.06);
-    slide = new THREE.Group();
-    box(slide, big ? mats.light : mats.dark, 0.04, 0.036, len + 0.01, 0, 0.028, -len / 2 + 0.06);
-    box(slide, mats.dark, 0.012, 0.012, 0.012, 0, 0.052, 0.045);
-    box(slide, mats.dark, 0.006, 0.012, 0.008, 0, 0.052, -len + 0.07);
-    root.add(slide);
-    box(root, glow, 0.038, 0.006, len * 0.5, 0, 0.008, -len / 2 + 0.03);
-    mag = box(root, mats.dark, 0.028, 0.1, 0.04, 0, -0.07, 0.032);
-    (mag as THREE.Mesh).rotation.x = -0.18;
-    muzzle.set(0, 0.028, -len + 0.05);
-    arm(root, 0.12, -0.2, 0.45, 0.0, -0.07, 0.04);
-    leftHand = arm(root, -0.3, -0.22, 0.4, -0.012, -0.085, 0.03);
-    rest.set(0.17, -0.17, -0.58);
-    return { root, mag, slide, muzzle, leftHand, rest };
-  }
-
-  // Long guns.
-  const long = kind === 'sniper' ? 1.0 : kind === 'shotgun' ? 0.78 : kind === 'smg' ? 0.5 : 0.72;
-  const front = -long + 0.22;
-  // Receiver, stock, grip.
-  box(root, mats.body, 0.05, 0.075, 0.3, 0, 0.0, -0.05);
-  box(root, mats.dark, 0.042, 0.06, kind === 'smg' ? 0.14 : 0.24, 0, -0.005, 0.2);
-  box(root, mats.dark, 0.046, 0.09, 0.03, 0, -0.01, kind === 'smg' ? 0.28 : 0.33);
-  box(root, mats.grip, 0.036, 0.1, 0.045, 0, -0.08, 0.06).rotation.x = -0.25;
-  // Handguard and barrel.
-  const hgLen = kind === 'smg' ? 0.16 : 0.26;
-  box(root, mats.light, 0.046, 0.058, hgLen, 0, 0.003, -0.2 - hgLen / 2);
-  barrel(root, mats.dark, kind === 'shotgun' ? 0.017 : 0.011, -front - 0.2, 0, 0.012, (front - 0.2) / 2);
-  if (kind !== 'shotgun') box(root, mats.dark, 0.03, 0.03, 0.05, 0, 0.012, front + 0.02);
-  // Accent strip.
-  box(root, glow, 0.052, 0.008, 0.26, 0, -0.022, -0.06);
-  box(root, glow, 0.012, 0.005, hgLen * 0.6, 0, 0.034, -0.2 - hgLen / 2);
-  // Sights.
-  if (kind === 'sniper') {
-    barrel(root, mats.dark, 0.03, 0.3, 0, 0.085, -0.07);
-    barrel(root, mats.light, 0.036, 0.04, 0, 0.085, -0.23);
-    barrel(root, mats.light, 0.034, 0.04, 0, 0.085, 0.09);
-    box(root, mats.dark, 0.02, 0.03, 0.03, 0, 0.055, -0.14);
-    box(root, mats.dark, 0.02, 0.03, 0.03, 0, 0.055, 0.02);
+/**
+ * The packs are painted for a dark studio; under game lighting gloves and gunmetal come
+ * out near black. Lift them so the weapon reads clearly against any background.
+ */
+function liftMaterial(src: THREE.Material, look: WeaponLook): THREE.Material {
+  const m = src.clone() as THREE.MeshStandardMaterial;
+  if (!m.isMeshStandardMaterial) return m;
+  const isArm = /arm|glove|hand|sleeve/i.test(m.name);
+  if (/lens/i.test(m.name)) {
+    m.map = null;
+    m.color.set(0x0a1016);
+    m.metalness = 1;
+    m.metalnessMap = null;
+    m.roughness = 0.06;
+    m.roughnessMap = null;
+    m.envMapIntensity = 2.2;
+  } else if (isArm) {
+    m.metalness = 0;
+    m.metalnessMap = null;
+    if (m.map) m.color.setScalar(1.9);
+    else { m.color.set(0x2c3138); m.roughness = 0.85; }
+    m.envMapIntensity = 0.7;
+  } else if (/^knife$/i.test(m.name)) {
+    m.metalness = Math.min(m.metalness, 0.45);
+    m.roughness = Math.max(m.roughness, 0.5);
+    m.envMapIntensity = 1.2;
   } else {
-    box(root, mats.dark, 0.012, 0.03, 0.02, 0, 0.05, 0.06);
-    box(root, mats.dark, 0.008, 0.03, 0.012, 0, 0.05, -0.2 - hgLen + 0.02);
-    box(root, mats.dark, 0.03, 0.012, 0.16, 0, 0.042, -0.05);
+    m.metalness = Math.min(m.metalness, 0.6);
+    if (m.map) m.color.setScalar(1.5);
+    else m.color.multiplyScalar(1.5);
+    m.envMapIntensity = 1.5;
+    if (m.emissiveMap) m.emissiveIntensity = 0.22;
   }
-  // Magazine / pump.
-  if (kind === 'shotgun') {
-    mag = box(root, mats.grip, 0.056, 0.05, 0.16, 0, -0.035, -0.36);
-    slide = mag;
-  } else {
-    const mh = kind === 'smg' ? 0.16 : kind === 'sniper' ? 0.07 : 0.15;
-    mag = box(root, mats.dark, 0.032, mh, 0.06, 0, -0.04 - mh / 2, -0.09);
-    (mag as THREE.Mesh).rotation.x = kind === 'rifle' ? 0.22 : 0.05;
+  if (look.tint && !isArm) {
+    m.color.r *= look.tint[0];
+    m.color.g *= look.tint[1];
+    m.color.b *= look.tint[2];
   }
-  muzzle.set(0, 0.012, front - 0.01);
-  arm(root, 0.11, -0.22, 0.5, 0.0, -0.085, 0.065);
-  leftHand = arm(root, -0.32, -0.2, 0.32, -0.006, -0.04, -0.2 - hgLen / 2);
-  if (kind === 'sniper') rest.set(0.18, -0.19, -0.46);
-  if (kind === 'smg') rest.set(0.18, -0.185, -0.56);
-  return { root, mag, slide, muzzle, leftHand, rest };
+  if (m.transparent) {
+    m.depthWrite = true;
+    m.alphaTest = Math.max(m.alphaTest, 0.02);
+  }
+  return m;
+}
+
+const _v = new THREE.Vector3();
+
+/** One weapon's pack instance: its own skeleton, materials and animation state. */
+class Rig {
+  /** Eye space: x right, y up, the muzzle away down -z, metres. */
+  readonly root = new THREE.Group();
+  /** Muzzle tip at rest, in `root` space. */
+  readonly muzzle = new THREE.Vector3(0.08, -0.08, -0.6);
+  private mixer: THREE.AnimationMixer;
+  private length: number;
+
+  constructor(files: LoadedPack, readonly info: PackInfo, look: WeaponLook) {
+    const gltf: GLTF = files.pack;
+    const scene = SkeletonUtils.clone(gltf.scene);
+    const holder = new THREE.Group();
+    holder.matrixAutoUpdate = false;
+    holder.matrix.fromArray(info.view);
+    holder.add(scene);
+    this.root.add(holder);
+    if (look.scale) holder.matrix.premultiply(new THREE.Matrix4().makeScale(look.scale, look.scale, look.scale));
+    holder.matrix.premultiply(new THREE.Matrix4().makeTranslation(info.hold[0], info.hold[1], info.hold[2]));
+
+    // Hang the separate gun model on the arm skeleton, piece by piece. Each piece is placed
+    // by where its joint stands in the file as loaded (before any animation is posed).
+    if (info.gun && files.gun) {
+      scene.updateMatrixWorld(true);
+      const sceneInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
+      const gunSpace = new THREE.Matrix4().fromArray(info.gun.frame).invert();
+      const joints = new Map<string, THREE.Object3D>();
+      scene.traverse((o) => joints.set(o.name, o));
+      const hang = (piece: THREE.Object3D, on: string, by: string): void => {
+        const n = joints.get(on), b = joints.get(by);
+        if (!n || !b) return;
+        const filed = new THREE.Matrix4().copy(sceneInv).multiply(b.matrixWorld);
+        const h = new THREE.Group();
+        h.matrixAutoUpdate = false;
+        h.matrix.copy(filed).invert().multiply(gunSpace);
+        h.add(piece);
+        n.add(h);
+      };
+      const gun = files.gun.scene.clone(true);
+      const pieces = new Map<string, THREE.Object3D>();
+      gun.traverse((o) => { if (o.name in info.gun!.ride) pieces.set(o.name, o); });
+      for (const [name, piece] of pieces) {
+        const joint = info.gun.ride[name]!;
+        if (name === 'mag' && info.gun.spare) hang(piece.clone(true), info.gun.spare[0], info.gun.spare[1]);
+        hang(piece, joint, joint);
+      }
+    }
+
+    // Arms that came without textures borrow the same maker's from another pack.
+    let borrowedArms: THREE.Material | null = null;
+    const donor = info.armsFrom ? getPack(info.armsFrom) : null;
+    donor?.pack.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (m && !Array.isArray(m) && /arm/i.test(m.name) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
+    });
+
+    const own = new Map<THREE.Material, THREE.Material>();
+    const meshes: THREE.Mesh[] = [];
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Hands swing well outside their rest bounds during reloads.
+      mesh.frustumCulled = false;
+      mesh.castShadow = false;
+      let src = mesh.material as THREE.Material;
+      if (borrowedArms && /arm/i.test(src.name) && !(src as THREE.MeshStandardMaterial).map) src = borrowedArms;
+      if (!own.has(src)) own.set(src, liftMaterial(src, look));
+      mesh.material = own.get(src)!;
+      meshes.push(mesh);
+    });
+
+    this.mixer = new THREE.AnimationMixer(scene);
+    const clip = gltf.animations[0]!;
+    this.length = clip.duration;
+    this.mixer.clipAction(clip).play();
+    this.pose('idle', 0);
+
+    // Find the muzzle: the centroid of the vertices furthest down -z in the rest pose.
+    this.root.updateMatrixWorld(true);
+    let minZ = Infinity;
+    const pts: number[] = [];
+    for (const mesh of meshes) {
+      const pos = mesh.geometry.getAttribute('position');
+      if (!pos) continue;
+      const step = Math.max(1, Math.floor(pos.count / 4000));
+      for (let i = 0; i < pos.count; i += step) {
+        mesh.getVertexPosition(i, _v).applyMatrix4(mesh.matrixWorld);
+        pts.push(_v.x, _v.y, _v.z);
+        if (_v.z < minZ) minZ = _v.z;
+      }
+    }
+    if (pts.length > 0) {
+      let sx = 0, sy = 0, c = 0;
+      for (let i = 0; i < pts.length; i += 3) {
+        if (pts[i + 2]! < minZ + 0.025) { sx += pts[i]!; sy += pts[i + 1]!; c++; }
+      }
+      if (c > 0) this.muzzle.set(sx / c, sy / c, minZ);
+    }
+  }
+
+  has(clip: string): boolean {
+    return clip in this.info.clips;
+  }
+  seconds(clip: string): number {
+    const r = this.info.clips[clip];
+    return r ? (r[1] - r[0]) / this.info.fps : 0;
+  }
+  /** Stand in one movement, `k` of the way through it (0..1). */
+  pose(clip: string, k: number): void {
+    const r = this.info.clips[clip] ?? this.info.clips['idle'] ?? [0, 0];
+    const t = (r[0] + (r[1] - r[0]) * (k < 0 ? 0 : k > 1 ? 1 : k)) / this.info.fps;
+    this.mixer.setTime(Math.min(this.length - 1e-4, t));
+  }
 }
 
 function flashTexture(): THREE.CanvasTexture {
@@ -179,7 +200,6 @@ function flashTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(255,90,0,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
-  // Star spikes.
   g.globalCompositeOperation = 'lighter';
   g.strokeStyle = 'rgba(255,230,170,0.8)';
   g.lineWidth = 5;
@@ -217,10 +237,11 @@ const SHELLS = 8;
 
 export class Viewmodel {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(58, 1, 0.01, 10);
+  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.01, 10);
+  /** Carries the spring motion; the active rig hangs under it. */
   private holder = new THREE.Group();
-  private models = new Map<string, GunModel>();
-  private current: GunModel | null = null;
+  private rigs = new Map<string, Rig>();
+  private current: Rig | null = null;
   private currentId = '';
   private flash: THREE.Mesh;
   private flashLight: THREE.PointLight;
@@ -236,19 +257,24 @@ export class Viewmodel {
   private landY = new Spring(120, 13);
   private bobPhase = 0;
   private bobAmt = 0;
-  private meleeT = -1;
-  private meleeSide = 1;
   private wasGround = true;
-  private time = 0;
-  private magRest = new THREE.Vector3();
-  private slideRest = 0;
-  /** World-space muzzle position of the last frame (for tracers). */
+  private idleT = 0;
+
+  /** Seconds since the current one-shot animation started (<0 = none). */
+  private fireT = -1;
+  private fireDur = 0.2;
+  private boltDur = 0;
+  private meleeT = -1;
+  private meleeClip = 'cutA';
+  private meleeI = 0;
+  private inspectT = -1;
+
+  /** Muzzle position in viewmodel-camera space (for tracers). */
   readonly muzzleWorld = new THREE.Vector3();
-  private tmp = new THREE.Vector3();
 
   constructor() {
-    this.scene.add(new THREE.HemisphereLight(0xdfeaff, 0x3a3f4a, 1.5));
-    const d = new THREE.DirectionalLight(0xfff2dd, 2.0);
+    this.scene.add(new THREE.HemisphereLight(0xdfeaff, 0x4a4f5a, 1.6));
+    const d = new THREE.DirectionalLight(0xfff2dd, 2.2);
     d.position.set(-0.5, 1, 0.6);
     this.scene.add(d);
     this.scene.add(this.holder);
@@ -256,175 +282,185 @@ export class Viewmodel {
     const fm = new THREE.MeshBasicMaterial({
       map: flashTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, side: THREE.DoubleSide,
     });
-    this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22), fm);
+    this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), fm);
     this.flash.visible = false;
     this.flash.renderOrder = 10;
     this.scene.add(this.flash);
     this.flashLight = new THREE.PointLight(0xffc070, 0, 3);
     this.scene.add(this.flashLight);
 
+    const shellGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
     const shellMat = new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.3, metalness: 0.9 });
     for (let i = 0; i < SHELLS; i++) {
-      const mesh = new THREE.Mesh(cylGeo, shellMat);
-      mesh.scale.set(0.012, 0.03, 0.012);
+      const mesh = new THREE.Mesh(shellGeo, shellMat);
+      mesh.scale.set(0.009, 0.024, 0.009);
       mesh.visible = false;
       this.scene.add(mesh);
       this.shells.push({ mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0 });
     }
   }
 
-  private model(def: WeaponDef, team: number): GunModel {
-    const key = def.id + team;
-    let m = this.models.get(key);
-    if (!m) {
-      m = buildGun(def.kind, def.id, team);
-      m.root.visible = false;
-      this.holder.add(m.root);
-      this.models.set(key, m);
+  private rig(def: WeaponDef): Rig | null {
+    let r = this.rigs.get(def.id);
+    if (r) return r;
+    const look = WEAPON_LOOK[def.id] ?? WEAPON_LOOK['hammerhead']!;
+    const gltf = getPack(look.pack);
+    if (!gltf) {
+      void loadPack(look.pack);
+      return null;
     }
-    return m;
+    r = new Rig(gltf, PACKS[look.pack]!, look);
+    r.root.visible = false;
+    this.holder.add(r.root);
+    this.rigs.set(def.id, r);
+    return r;
   }
 
   onShot(def: WeaponDef): void {
     const k = def.kick;
-    this.kickZ.kick(2.2 * k);
-    this.kickPitch.kick(5.5 * k);
-    this.kickRoll.kick((Math.random() - 0.5) * 6 * k);
-    this.swayX.kick((Math.random() - 0.5) * 0.25 * k);
+    this.kickZ.kick(1.5 * k);
+    this.kickPitch.kick(3.4 * k);
+    this.kickRoll.kick((Math.random() - 0.5) * 5 * k);
+    this.swayX.kick((Math.random() - 0.5) * 0.2 * k);
     this.flashT = 0.045;
     this.flash.rotation.z = Math.random() * Math.PI * 2;
     const s = 0.7 + Math.random() * 0.5 + k * 0.25;
     this.flash.scale.set(s, s, s);
+    this.inspectT = -1;
+    this.fireT = 0;
+    const r = this.current;
+    const interval = 60 / def.rpm;
+    if (r) {
+      // Automatic fire restarts the clip every shot; slow guns play it in full, then cycle the bolt.
+      this.fireDur = Math.min(r.seconds('fire') || 0.2, def.auto ? Math.max(0.09, interval * 1.6) : Math.max(0.12, interval * 0.95));
+      this.boltDur = r.has('bolt') ? Math.max(0.3, interval - this.fireDur - 0.05) : 0;
+    }
     if (def.kind !== 'shotgun' && def.kind !== 'sniper') this.ejectShell();
   }
 
   onMelee(): void {
     this.meleeT = 0;
-    this.meleeSide = -this.meleeSide;
+    this.inspectT = -1;
+    const order = ['cutA', 'cutB', 'cutA', 'stab'];
+    this.meleeClip = order[this.meleeI++ % order.length]!;
+  }
+
+  /** Play the weapon inspect animation (cosmetic). */
+  onInspect(): void {
+    if (this.fireT < 0 && this.meleeT < 0) this.inspectT = 0;
   }
 
   private ejectShell(): void {
-    if (!this.current) return;
+    const r = this.current;
+    if (!r) return;
     const s = this.shells[this.shellI++ % SHELLS]!;
     s.mesh.visible = true;
     s.life = 0.6;
-    this.current.root.localToWorld(s.mesh.position.set(0.03, 0.04, -0.02));
-    s.vel.set(1.1 + Math.random() * 0.5, 1.2 + Math.random() * 0.5, 0.2 + Math.random() * 0.3);
+    s.mesh.position.set(r.muzzle.x + 0.01, r.muzzle.y + 0.02, r.muzzle.z * 0.3);
+    this.holder.localToWorld(s.mesh.position);
+    s.vel.set(1.0 + Math.random() * 0.5, 1.1 + Math.random() * 0.5, 0.15 + Math.random() * 0.3);
     s.spin.set(Math.random() * 20, Math.random() * 20, Math.random() * 20);
   }
 
   update(dt: number, st: ViewState): void {
-    this.time += dt;
-    const m = this.model(st.def, st.team);
-    const key = st.def.id + st.team;
-    if (this.currentId !== key) {
+    const r = this.rig(st.def);
+    if (this.currentId !== st.def.id) {
       if (this.current) this.current.root.visible = false;
-      this.current = m;
-      this.currentId = key;
-      if (m.mag) this.magRest.copy(m.mag.position);
-      if (m.slide) this.slideRest = m.slide.position.z;
-      this.meleeT = -1;
+      this.current = r;
+      this.currentId = r ? st.def.id : '';
+      this.fireT = this.meleeT = this.inspectT = -1;
+      this.idleT = 0;
     }
-    m.root.visible = !st.scoped;
+    if (r) r.root.visible = !st.scoped;
 
-    // ---- sway from mouse look --------------------------------------------------
-    const sx = this.swayX.step(THREE.MathUtils.clamp(-st.lookDX * 1.6, -0.06, 0.06), dt);
-    const sy = this.swayY.step(THREE.MathUtils.clamp(st.lookDY * 1.6, -0.05, 0.05), dt);
-
-    // ---- movement bob ---------------------------------------------------------
-    const moveF = st.onGround ? Math.min(1, st.speed / Math.max(1, st.maxSpeed)) : 0;
-    this.bobAmt += (moveF - this.bobAmt) * Math.min(1, dt * 9);
-    this.bobPhase += dt * (5.5 + st.speed * 1.35) * (moveF > 0.05 ? 1 : 0);
-    const bobX = Math.sin(this.bobPhase) * 0.006 * this.bobAmt;
-    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.007 * this.bobAmt + 0.0035 * this.bobAmt;
-
-    // ---- air / landing --------------------------------------------------------
-    if (st.onGround && !this.wasGround) this.landY.kick(-Math.min(1.4, 0.25 + Math.abs(st.velY) * 0.08));
-    this.wasGround = st.onGround;
-    const air = st.onGround ? 0 : THREE.MathUtils.clamp(st.velY * 0.0035, -0.03, 0.03);
-    const land = this.landY.step(0, dt);
-
-    // ---- recoil ---------------------------------------------------------------
-    const kz = this.kickZ.step(0, dt);
-    const kp = this.kickPitch.step(0, dt);
-    const kr = this.kickRoll.step(0, dt);
-
-    // ---- draw -----------------------------------------------------------------
-    const d = st.drawT;
-    const drawE = d * d;
-
-    // ---- reload ---------------------------------------------------------------
-    let relTilt = 0, relDrop = 0, magOut = 0, rack = 0;
-    const r = st.reloadT;
-    if (r > 0) {
-      const tiltIn = THREE.MathUtils.smoothstep(r, 0.0, 0.14);
-      const tiltOut = 1 - THREE.MathUtils.smoothstep(r, 0.84, 1.0);
-      relTilt = Math.min(tiltIn, tiltOut);
-      relDrop = relTilt * 0.035;
-      // Magazine leaves, a fresh one comes back, then a firm slap.
-      const out = THREE.MathUtils.smoothstep(r, 0.14, 0.3);
-      const back = THREE.MathUtils.smoothstep(r, 0.48, 0.66);
-      magOut = out - back;
-      rack = Math.max(0, 1 - Math.abs(r - 0.78) / 0.06);
-      if (r > 0.655 && r < 0.68) this.kickPitch.kick(-0.6);
-    }
-    if (m.mag && st.def.kind !== 'shotgun') {
-      m.mag.position.set(this.magRest.x - magOut * 0.03, this.magRest.y - magOut * 0.26, this.magRest.z + magOut * 0.04);
-      m.mag.visible = magOut < 0.97;
-      if (m.leftHand && r > 0) m.leftHand.position.y += 0; // hand stays; mag motion sells the action
-    }
-    if (m.slide) {
-      const isPump = st.def.kind === 'shotgun';
-      const back = isPump ? Math.max(rack, Math.min(1, Math.max(0, kz * 6))) * 0.07 : Math.max(rack * 0.04, Math.min(0.04, Math.max(0, kz) * 1.4));
-      m.slide.position.z = this.slideRest + back;
-    }
-
-    // ---- melee swing ------------------------------------------------------------
-    let swing = 0, stab = 0;
-    if (this.meleeT >= 0) {
-      this.meleeT += dt / 0.32;
-      if (this.meleeT >= 1) this.meleeT = -1;
-      else {
-        const t = this.meleeT;
-        swing = Math.sin(t * Math.PI) * this.meleeSide;
-        stab = Math.sin(Math.min(1, t * 1.6) * Math.PI);
+    // ---- authored animation: pick the movement and how far through it ----------
+    let procDraw = 0;
+    let procInspect = 0;
+    if (r) {
+      this.idleT += dt;
+      const reloading = st.reloadT > 0;
+      if (reloading || st.drawT > 0) this.inspectT = -1;
+      if (st.drawT > 0) {
+        if (r.has('draw')) r.pose('draw', 1 - st.drawT);
+        else { r.pose('idle', 0); procDraw = st.drawT; }
+        this.fireT = this.meleeT = -1;
+      } else if (reloading) {
+        r.pose('reload', st.reloadT);
+        this.fireT = -1;
+      } else if (this.meleeT >= 0) {
+        this.meleeT += dt / 0.4;
+        if (this.meleeT >= 1) this.meleeT = -1;
+        else r.pose(r.has(this.meleeClip) ? this.meleeClip : 'melee', this.meleeT);
+      } else if (this.fireT >= 0) {
+        this.fireT += dt;
+        if (this.fireT < this.fireDur) r.pose('fire', this.fireT / this.fireDur);
+        else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) r.pose('bolt', (this.fireT - this.fireDur) / this.boltDur);
+        else this.fireT = -1;
+      }
+      if (st.drawT <= 0 && !reloading && this.meleeT < 0 && this.fireT < 0) {
+        if (this.inspectT >= 0) {
+          const dur = r.has('inspect') ? Math.min(4.5, r.seconds('inspect')) : 2.2;
+          this.inspectT += dt / dur;
+          if (this.inspectT >= 1) this.inspectT = -1;
+          else if (r.has('inspect')) r.pose('inspect', this.inspectT);
+          else { r.pose('idle', 0); procInspect = Math.sin(this.inspectT * Math.PI); }
+        }
+        // The packs' own idle loops rock visibly; hold the rest pose and breathe procedurally.
+        if (this.inspectT < 0) r.pose('idle', 0);
       }
     }
 
-    // ---- compose ----------------------------------------------------------------
-    const rest = m.rest;
-    const tuck = st.mantling ? 1 : st.grappling ? 0.35 : 0;
-    const root = m.root;
-    root.position.set(
-      rest.x + sx * 0.35 + bobX - swing * 0.16 - relTilt * 0.03,
-      rest.y + sy * 0.35 + bobY + land * 0.4 - air - drawE * 0.26 - relDrop - tuck * 0.2 + st.crouch * 0.008,
-      rest.z + kz * 0.35 - stab * 0.12 + tuck * 0.05,
+    // ---- spring layer --------------------------------------------------------------
+    const sx = this.swayX.step(THREE.MathUtils.clamp(-st.lookDX * 1.6, -0.06, 0.06), dt);
+    const sy = this.swayY.step(THREE.MathUtils.clamp(st.lookDY * 1.6, -0.05, 0.05), dt);
+
+    const moveF = st.onGround ? Math.min(1, st.speed / Math.max(1, st.maxSpeed)) : 0;
+    this.bobAmt += (moveF - this.bobAmt) * Math.min(1, dt * 9);
+    this.bobPhase += dt * (5.5 + st.speed * 1.35) * (moveF > 0.05 ? 1 : 0);
+    const bobX = Math.sin(this.bobPhase) * 0.0055 * this.bobAmt;
+    const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.0065 * this.bobAmt + 0.003 * this.bobAmt;
+
+    if (st.onGround && !this.wasGround) this.landY.kick(-Math.min(1.4, 0.25 + Math.abs(st.velY) * 0.08));
+    this.wasGround = st.onGround;
+    const air = st.onGround ? 0 : THREE.MathUtils.clamp(st.velY * 0.003, -0.025, 0.025);
+    const land = this.landY.step(0, dt);
+
+    const kz = this.kickZ.step(0, dt);
+    const kp = this.kickPitch.step(0, dt);
+    const kr = this.kickRoll.step(0, dt);
+    const drawE = procDraw * procDraw;
+
+    const breath = Math.sin(this.idleT * 1.5) * 0.0012 * (1 - this.bobAmt);
+    const h = this.holder;
+    h.position.set(
+      sx * 0.3 + bobX + procInspect * -0.05,
+      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.3 + st.crouch * 0.006 + procInspect * 0.03,
+      kz * 0.3,
     );
-    root.rotation.set(
-      kp * 0.28 + sy * 0.9 - drawE * 1.1 + relTilt * 0.34 - tuck * 0.9 + air * 2,
-      sx * 1.1 + swing * 0.9 + relTilt * 0.22 + bobX * 1.5,
-      kr * 0.2 - sx * 1.4 - relTilt * 0.5 + swing * 0.5 + st.crouch * 0.05,
+    h.rotation.set(
+      kp * 0.22 + sy * 0.8 - drawE * 1.1 + air * 2 + procInspect * 0.25,
+      sx * 1.0 + bobX * 1.5 + procInspect * 0.9,
+      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 + procInspect * 0.6,
       'YXZ',
     );
 
-    // ---- muzzle flash -----------------------------------------------------------
-    root.updateMatrixWorld(true);
-    this.tmp.copy(m.muzzle);
-    root.localToWorld(this.tmp);
-    this.muzzleWorld.copy(this.tmp);
+    // ---- muzzle flash ------------------------------------------------------------------
+    h.updateMatrixWorld(true);
+    if (r) this.muzzleWorld.copy(r.muzzle);
+    else this.muzzleWorld.set(0.1, -0.1, -0.6);
+    h.localToWorld(this.muzzleWorld);
     if (this.flashT > 0) {
       this.flashT -= dt;
-      this.flash.visible = !st.scoped;
-      this.flash.position.copy(this.tmp);
+      this.flash.visible = !st.scoped && !!r;
+      this.flash.position.copy(this.muzzleWorld);
       this.flash.position.z -= 0.03;
-      this.flashLight.position.copy(this.tmp);
+      this.flashLight.position.copy(this.muzzleWorld);
       this.flashLight.intensity = 2.5;
     } else {
       this.flash.visible = false;
       this.flashLight.intensity = 0;
     }
 
-    // ---- shells -----------------------------------------------------------------
     for (const s of this.shells) {
       if (s.life <= 0) continue;
       s.life -= dt;
@@ -439,7 +475,7 @@ export class Viewmodel {
   resize(aspect: number): void {
     this.camera.aspect = aspect;
     // Keep the gun the same apparent size on tall (portrait) screens.
-    this.camera.fov = aspect < 1 ? 75 : 58;
+    this.camera.fov = aspect < 1 ? 78 : 62;
     this.camera.updateProjectionMatrix();
   }
 }

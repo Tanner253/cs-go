@@ -1,73 +1,78 @@
 # NULLPOINT (working title)
 
-An original 5v5 round-based tactical shooter for the browser — desktop and mobile.
-Attackers plant a charge on one of two sites; defenders stop them or disarm it.
-The twist is vertical play: wall-jumps, ledge mantling and a grapple hook, with rooftops in bounds.
+A round-based tactical shooter for the browser — desktop and mobile. Attackers plant a
+charge on one of two sites; defenders stop them or disarm it. The focus is gunplay and
+movement: learnable spray patterns, first-shot accuracy, counter-strafing, and authored
+first-person weapon animations.
 
-Built with TypeScript, three.js and Vite. No art or audio downloads: geometry, textures and
-sound are generated at runtime, so the whole game is a ~170 kB (gzip) bundle.
+TypeScript, three.js and Vite. The level is generated at load; weapons, arms, animation and
+sound are real assets (see [CREDITS.md](CREDITS.md)).
 
 ## Run it
 
 ```bash
 npm install
-npm run dev        # http://localhost:5180
-npm test           # headless simulation tests (includes a full bot-vs-bot match)
-npm run build      # typecheck + production bundle in dist/
+npm run dev          # game client at http://localhost:5180
+npm run dev:server   # game server for online duels at ws://localhost:8787
+npm test             # simulation, bot and network tests
+npm run build        # typecheck + production client in dist/
 ```
 
-Useful URL flags: `?spectate=1` (all bots, watch through one of them), `?nolock=1` (no pointer lock; hold middle mouse to look — for automated testing).
+URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automated testing),
+`?arena=3` (join arena 3 straight away), `?server=wss://host` (use another game server).
+
+## Modes
+
+- **Play online** — 1v1 duel on a server-authoritative match. Five arenas run at once; a match
+  starts when two players are in one. First to 7 rounds, sides swap after 6.
+- **Practice** — the full round loop offline against bots, 1v1 up to 5v5.
+
+## Deploying
+
+The site is static and goes on Vercel (`vercel.json`). The game server needs a process that
+stays alive, which Vercel's functions cannot give a match (connections are cut at the function
+time limit and two players are not guaranteed the same instance), so it runs on Render:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Tanner253/cs-go)
+
+The blueprint (`render.yaml`) creates a free web service called `nullpoint-duel-server`. The
+client expects it at `wss://nullpoint-duel-server.onrender.com`; if Render gives the service a
+different address, set `VITE_SERVER_URL` in the Vercel project to `wss://<that-address>` and
+redeploy. Free Render services sleep when idle, so the first connection can take up to a minute;
+the lobby screen says so while it waits.
 
 ## Controls
 
 | Action | Desktop | Touch |
 |---|---|---|
-| Move / look | WASD / mouse | left stick / drag right side |
+| Move / look | WASD / mouse | left stick / drag |
 | Fire / scope | left click / right click | FIRE / ZOOM |
-| Jump, wall-jump | Space (tap again in the air against a wall) | JUMP |
-| Mantle a ledge | hold Space while pushing into it | hold JUMP |
-| Grapple | hold F or middle mouse | hold HOOK |
-| Crouch / walk | C or Ctrl / Shift | DUCK |
+| Jump / crouch / walk | Space / C or Ctrl / Shift | JUMP / DUCK |
 | Reload / use | R / E (plant, disarm) | RLD / USE |
+| Inspect weapon | F | — |
 | Armory / weapons | B / 1 2 3, Q, wheel | BUY / SWAP |
-| Scoreboard | Tab | — |
-
-## What is in the MVP
-
-- **Movement** — Quake/Source-lineage acceleration and friction (counter-strafing, air-strafing, bunny hops), crouch, silent walk, stair stepping, fall damage, plus wall-jump, mantle and grapple.
-- **Gunplay** — nine weapons as plain data; deterministic learnable spray patterns; first-shot accuracy; movement, air and sustained-fire inaccuracy; hit groups, armour and helmets, range falloff, wall penetration, tagging; scoped sniper; knife with backstab.
-- **Rules** — freeze/buy time, 1:55 rounds, plant (3.2 s) / disarm (10 s, 5 s with kit), 40 s fuse, first to 13 with a side swap at half, kill rewards, win and loss-streak bonuses, buy zones.
-- **Bots** — nine bots play the full objective through the same input path as a human: automatic nav grid, A*, site executes, holds, rotations, retakes, burst control, recoil compensation, four skill levels.
-- **Presentation** — procedural viewmodels with spring sway, bob, recoil, draw, reload and melee animation; tracers, impacts, bullet holes, shell ejection; synthesised positional audio; full HUD, armory, scoreboard, kill feed; touch controls.
+| Scoreboard / pause | Tab / Esc | II |
 
 ## Architecture
 
 ```
-src/sim/      engine-agnostic game simulation (no DOM, no three.js)
-  world.ts      AABB collision: hull sweeps, raycasts
-  map.ts        "Relay" blockout, sites, spawns, bot routes
-  movement.ts   player movement incl. wall-jump, mantle, grapple
-  weapons.ts    weapon catalogue and spray patterns
-  nav.ts        auto-generated nav grid + A*
-  bot.ts        bot brains (produce input commands only)
-  game.ts       Sim: 64 Hz tick, combat, rounds, economy, objective
-src/client/   presentation
-  game.ts       loop, camera, glue        world.ts      merged map meshes
-  viewmodel.ts  first-person weapons      characters.ts third-person models
-  effects.ts    pooled VFX                audio.ts      WebAudio synth
-  input.ts      keyboard/mouse/touch      hud.ts        DOM HUD
-tests/        vitest suite for the sim
+src/sim/      engine-agnostic simulation (no DOM, no three.js); runs on client and server
+  world.ts movement.ts weapons.ts map.ts nav.ts bot.ts game.ts
+src/net/      protocol.ts (snapshots, messages)   replica.ts (prediction, interpolation)
+server/       index.ts — lobbies and authoritative 64 Hz matches (Node + ws)
+src/client/   game.ts (loop)  gfx.ts world.ts effects.ts (rendering)  viewmodel.ts assets.ts
+              (weapon packs)  characters.ts  audio.ts  input.ts  hud.ts  menu.ts  net.ts  settings.ts
+public/assets weapon packs (GLB) and sounds
+tests/        sim, bots and a real-server network test
 ```
 
-The simulation advances only from per-player `Cmd` structs on a fixed 64 Hz tick and emits
-events. That is the seam for multiplayer: the same `Sim` class can run on an authoritative
-Node server while clients predict with it locally.
+Online, the client predicts its own player every tick and re-simulates from each server
+snapshot (32 per second); the opponent is drawn 100 ms in the past, interpolated; the server
+rewinds targets to what the shooter saw when testing hits.
 
 ## Not built yet
 
-Online multiplayer (server, prediction, lag compensation), grenades (smoke/flash/frag/incendiary),
-weapon drops and pickups, radar, overtime, spectator controls, voice/radio, settings beyond
-sensitivity and volume, and real art: the map is a graybox and characters, hands and weapons
-are primitives with procedural animation, not authored or motion-captured assets.
-
-See [docs/REFERENCES.md](docs/REFERENCES.md) for the open-source projects worth borrowing from next.
+Grenades, weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
+anti-cheat beyond server authority, authored third-person characters (they are still simple
+shapes), a shotgun model (the shotgun is out of the armory until it has one), and audio
+compressed for download size (sounds ship as WAV).

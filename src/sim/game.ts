@@ -29,6 +29,8 @@ export const RULES = {
   maxMoney: 16000,
   blastRadius: 18,
   blastDamage: 500,
+  /** Grapple hook, wall-jump and mantle. Off: the game plays as a classic ground shooter. */
+  verticalKit: false,
 };
 
 export interface SimOptions {
@@ -39,8 +41,15 @@ export interface SimOptions {
   /** Team for the human player, or null for an all-bot match. */
   humanTeam?: Team | null;
   humanName?: string;
+  /** false = every player is human-controlled (online play). */
+  bots?: boolean;
+  /** Player names in id order (online play). */
+  names?: string[];
   rules?: Partial<typeof RULES>;
 }
+
+/** Ticks of position history kept for lag compensation (1 second). */
+const HISTORY = 64;
 
 const BOT_NAMES = ['Vex', 'Ion', 'Nyx', 'Rook', 'Quill', 'Tarn', 'Juno', 'Kade', 'Lyra', 'Moss', 'Orin', 'Pax'];
 
@@ -127,6 +136,16 @@ export class Sim {
   /** Shared bot knowledge: where each team last saw the enemy push. */
   intel: [{ site: number; time: number }, { site: number; time: number }] = [{ site: -1, time: -99 }, { site: -1, time: -99 }];
   botSkill: number;
+  /** Id of the player this machine controls (-1 on a server or in an all-bot match). */
+  localId = -1;
+  /**
+   * True while a client is predicting its own player: movement and weapon handling run,
+   * but nothing authoritative (damage, purchases, objective completion) is applied.
+   */
+  predicting = false;
+  private history: Float32Array[] = [];
+  private shotRng = new Rng(1);
+  private saved = new Float32Array(4 * 16);
 
   constructor(opts: SimOptions = {}) {
     this.rules = { ...RULES, ...opts.rules };
@@ -141,8 +160,11 @@ export class Sim {
     let nameI = 0;
     for (let team = 0 as Team; team <= 1; team = (team + 1) as Team) {
       for (let i = 0; i < size; i++) {
-        const human = humanTeam === team && i === 0;
-        this.addPlayer(human ? opts.humanName ?? 'You' : BOT_NAMES[nameI++ % BOT_NAMES.length]!, team, !human);
+        const human = opts.bots === false || (humanTeam === team && i === 0);
+        const id = this.players.length;
+        const name = opts.names?.[id] ?? (human && opts.bots !== false ? opts.humanName ?? 'You' : BOT_NAMES[nameI++ % BOT_NAMES.length]!);
+        const p = this.addPlayer(name, team, !human);
+        if (human && opts.bots !== false) this.localId = p.id;
       }
     }
     this.startRound(true);
@@ -162,17 +184,18 @@ export class Sim {
       grappleOn: false, grapplePoint: v3(), grappleTime: 0, grappleReadyAt: 0,
       weapons: [null, null, null], active: 1, lastActive: 2,
       drawTimer: 0, reloadTimer: 0, nextFireAt: 0, lastShotAt: -99, recoilIdx: 0,
-      punchPitch: 0, punchYaw: 0, fireSpread: 0, scope: 0, useTime: 0, prevButtons: 0, spawnIndex: 0,
+      punchPitch: 0, punchYaw: 0, fireSpread: 0, scope: 0, rescope: 0, fireBuffer: 0, useTime: 0, prevButtons: 0, spawnIndex: 0,
     };
     this.players.push(p);
     this.cmds.push(emptyCmd());
+    this.history.push(new Float32Array(HISTORY * 4));
     if (isBot) this.bots.set(p.id, new Bot(p, this));
     return p;
   }
 
+  /** The player controlled on this machine, if any. */
   get human(): Player | null {
-    for (const p of this.players) if (!p.isBot) return p;
-    return null;
+    return this.localId >= 0 ? this.players[this.localId]! : null;
   }
 
   aliveCount(team: Team): number {
@@ -238,6 +261,8 @@ export class Sim {
       p.hasCharge = false;
       p.useTime = 0;
       p.scope = 0;
+      p.rescope = 0;
+      p.fireBuffer = 0;
       p.reloadTimer = 0;
       p.recoilIdx = 0;
       p.punchPitch = p.punchYaw = 0;
@@ -373,6 +398,8 @@ export class Sim {
     p.drawTimer = def.drawTime;
     p.reloadTimer = 0;
     p.scope = 0;
+    p.rescope = 0;
+    p.fireBuffer = 0;
     p.recoilIdx = 0;
     p.fireSpread = 0;
     this.events.push({ type: 'draw', player: p.id, weapon: def.id });
@@ -433,27 +460,67 @@ export class Sim {
       this.startReload(p, w);
       return;
     }
-    if (def.kind === 'sniper' && pressed & BTN_ALT) {
-      p.scope = ((p.scope + 1) % 3) as 0 | 1 | 2;
-      this.events.push({ type: 'scope', player: p.id, level: p.scope });
+    if (def.kind === 'sniper') {
+      if (pressed & BTN_ALT) {
+        p.scope = ((p.scope + 1) % 3) as 0 | 1 | 2;
+        p.rescope = 0;
+        this.events.push({ type: 'scope', player: p.id, level: p.scope });
+      } else if (p.rescope > 0 && now >= p.nextFireAt - 0.2) {
+        // Bolt cycled: back onto the scope at the zoom level used for the last shot.
+        p.scope = p.rescope;
+        p.rescope = 0;
+        this.events.push({ type: 'scope', player: p.id, level: p.scope });
+      }
     }
 
-    const wantFire = def.auto ? cmd.buttons & BTN_FIRE : pressed & BTN_FIRE;
+    if (!def.auto && pressed & BTN_FIRE) p.fireBuffer = now + 0.12;
+    const wantFire = def.auto ? cmd.buttons & BTN_FIRE : pressed & BTN_FIRE || now < p.fireBuffer;
     if (!wantFire || now < p.nextFireAt) return;
+    p.fireBuffer = 0;
     if (def.kind === 'knife') {
+      this.rewind(p, cmd.lag);
       this.knife(p, def);
+      this.restore(p, cmd.lag);
     } else if (w.mag <= 0) {
       if (pressed & BTN_FIRE) this.events.push({ type: 'dry', player: p.id });
       if (w.reserve > 0) this.startReload(p, w);
       else p.nextFireAt = now + 0.2;
     } else {
-      this.shoot(p, w);
+      this.rewind(p, cmd.lag);
+      this.shoot(p, w, cmd.seq);
+      this.restore(p, cmd.lag);
+    }
+  }
+
+  // ---- lag compensation -------------------------------------------------------------
+  // The shooter saw other players where they were a few ticks ago, so hits are tested
+  // against those positions ("favour the shooter").
+
+  private rewind(shooter: Player, lag: number): void {
+    if (lag <= 0 || this.predicting) return;
+    const back = Math.min(HISTORY - 1, lag);
+    const slot = (((this.tickCount - back) % HISTORY) + HISTORY) % HISTORY;
+    for (const v of this.players) {
+      if (v === shooter || v.id >= 16) continue;
+      const s = this.saved, h = this.history[v.id]!;
+      s[v.id * 4] = v.pos.x; s[v.id * 4 + 1] = v.pos.y; s[v.id * 4 + 2] = v.pos.z; s[v.id * 4 + 3] = v.crouchT;
+      v.pos.x = h[slot * 4]!; v.pos.y = h[slot * 4 + 1]!; v.pos.z = h[slot * 4 + 2]!; v.crouchT = h[slot * 4 + 3]!;
+    }
+  }
+
+  private restore(shooter: Player, lag: number): void {
+    if (lag <= 0 || this.predicting) return;
+    for (const v of this.players) {
+      if (v === shooter || v.id >= 16) continue;
+      const s = this.saved;
+      v.pos.x = s[v.id * 4]!; v.pos.y = s[v.id * 4 + 1]!; v.pos.z = s[v.id * 4 + 2]!; v.crouchT = s[v.id * 4 + 3]!;
     }
   }
 
   private startReload(p: Player, w: WeaponState): void {
     p.reloadTimer = w.def.reloadTime;
     p.scope = 0;
+    p.rescope = 0;
     this.events.push({ type: 'reload', player: p.id, weapon: w.def.id });
   }
 
@@ -482,8 +549,14 @@ export class Sim {
     return true;
   }
 
-  private shoot(p: Player, w: WeaponState): void {
+  private shoot(p: Player, w: WeaponState, seq: number): void {
     const def = w.def;
+    // Online, spread is seeded from the command so the client's predicted tracer matches the server.
+    let rng = this.rng;
+    if (seq > 0) {
+      rng = this.shotRng;
+      rng.reseed(Math.imul(seq, 2654435761) ^ Math.imul(p.id + 1, 40503));
+    }
     const now = this.time;
     const interval = 60 / def.rpm;
     if (p.nextFireAt < now - TICK) p.nextFireAt = now;
@@ -501,8 +574,8 @@ export class Sim {
     const ends: number[] = [];
     const kinds: number[] = [];
     for (let i = 0; i < def.pellets; i++) {
-      const a = this.rng.next() * Math.PI * 2;
-      const r = spread * (def.pellets > 1 ? Math.sqrt(this.rng.next()) : this.rng.next());
+      const a = rng.next() * Math.PI * 2;
+      const r = spread * (def.pellets > 1 ? Math.sqrt(rng.next()) : rng.next());
       const sx = Math.cos(a) * r, sy = Math.sin(a) * r;
       let dx = fwd.x + rx * sx + ux * sy;
       let dy = fwd.y + uy * sy;
@@ -519,6 +592,7 @@ export class Sim {
     p.punchPitch = punch.pitch;
     p.punchYaw = punch.yaw;
     if (def.kind === 'sniper' && p.scope > 0) {
+      p.rescope = w.mag > 0 ? p.scope : 0;
       p.scope = 0;
       this.events.push({ type: 'scope', player: p.id, level: 0 });
     }
@@ -608,6 +682,7 @@ export class Sim {
     v: Player, attacker: Player | null, def: WeaponDef | null, base: number, group: number,
     dist: number, x: number, y: number, z: number, wallbang: boolean,
   ): void {
+    if (this.predicting) return;
     let dmg = base;
     let armorPen = 0.5;
     if (def) {
@@ -683,6 +758,13 @@ export class Sim {
 
   private updateUse(p: Player, cmd: Cmd): void {
     const holding = (cmd.buttons & BTN_USE) !== 0;
+    if (this.predicting) {
+      // Show progress immediately; the server decides when it completes.
+      if (holding && this.canPlant(p)) p.useTime = Math.min(this.rules.plantTime, p.useTime + TICK);
+      else if (holding && this.canDisarm(p)) p.useTime = Math.min(this.disarmDuration(p), p.useTime + TICK);
+      else p.useTime = 0;
+      return;
+    }
     if (holding && this.canPlant(p)) {
       p.useTime += TICK;
       if (p.useTime >= this.rules.plantTime) {
@@ -815,8 +897,6 @@ export class Sim {
       if ((this.phase as Phase) === 'over') return;
     }
     if (this.phase === 'live' || this.phase === 'planted') this.liveTime += TICK;
-    const frozenPhase = this.phase === 'freeze';
-
     for (const p of this.players) {
       const cmd = this.cmds[p.id]!;
       if (p.isBot) {
@@ -824,36 +904,54 @@ export class Sim {
       } else {
         const c = humanCmd ? humanCmd(p) : null;
         if (c) Object.assign(cmd, c);
-        else { cmd.fwd = cmd.side = 0; cmd.buttons = 0; cmd.slot = -1; cmd.buy = ''; }
+        else { cmd.fwd = cmd.side = 0; cmd.buttons = 0; cmd.slot = -1; cmd.buy = ''; cmd.seq = 0; cmd.lag = 0; }
       }
-      p.prevPos.x = p.pos.x; p.prevPos.y = p.pos.y; p.prevPos.z = p.pos.z;
-      p.prevCrouchT = p.crouchT;
-      if (!p.alive) continue;
-
-      p.yaw = cmd.yaw;
-      p.pitch = cmd.pitch;
-      if (cmd.buy) {
-        const ok = this.tryBuy(p, cmd.buy);
-        this.events.push({ type: 'buy', player: p.id, item: cmd.buy, ok });
-      }
-
-      const busy = p.useTime > 0;
-      const land = movePlayer(p, cmd, this.world, TICK, this.moveSpeed(p), frozenPhase || busy, this.time, this.events);
-      if (land > 14.7) {
-        this.damage(p, null, null, (land - 14.7) * 9, LEGS, 0, p.pos.x, p.pos.y, p.pos.z, false);
-        if (!p.alive) continue;
-      }
-      // Kill plane, in case anything ever escapes the map.
-      if (p.pos.y < -20) { this.kill(p, null, null, false, false); continue; }
-
-      this.updateUse(p, cmd);
-      this.updateWeapon(p, cmd, !frozenPhase && p.useTime <= 0 && p.mantleT < 0);
-      p.prevButtons = cmd.buttons;
+      this.stepPlayer(p, cmd);
     }
 
     this.separate();
     this.updateCharge();
     this.checkWin();
+
+    // Record where everyone ended the tick, for lag compensation.
+    const slot = this.tickCount % HISTORY;
+    for (const p of this.players) {
+      const h = this.history[p.id]!;
+      h[slot * 4] = p.pos.x; h[slot * 4 + 1] = p.pos.y; h[slot * 4 + 2] = p.pos.z; h[slot * 4 + 3] = p.crouchT;
+    }
+  }
+
+  /**
+   * Apply one input command to one player. The server calls this from `tick`; a client
+   * calls it directly (with `predicting` set) to predict its own player ahead of the server.
+   */
+  stepPlayer(p: Player, cmd: Cmd): void {
+    p.prevPos.x = p.pos.x; p.prevPos.y = p.pos.y; p.prevPos.z = p.pos.z;
+    p.prevCrouchT = p.crouchT;
+    if (!p.alive) return;
+    const frozenPhase = this.phase === 'freeze';
+
+    p.yaw = cmd.yaw;
+    p.pitch = cmd.pitch;
+    if (cmd.buy && !this.predicting) {
+      const ok = this.tryBuy(p, cmd.buy);
+      this.events.push({ type: 'buy', player: p.id, item: cmd.buy, ok });
+    }
+
+    const busy = p.useTime > 0;
+    const land = movePlayer(p, cmd, this.world, TICK, this.moveSpeed(p), frozenPhase || busy, this.time, this.events, this.rules.verticalKit);
+    if (!this.predicting) {
+      if (land > 14.7) {
+        this.damage(p, null, null, (land - 14.7) * 9, LEGS, 0, p.pos.x, p.pos.y, p.pos.z, false);
+        if (!p.alive) return;
+      }
+      // Kill plane, in case anything ever escapes the map.
+      if (p.pos.y < -20) { this.kill(p, null, null, false, false); return; }
+    }
+
+    this.updateUse(p, cmd);
+    this.updateWeapon(p, cmd, !frozenPhase && p.useTime <= 0 && p.mantleT < 0);
+    p.prevButtons = cmd.buttons;
   }
 
   /** Start a brand new match with the same players. */

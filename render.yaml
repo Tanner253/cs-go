@@ -1,0 +1,14 @@
+# Render blueprint: the NULLPOINT game server (five 1v1 arenas, WebSocket).
+# One click: https://render.com/deploy?repo=https://github.com/Tanner253/cs-go
+services:
+  - type: web
+    name: nullpoint-duel-server
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build:server
+    startCommand: node dist-server/index.cjs
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

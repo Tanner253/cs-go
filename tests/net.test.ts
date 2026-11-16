@@ -1,0 +1,161 @@
+import { execSync, spawn, type ChildProcess } from 'node:child_process';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Sim } from '../src/sim/game';
+import { BTN_FIRE, TICK, emptyCmd, type Cmd } from '../src/sim/types';
+import { RULES_1V1, type ServerMsg } from '../src/net/protocol';
+import { Replica } from '../src/net/replica';
+
+describe('lag compensation', () => {
+  /** Shooter at mid, victim strafing across the lane 10 m away. */
+  function setup() {
+    const sim = new Sim({ teamSize: 1, bots: false, rules: { ...RULES_1V1, freezeTime: 0.02 } });
+    const [shooter, victim] = [sim.players[0]!, sim.players[1]!];
+    const cmds = [emptyCmd(), emptyCmd()];
+    const step = (n = 1) => { for (let i = 0; i < n; i++) { sim.tick((p) => cmds[p.id]!); sim.events.length = 0; } };
+    step(4);
+    shooter.pos.x = 0; shooter.pos.z = 20; shooter.pos.y = 0.002;
+    victim.pos.x = -3; victim.pos.z = 12; victim.pos.y = 0.002;
+    shooter.money = 9000;
+    sim.phase = 'freeze';
+    sim.tryBuy(shooter, 'hammerhead');
+    sim.phase = 'live';
+    step(64); // draw the rifle
+    // Victim runs east (+X) across the shooter's view.
+    cmds[1]!.yaw = -Math.PI / 2;
+    cmds[1]!.fwd = 1;
+    step(40);
+    return { sim, shooter, victim, cmds, step };
+  }
+
+  it('hits where the shooter saw the target, not where the target is now', () => {
+    const lagTicks = 10; // ~156 ms
+    for (const useLag of [true, false]) {
+      const { sim, shooter, victim, cmds, step } = setup();
+      // Aim at the chest position the victim had `lagTicks` ago.
+      const history: number[] = [];
+      for (let i = 0; i < lagTicks; i++) { history.push(victim.pos.x); step(1); }
+      const oldX = history[0]!;
+      expect(Math.abs(victim.pos.x - oldX)).toBeGreaterThan(0.6); // moved well clear of the old spot
+      const dx = oldX - shooter.pos.x, dz = victim.pos.z - shooter.pos.z;
+      cmds[0]!.yaw = Math.atan2(-dx, -dz);
+      cmds[0]!.pitch = Math.atan2(1.3 - 1.63, Math.hypot(dx, dz));
+      cmds[0]!.buttons = BTN_FIRE;
+      cmds[0]!.seq = 1;
+      // `lag` counts back from the tick being processed.
+      cmds[0]!.lag = useLag ? lagTicks + 1 : 0;
+      const hp = victim.hp;
+      sim.tick((p) => cmds[p.id]!);
+      expect(victim.hp < hp, useLag ? 'lag-compensated shot should hit' : 'uncompensated shot should miss').toBe(useLag);
+      // The victim must be back at their real position afterwards.
+      expect(Math.abs(victim.pos.x - oldX)).toBeGreaterThan(0.6);
+    }
+  });
+});
+
+describe('online match (real server, two clients)', () => {
+  // A fresh port per run, so a server left over from an interrupted run can never be mistaken for ours.
+  const PORT = 20000 + Math.floor(Math.random() * 20000);
+  let server: ChildProcess;
+
+  beforeAll(async () => {
+    execSync('npm run build:server', { stdio: 'ignore' });
+    server = spawn(process.execPath, ['dist-server/index.cjs'], { env: { ...process.env, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'inherit'] });
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('server did not start')), 10000);
+      server.stdout!.on('data', (d: Buffer) => { if (d.toString().includes('listening')) { clearTimeout(t); resolve(); } });
+    });
+  }, 30000);
+
+  afterAll(() => { server?.kill(); });
+
+  it('reports health and lobby state over HTTP', async () => {
+    expect(await (await fetch(`http://localhost:${PORT}/health`)).text()).toBe('ok');
+    const info = (await (await fetch(`http://localhost:${PORT}/`)).json()) as { lobbies: unknown[] };
+    expect(info.lobbies).toHaveLength(5);
+  });
+
+  it('starts a duel, predicts the local player accurately and shows the opponent moving', async () => {
+    interface TestClient {
+      ws: WebSocket; replica: Replica | null; cmd: Cmd; lobbies: number; corrections: number[]; left: string;
+    }
+    const now = () => performance.now() / 1000;
+    const connect = (name: string): Promise<TestClient> => new Promise((resolve) => {
+      const ws = new WebSocket(`ws://localhost:${PORT}`);
+      const c: TestClient = { ws, replica: null, cmd: emptyCmd(), lobbies: 0, corrections: [], left: '' };
+      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', v: 1, name })); };
+      ws.onmessage = (ev) => {
+        const m = JSON.parse(ev.data as string) as ServerMsg;
+        if (m.t === 'welcome') { ws.send(JSON.stringify({ t: 'join', id: 2 })); resolve(c); }
+        else if (m.t === 'lobbies') c.lobbies++;
+        else if (m.t === 'start') c.replica = new Replica(m.you, m.names);
+        else if (m.t === 'left') c.left = m.reason;
+        else if (m.t === 'snap' && c.replica) {
+          const me = c.replica.player;
+          const bx = me.pos.x, bz = me.pos.z;
+          c.replica.onSnapshot(m.s, now());
+          c.corrections.push(Math.hypot(me.pos.x - bx, me.pos.z - bz));
+        }
+      };
+    });
+
+    const a = await connect('Alpha');
+    const b = await connect('Bravo');
+    // Drive both clients at 64 Hz from a fixed-step accumulator, like the real client
+    // (OS timers are too coarse to fire exactly every 15.6 ms).
+    let acc = 0, last = now();
+    const timer = setInterval(() => {
+      const t = now();
+      acc += Math.min(0.25, t - last);
+      last = t;
+      while (acc >= TICK) {
+        acc -= TICK;
+        for (const c of [a, b]) {
+          if (!c.replica) continue;
+          c.ws.send(JSON.stringify(c.replica.input(c.cmd, t)));
+          c.replica.sim.events.length = 0;
+          c.replica.frame(t, TICK);
+        }
+      }
+    }, 2);
+    const until = async (cond: () => boolean, ms: number, what: string) => {
+      const t0 = Date.now();
+      while (!cond()) {
+        if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+
+    try {
+      await until(() => !!a.replica && !!b.replica, 8000, 'match start');
+      expect(a.replica!.me).not.toBe(b.replica!.me);
+      expect(a.replica!.sim.players.map((p) => p.name).sort()).toEqual(['Alpha', 'Bravo']);
+      await until(() => a.replica!.sim.phase === 'live' && b.replica!.sim.phase === 'live', 12000, 'round to go live');
+
+      // Both run forward for two seconds.
+      const startA = { ...a.replica!.player.pos };
+      const seenByB = { ...b.replica!.sim.players[a.replica!.me]!.pos };
+      a.corrections.length = 0;
+      for (const c of [a, b]) { c.cmd.yaw = c.replica!.player.yaw; c.cmd.fwd = 1; }
+      await new Promise((r) => setTimeout(r, 2000));
+
+      const movedA = Math.hypot(a.replica!.player.pos.x - startA.x, a.replica!.player.pos.z - startA.z);
+      expect(movedA).toBeGreaterThan(4); // some spawns meet a wall after ~4.2 m
+      const aOnB = b.replica!.sim.players[a.replica!.me]!.pos;
+      expect(Math.hypot(aOnB.x - seenByB.x, aOnB.z - seenByB.z)).toBeGreaterThan(3.5);
+      // Prediction should agree with the server almost exactly during steady movement.
+      const worst = Math.max(...a.corrections);
+      const mean = a.corrections.reduce((s, v) => s + v, 0) / a.corrections.length;
+      console.log(`prediction corrections over ${a.corrections.length} snapshots: mean ${(mean * 1000).toFixed(2)} mm, worst ${(worst * 1000).toFixed(1)} mm`);
+      expect(a.corrections.length).toBeGreaterThan(40);
+      expect(mean).toBeLessThan(0.02);
+
+      // Opponent leaving ends the match for the other player.
+      b.ws.close();
+      await until(() => a.left !== '', 3000, 'opponent-left notice');
+    } finally {
+      clearInterval(timer);
+      a.ws.close();
+      b.ws.close();
+    }
+  }, 40000);
+});

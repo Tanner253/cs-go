@@ -58,6 +58,9 @@ export class Rng {
   constructor(seed: number) {
     this.s = seed >>> 0;
   }
+  reseed(seed: number): void {
+    this.s = seed >>> 0;
+  }
   next(): number {
     this.s = (this.s + 0x6d2b79f5) >>> 0;
     let t = this.s;

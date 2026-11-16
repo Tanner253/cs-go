@@ -159,7 +159,7 @@ export function endGrapple(p: Player, now: number, events: SimEvent[]): void {
  */
 export function movePlayer(
   p: Player, cmd: Cmd, world: World, dt: number, maxSpeed: number,
-  frozen: boolean, now: number, events: SimEvent[],
+  frozen: boolean, now: number, events: SimEvent[], vertical = false,
 ): number {
   const buttons = frozen ? cmd.buttons & BTN_CROUCH : cmd.buttons;
   const pressed = buttons & ~p.prevButtons;
@@ -222,7 +222,7 @@ export function movePlayer(
   else if (buttons & BTN_WALK) wishSpeed *= WALK_MULT;
 
   // ---- grapple -------------------------------------------------------------------
-  if (pressed & BTN_GRAPPLE && !p.grappleOn && now >= p.grappleReadyAt) {
+  if (vertical && pressed & BTN_GRAPPLE && !p.grappleOn && now >= p.grappleReadyAt) {
     const ey = pos.y + eyeHeight(p);
     forwardFromAngles(p.yaw, p.pitch, tmp);
     const ok = world.raycast(pos.x, ey, pos.z, tmp.x, tmp.y, tmp.z, GRAPPLE_RANGE, ray) && ray.dist > 2;
@@ -283,12 +283,12 @@ export function movePlayer(
       accelerate(p, wx, wz, wishSpeed, ACCEL, dt);
     } else {
       // Mantle: hold jump and push into a ledge while airborne.
-      if (!jumped && buttons & BTN_JUMP && cmd.fwd > 0.3 && vel.y > -11 && tryMantle(p, world, hy, fx, fz)) {
+      if (vertical && !jumped && buttons & BTN_JUMP && cmd.fwd > 0.3 && vel.y > -11 && tryMantle(p, world, hy, fx, fz)) {
         events.push({ type: 'mantle', player: p.id });
         return 0;
       }
       // Wall-jump: tap jump while touching a wall in the air.
-      if (!jumped && pressed & BTN_JUMP && p.wallJumps < MAX_WALLJUMPS && findWall(p, world, hy, wall, wx * wishLen, wz * wishLen)) {
+      if (vertical && !jumped && pressed & BTN_JUMP && p.wallJumps < MAX_WALLJUMPS && findWall(p, world, hy, wall, wx * wishLen, wz * wishLen)) {
         if (wall.nx !== 0) vel.x = wall.nx * WALLJUMP_PUSH;
         else vel.z = wall.nz * WALLJUMP_PUSH;
         vel.y = WALLJUMP_UP;

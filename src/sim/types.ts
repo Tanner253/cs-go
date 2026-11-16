@@ -29,9 +29,13 @@ export interface Cmd {
   slot: number;
   /** Item id to buy this tick, or ''. */
   buy: string;
+  /** Client sequence number (0 offline). Also seeds weapon spread so client and server agree. */
+  seq: number;
+  /** Ticks of lag compensation to apply to this command's shots (set by the server). */
+  lag: number;
 }
 
-export const emptyCmd = (): Cmd => ({ fwd: 0, side: 0, yaw: 0, pitch: 0, buttons: 0, slot: -1, buy: '' });
+export const emptyCmd = (): Cmd => ({ fwd: 0, side: 0, yaw: 0, pitch: 0, buttons: 0, slot: -1, buy: '', seq: 0, lag: 0 });
 
 export interface WeaponState {
   def: WeaponDef;
@@ -101,6 +105,10 @@ export interface Player {
   punchYaw: number;
   fireSpread: number;
   scope: 0 | 1 | 2;
+  /** Sniper: zoom level to return to once the bolt has cycled (0 = none). */
+  rescope: 0 | 1 | 2;
+  /** Semi-auto weapons: a click slightly before the gun is ready still fires (sim time). */
+  fireBuffer: number;
   /** Progress (seconds) of planting or disarming. */
   useTime: number;
   prevButtons: number;

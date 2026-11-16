@@ -1,5 +1,6 @@
-// Fully synthesised audio (WebAudio): no sample downloads. Every sound is a short
-// recipe of filtered noise and oscillators, positioned with a pan + distance model.
+// Game audio (WebAudio). Weapons, handling and footsteps are recordings (see CREDITS.md),
+// decoded after the first user gesture; anything without a recording, or not loaded yet,
+// falls back to a synthesised recipe. Everything is positioned with a pan + distance model.
 
 import type { WeaponKind } from '../sim/weapons';
 
@@ -29,7 +30,35 @@ const SHOTS: Record<WeaponKind, ShotRecipe> = {
   knife: { dur: 0, lp: 0, thump: 0, thumpGain: 0, crack: 0, gain: 0, tail: 0 },
 };
 
+/** Recordings shipped in public/assets/sounds. */
+const SAMPLES = [
+  'shot_ak', 'shot_ar', 'shot_pistol', 'shot_pistol_2', 'shot_pistol_3', 'shot_deagle', 'shot_mp7', 'shot_rifle', 'shot_50', 'shot_shotgun',
+  'bolt', 'pistol_mag_in', 'pistol_mag_out', 'rifle_mag_in', 'rifle_mag_out', 'ak_mag_in', 'ak_mag_out', 'ak_rack', 'rack',
+  'uzi_mag_in', 'uzi_mag_out', 'uzi_rack', 'casing', 'step_concrete', 'step_concrete_2', 'step_concrete_3', 'step_concrete_4', 'step_concrete_5',
+  'bullet_crack', 'bullet_crack_2', 'bullet_crack_3', 'hit_metal', 'hit_metal_2', 'hit_metal_3', 'c4_beep', 'punch', 'punch_2', 'thud', 'thud_2',
+  'drop_gun', 'take_metal', 'cloth', 'cloth_2',
+] as const;
+type SampleName = (typeof SAMPLES)[number];
+
+const SHOT_SAMPLE: Record<string, SampleName> = {
+  hammerhead: 'shot_ak', lumen: 'shot_ar', wasp: 'shot_mp7', kite: 'shot_pistol', tern: 'shot_pistol_2', maul: 'shot_deagle',
+  longsight: 'shot_50', breaker: 'shot_shotgun',
+};
+
+/** Handling sounds through a reload: [fraction of the reload, sample, gain]. */
+const RELOAD_FOLEY: Record<WeaponKind, [number, SampleName, number][]> = {
+  rifle: [[0.16, 'ak_mag_out', 0.9], [0.52, 'ak_mag_in', 1], [0.8, 'ak_rack', 1]],
+  smg: [[0.14, 'uzi_mag_out', 0.9], [0.5, 'uzi_mag_in', 1], [0.8, 'uzi_rack', 1]],
+  pistol: [[0.14, 'pistol_mag_out', 0.9], [0.55, 'pistol_mag_in', 1], [0.84, 'rack', 0.9]],
+  sniper: [[0.1, 'bolt', 0.9], [0.5, 'rifle_mag_in', 1], [0.82, 'bolt', 1]],
+  shotgun: [[0.2, 'rifle_mag_in', 0.9], [0.5, 'rifle_mag_in', 0.9], [0.84, 'rack', 1]],
+  knife: [],
+};
+
 export class GameAudio {
+  private bank = new Map<string, AudioBuffer>();
+  private loading = false;
+
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private reverb!: ConvolverNode;
@@ -74,6 +103,46 @@ export class GameAudio {
     this.reverbGain = ctx.createGain();
     this.reverbGain.gain.value = 0.35;
     this.reverb.connect(this.reverbGain).connect(this.master);
+    this.loadSamples();
+  }
+
+  private loadSamples(): void {
+    if (this.loading || !this.ctx) return;
+    this.loading = true;
+    const ctx = this.ctx;
+    const base = `${import.meta.env.BASE_URL}assets/sounds/`;
+    for (const name of SAMPLES) {
+      fetch(`${base}${name}.wav`)
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+        .then((data) => ctx.decodeAudioData(data))
+        .then((buf) => { this.bank.set(name, buf); })
+        .catch(() => { /* synth fallback stays in use for this sound */ });
+    }
+  }
+
+  /** Number of recordings decoded so far (for diagnostics). */
+  get samplesLoaded(): number {
+    return this.bank.size;
+  }
+
+  /** Play a recording if it is loaded. Returns false so callers can fall back to synthesis. */
+  private sample(
+    name: SampleName, x: number | null, y: number, z: number,
+    gain = 1, refDist = 9, wet = 0.2, rate = 1, delay = 0,
+  ): boolean {
+    const buf = this.bank.get(name);
+    if (!buf) return false;
+    const o = this.out(x, y, z, refDist, wet);
+    if (!o) return true;
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(o.node);
+    src.start(ctx.currentTime + delay);
+    return true;
   }
 
   setVolume(v: number): void {
@@ -155,9 +224,18 @@ export class GameAudio {
     o.stop(t + dur + 0.02);
   }
 
-  shot(kind: WeaponKind, x: number | null, y = 0, z = 0): void {
+  shot(kind: WeaponKind, x: number | null, y = 0, z = 0, id = ''): void {
     const r = SHOTS[kind];
     if (r.dur === 0) return;
+    const name = SHOT_SAMPLE[id];
+    if (name && this.sample(name, x, y, z, 0.95, 18, 0.28 + r.tail * 0.4, 0.97 + Math.random() * 0.06)) {
+      if (x === null) {
+        // Your own gun: the spent case, and the bolt on a bolt-action.
+        if (kind === 'sniper') this.sample('bolt', null, 0, 0, 0.8, 1, 0.1, 1, 0.42);
+        else if (kind !== 'shotgun') this.sample('casing', null, 0, 0, 0.25, 1, 0.1, 0.9 + Math.random() * 0.3, 0.38);
+      }
+      return;
+    }
     const o = this.out(x, y, z, 16, 0.3 + r.tail * 0.5);
     if (!o) return;
     const t = this.ctx!.currentTime;
@@ -171,6 +249,9 @@ export class GameAudio {
   }
 
   step(x: number | null, y = 0, z = 0): void {
+    const n = 1 + Math.floor(Math.random() * 5);
+    const name = (n === 1 ? 'step_concrete' : `step_concrete_${n}`) as SampleName;
+    if (this.sample(name, x, y, z, x === null ? 0.45 : 0.9, 6, 0.1, 0.94 + Math.random() * 0.12)) return;
     const o = this.out(x, y, z, 5, 0.08);
     if (!o) return;
     const t = this.ctx!.currentTime;
@@ -179,6 +260,7 @@ export class GameAudio {
   }
 
   land(x: number | null, y: number, z: number, hard: number): void {
+    if (this.sample(Math.random() < 0.5 ? 'thud' : 'thud_2', x, y, z, 0.35 + hard * 0.6, 6, 0.12)) return;
     const o = this.out(x, y, z, 6, 0.1);
     if (!o) return;
     const t = this.ctx!.currentTime;
@@ -193,6 +275,11 @@ export class GameAudio {
   }
 
   reload(kind: WeaponKind, duration: number): void {
+    const foley = RELOAD_FOLEY[kind];
+    if (foley.length > 0 && this.bank.has(foley[0]![1])) {
+      for (const [at, name, gain] of foley) this.sample(name, null, 0, 0, gain, 1, 0.08, 1, at * duration);
+      return;
+    }
     const o = this.out(null, 0, 0, 1, 0.05);
     if (!o) return;
     const t = this.ctx!.currentTime;
@@ -209,6 +296,10 @@ export class GameAudio {
   }
 
   draw(): void {
+    if (this.sample(Math.random() < 0.5 ? 'cloth' : 'cloth_2', null, 0, 0, 0.5, 1, 0.05)) {
+      this.sample('take_metal', null, 0, 0, 0.35, 1, 0.05, 1, 0.12);
+      return;
+    }
     const o = this.out(null, 0, 0, 1, 0.03);
     if (!o) return;
     const t = this.ctx!.currentTime;
@@ -227,6 +318,7 @@ export class GameAudio {
     if (!o) return;
     const t = this.ctx!.currentTime;
     this.noiseBurst(o.node, t, 0.16, 'bandpass', 900, 1.2, 0.45, 4200);
+    if (hit && this.sample(Math.random() < 0.5 ? 'punch' : 'punch_2', x, y, z, 0.9, 4, 0.08, 1, 0.05)) return;
     if (hit) {
       this.noiseBurst(o.node, t + 0.05, 0.1, 'lowpass', 900, 1, 0.8);
       this.tone(o.node, t + 0.05, 0.1, 'sine', 160, 70, 0.6);
@@ -269,7 +361,14 @@ export class GameAudio {
     this.noiseBurst(o.node, this.ctx!.currentTime, 0.2, 'bandpass', 500, 1, 0.3, 1800);
   }
 
+  /** A bullet striking the level near the listener. */
+  impact(x: number, y: number, z: number): void {
+    const n = 1 + Math.floor(Math.random() * 3);
+    this.sample((n === 1 ? 'hit_metal' : `hit_metal_${n}`) as SampleName, x, y, z, 0.35, 5, 0.15, 0.9 + Math.random() * 0.3);
+  }
+
   beep(x: number, y: number, z: number, urgent: boolean): void {
+    if (this.sample('c4_beep', x, y, z, 0.8, 14, 0.2, urgent ? 1.25 : 1)) return;
     const o = this.out(x, y, z, 14, 0.2);
     if (!o) return;
     const t = this.ctx!.currentTime;

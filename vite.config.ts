@@ -9,5 +9,6 @@ export default defineConfig({
   build: { target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 900 },
   // _reference/ holds third-party repos for reading only: never scan, bundle or test them.
   optimizeDeps: { entries: ['index.html'] },
-  test: { include: ['tests/**/*.test.ts'], exclude: ['_reference/**', 'node_modules/**'] },
+  // The network test drives a real server on wall-clock time: run test files one at a time.
+  test: { include: ['tests/**/*.test.ts'], exclude: ['_reference/**', 'node_modules/**'], fileParallelism: false },
 });

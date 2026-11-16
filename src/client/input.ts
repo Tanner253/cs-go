@@ -1,22 +1,27 @@
-// Keyboard/mouse (pointer lock) and touch input, both reduced to the same per-tick Cmd.
+// Keyboard/mouse (pointer lock, raw input) and touch, both reduced to the same per-tick Cmd.
 
 import {
-  BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, type Cmd,
+  BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, type Cmd,
 } from '../sim/types';
+import { settings } from './settings';
+
+const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/** Radians per mouse count at sensitivity 1 (0.022 degrees, the classic FPS scale). */
+const M_YAW = 0.022 * (Math.PI / 180);
+/**
+ * A single mouse event larger than this is a browser glitch (pointer-lock warp), not a
+ * real hand movement, and is dropped so the view never snaps.
+ */
+const MAX_COUNTS = 1800;
 
 /** Phones and tablets: coarse primary pointer, or a touch screen on a mobile browser. */
 export function isTouchDevice(): boolean {
   return matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent));
 }
 
-const PITCH_LIMIT = Math.PI / 2 - 0.02;
-/** Radians per mouse count at sensitivity 1 (0.022 degrees, the classic FPS scale). */
-const M_YAW = 0.022 * (Math.PI / 180);
-
 export class Input {
   yaw = 0;
   pitch = 0;
-  sensitivity: number;
   /** FOV-based multiplier applied while scoped. */
   zoomScale = 1;
   locked = false;
@@ -34,7 +39,6 @@ export class Input {
   private buy = '';
   private jumpTap = false;
 
-  // Touch state.
   private touchButtons = 0;
   private stickId = -1;
   private stickX = 0;
@@ -50,37 +54,38 @@ export class Input {
 
   onToggleBuy: () => void = () => {};
   onScoreboard: (show: boolean) => void = () => {};
-  onPause: () => void = () => {};
+  /** Pointer lock was lost (Esc, alt-tab). */
+  onUnlock: () => void = () => {};
+  onEscape: () => void = () => {};
+  onInspect: () => void = () => {};
   onMenuKey: (digit: number) => boolean = () => false;
   onFirstGesture: () => void = () => {};
 
   constructor(private canvas: HTMLElement, private touchRoot: HTMLElement) {
     this.touch = isTouchDevice();
-    const saved = Number(localStorage.getItem('np.sens'));
-    this.sensitivity = saved > 0 ? saved : 2.0;
 
     document.addEventListener('keydown', (e) => this.key(e, true));
     document.addEventListener('keyup', (e) => this.key(e, false));
     window.addEventListener('blur', () => { this.keys.clear(); this.mouse = 0; });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
-      if (!this.locked) { this.keys.clear(); this.mouse = 0; this.onPause(); }
+      if (!this.locked) { this.keys.clear(); this.mouse = 0; this.onUnlock(); }
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked && !(this.fake && e.buttons & 4)) return;
-      this.look(e.movementX, e.movementY, this.sensitivity * M_YAW * this.zoomScale);
+      const dx = e.movementX, dy = e.movementY;
+      if (dx > MAX_COUNTS || dx < -MAX_COUNTS || dy > MAX_COUNTS || dy < -MAX_COUNTS) return;
+      this.look(dx, dy, settings.sensitivity * M_YAW * this.zoomScale);
     });
     this.canvas.addEventListener('mousedown', (e) => {
       if (!this.locked && !this.fake) return;
       if (e.button === 0) this.mouse |= BTN_FIRE;
       else if (e.button === 2) this.mouse |= BTN_ALT;
-      else if (e.button === 1 || e.button === 3) this.mouse |= BTN_GRAPPLE;
       e.preventDefault();
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouse &= ~BTN_FIRE;
       else if (e.button === 2) this.mouse &= ~BTN_ALT;
-      else if (e.button === 1 || e.button === 3) this.mouse &= ~BTN_GRAPPLE;
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('wheel', (e) => {
@@ -92,30 +97,60 @@ export class Input {
     if (this.touch) this.buildTouch();
   }
 
-  setSensitivity(v: number): void {
-    this.sensitivity = v;
-    localStorage.setItem('np.sens', String(v));
-  }
-
+  /**
+   * Ask for pointer lock with raw (unaccelerated) mouse input where the browser supports
+   * it: OS acceleration and its occasional jumps are what make fast spins feel wrong.
+   */
   requestLock(): void {
     if (this.touch || this.locked || this.fake) return;
-    const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
-    if (p && typeof p.catch === 'function') p.catch(() => {});
+    const el = this.canvas as HTMLElement & { requestPointerLock(o?: { unadjustedMovement?: boolean }): Promise<void> | void };
+    try {
+      const p = el.requestPointerLock({ unadjustedMovement: true });
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => {
+          const q = el.requestPointerLock();
+          if (q && typeof q.catch === 'function') q.catch(() => {});
+        });
+      }
+    } catch {
+      /* not allowed right now (no user gesture): the next click will retry */
+    }
   }
   releaseLock(): void {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
+  /**
+   * Fullscreen with the Keyboard Lock API (Chromium): while it is active the page, not the
+   * browser, receives Ctrl+W, Ctrl+T, Ctrl+N and friends, so crouching on Ctrl while
+   * moving cannot close the tab. Must be called from a user gesture.
+   */
+  enterFullscreen(): void {
+    if (this.touch || this.fake || !settings.fullscreen || document.fullscreenElement) return;
+    const root = document.documentElement;
+    const kb = (navigator as Navigator & { keyboard?: { lock(keys?: string[]): Promise<void> } }).keyboard;
+    try {
+      const p = root.requestFullscreen({ navigationUI: 'hide' });
+      if (p && typeof p.then === 'function') p.then(() => kb?.lock?.().catch(() => {})).catch(() => {});
+    } catch {
+      /* fullscreen refused: the page-leave guard still protects the match */
+    }
+  }
+
   private look(dx: number, dy: number, scale: number): void {
-    const ddx = dx * scale, ddy = dy * scale;
+    const ddx = dx * scale;
+    const ddy = dy * scale * (settings.invertY ? -1 : 1);
     this.yaw -= ddx;
+    // Keep yaw bounded so precision never degrades after many turns.
+    if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+    else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch - ddy));
     this.lookDX += ddx;
     this.lookDY += ddy;
   }
 
   private key(e: KeyboardEvent, down: boolean): void {
-    if (e.target instanceof HTMLInputElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     const c = e.code;
     if (down && !e.repeat) {
       this.onFirstGesture();
@@ -125,8 +160,10 @@ export class Input {
         if (d >= 1 && d <= 3) this.slot = d - 1;
       } else if (c === 'KeyQ') this.slot = 3;
       else if (c === 'KeyB') this.onToggleBuy();
+      else if (c === 'KeyF') this.onInspect();
       else if (c === 'Tab') this.onScoreboard(true);
       else if (c === 'Space') this.jumpTap = true;
+      else if (c === 'Escape') this.onEscape();
     }
     if (!down && c === 'Tab') this.onScoreboard(false);
     if (down) this.keys.add(c);
@@ -135,7 +172,6 @@ export class Input {
     if (this.locked || c === 'Tab' || c === 'Space') e.preventDefault();
   }
 
-  /** Request a purchase on the next tick. */
   queueBuy(item: string): void {
     this.buy = item;
   }
@@ -155,7 +191,6 @@ export class Input {
       if (k.has('ShiftLeft')) buttons |= BTN_WALK;
       if (k.has('KeyR')) buttons |= BTN_RELOAD;
       if (k.has('KeyE')) buttons |= BTN_USE;
-      if (k.has('KeyF')) buttons |= BTN_GRAPPLE;
       if (this.touch) {
         fwd += -this.stickY;
         side += this.stickX;
@@ -171,6 +206,8 @@ export class Input {
     cmd.pitch = this.pitch;
     cmd.slot = active ? this.slot : -1;
     cmd.buy = this.buy;
+    cmd.seq = 0;
+    cmd.lag = 0;
     this.slot = -1;
     this.buy = '';
   }
@@ -184,18 +221,18 @@ export class Input {
       <div class="t-stick" id="t-stick"><div class="t-knob" id="t-knob"></div></div>
       <button class="t-btn t-fire" data-b="${BTN_FIRE}">FIRE</button>
       <button class="t-btn t-jump" data-b="${BTN_JUMP}">JUMP</button>
-      <button class="t-btn t-grap" data-b="${BTN_GRAPPLE}">HOOK</button>
       <button class="t-btn t-crouch" data-t="crouch">DUCK</button>
       <button class="t-btn t-reload" data-b="${BTN_RELOAD}">RLD</button>
       <button class="t-btn t-use" data-b="${BTN_USE}">USE</button>
       <button class="t-btn t-alt" data-b="${BTN_ALT}">ZOOM</button>
       <button class="t-btn t-swap" data-t="swap">SWAP</button>
-      <button class="t-btn t-buy" data-t="buy">BUY</button>`;
+      <button class="t-btn t-buy" data-t="buy">BUY</button>
+      <button class="t-btn t-menu" data-t="menu">II</button>`;
     this.stickEl = root.querySelector('#t-stick');
     this.knobEl = root.querySelector('#t-knob');
+    const touchSens = () => settings.sensitivity * 0.0022 * this.zoomScale;
 
     const opts = { passive: false } as const;
-    // Buttons: hold-to-press, and dragging on FIRE still aims.
     root.querySelectorAll<HTMLElement>('.t-btn').forEach((el) => {
       const bit = Number(el.dataset['b'] ?? 0);
       const tag = el.dataset['t'];
@@ -209,11 +246,12 @@ export class Input {
         if (tag === 'crouch') { this.crouchToggle = !this.crouchToggle; el.classList.toggle('held', this.crouchToggle); }
         else if (tag === 'swap') this.slot = 4;
         else if (tag === 'buy') this.onToggleBuy();
+        else if (tag === 'menu') this.onEscape();
         if (bit === BTN_FIRE) { this.lookX = e.clientX; this.lookY = e.clientY; }
       }, opts);
       el.addEventListener('pointermove', (e) => {
         if (bit !== BTN_FIRE || !(this.touchButtons & BTN_FIRE)) return;
-        this.look(e.clientX - this.lookX, e.clientY - this.lookY, this.sensitivity * 0.0022 * this.zoomScale);
+        this.look(e.clientX - this.lookX, e.clientY - this.lookY, touchSens());
         this.lookX = e.clientX; this.lookY = e.clientY;
       }, opts);
       const up = (e: PointerEvent) => {
@@ -225,7 +263,7 @@ export class Input {
       el.addEventListener('pointercancel', up, opts);
     });
 
-    // Left half: floating movement stick. Right half: look.
+    // Left side: floating movement stick. Everywhere else: look.
     const surface = this.canvas;
     surface.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') return;
@@ -255,7 +293,7 @@ export class Input {
         this.stickY = Math.abs(dy) < 0.12 ? 0 : dy;
         if (this.knobEl) this.knobEl.style.transform = `translate(${dx * R}px, ${dy * R}px)`;
       } else if (e.pointerId === this.lookId) {
-        this.look(e.clientX - this.lookX, e.clientY - this.lookY, this.sensitivity * 0.0022 * this.zoomScale);
+        this.look(e.clientX - this.lookX, e.clientY - this.lookY, touchSens());
         this.lookX = e.clientX; this.lookY = e.clientY;
       }
     }, opts);
