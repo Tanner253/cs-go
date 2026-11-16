@@ -45,6 +45,9 @@ No sounds come from ZONA.
 - This work is based on "Shotgun animation set" (https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/db12.glb`, `world/db12_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; geometry compressed. Held in the arms of the sniper pack.
 
+- This work is based on "EOTECH HWS EXPS 3" (https://sketchfab.com/3d-models/eotech-hws-exps-3-04d1452515134866b8a97c3e7cb9a18e) by Sambit_Raut (https://sketchfab.com/Sambit_Raut) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/holo_sight.glb`. Changes made: scaled to metres and stood about its own middle; textures re-encoded as WebP; geometry compressed. Fitted in game, a little smaller than life, to the guns that came without an optic.
+
 Every gun and the arms are repainted in game (`src/client/finish.ts`, `skins.ts`): the models' own colours are replaced by a pattern and light-emitting lines drawn by a shader.
 
 ## Player character

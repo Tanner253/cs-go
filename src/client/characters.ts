@@ -92,6 +92,11 @@ function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
     if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    // (the lit mark in a sight's window is for the eye behind it)
+    if (/crosshair/i.test((mesh.material as THREE.Material).name)) {
+      mesh.visible = false;
+      return;
+    }
     mesh.castShadow = false;
     const role = roleOf(mesh.name);
     parts.push({ mesh, role });

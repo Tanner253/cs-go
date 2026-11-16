@@ -54,6 +54,7 @@ export const CREDITS: Credit[] = [
   { title: '9A-91 Assault Rifle Gameready Lowpoly', author: 'valterjherson1', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda', note: 'Defender suppressed rifle. Set in rigid pieces, held in the arms of the sniper pack.' },
   { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Heavy sniper rifle. Set in rigid pieces, held in the arms of the sniper pack.' },
   { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun: the gun only, held in the arms of the sniper pack.' },
+  { title: 'EOTECH HWS EXPS 3', author: 'Sambit_Raut', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/eotech-hws-exps-3-04d1452515134866b8a97c3e7cb9a18e', note: 'Holographic sight, fitted to the guns that came without an optic.' },
   {
     title: 'The Free Firearm Sound Library', author: 'Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney', license: 'CC0 1.0',
     url: 'https://opengameart.org/content/the-free-firearm-sound-library',

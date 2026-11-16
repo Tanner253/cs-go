@@ -55,7 +55,10 @@ export class Thumbs {
     obj.traverse((o) => {
       // Optional attachments are stored in these files but not fitted (the 9A-91's suppressor is part of the gun).
       if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
-      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = this.paint;
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (/crosshair/i.test((mesh.material as THREE.Material).name)) mesh.visible = false;
+      else mesh.material = this.paint;
     });
 
     // In profile, in the middle of the frame, as large as fits.

@@ -43,6 +43,14 @@ function lensMaterial(src: THREE.Material): THREE.Material {
 }
 
 // (matched whole: a rifle's "handguard" and "charging_handle" are not hands)
+const isReticle = (m: THREE.Material): boolean => /crosshair/i.test(m.name);
+/** The mark in a sight's window: the sight's own picture of it, lit in the gun's colour. */
+function reticleMaterial(src: THREE.Material, colour: number): THREE.Material {
+  return new THREE.MeshBasicMaterial({
+    map: (src as THREE.MeshStandardMaterial).map ?? null, color: new THREE.Color(colour).multiplyScalar(0.9),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
+  });
+}
 const isArms = (m: THREE.Material): boolean => /^(arms?|hands?|gloves?|sleeves?)$/i.test(m.name);
 const isLens = (m: THREE.Material): boolean => /lens/i.test(m.name);
 
@@ -68,6 +76,7 @@ export interface SkinLive {
 const SUIT_STATE = { heat: { value: 0 }, ammo: { value: 1 } };
 
 const _v = new THREE.Vector3();
+const _swing = new THREE.Matrix4(), _turn = new THREE.Matrix4(), _back = new THREE.Matrix4();
 const UNIT = new THREE.Vector2(0, 1);
 
 const EMPTY = new THREE.BufferGeometry();
@@ -82,6 +91,17 @@ class Rig {
   private mixer: THREE.AnimationMixer;
   private length: number;
   private skip: Set<string>;
+  /** The root of the left arm, moved to fit the hand to guns the pack was not drawn for. */
+  private leftArm: THREE.Object3D | null = null;
+  private leftArmRest = new THREE.Vector3();
+  /** Where the left hand is moved to while it holds the gun, and while it handles the magazine (the arm's own space). */
+  private holdShift = new THREE.Vector3();
+  private magShift = new THREE.Vector3();
+  /** The reload ends by working the action. */
+  private rack: boolean;
+  /** A break-action's barrels: what holds them, how they sit closed, and the hinge they swing on. */
+  private hinged: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
+  private hinge: { at: THREE.Vector3; angle: number } | null = null;
 
   /**
    * @param team the side the weapon belongs to (-1 = both), which tints its bare finish
@@ -89,6 +109,7 @@ class Rig {
    */
   constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook, team: number, skin: Skin | undefined, live: SkinLive) {
     this.skip = new Set(look.skip ?? []);
+    this.rack = !!look.rack && 'bolt' in info.clips;
     const scene = SkeletonUtils.clone(files.pack.scene);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
@@ -112,6 +133,16 @@ class Rig {
     /** Where each gun mesh sits on the gun (its own geometry to gun space) and what part it is. */
     const onGun = new Map<THREE.Mesh, { toGun: THREE.Matrix4; role: Role }>();
 
+    // The pack's own magazine: where the animation's hands expect one to be.
+    const ownCell: { mesh: THREE.Mesh; geo: THREE.BufferGeometry }[] = [];
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && roleOf(mesh.name) === 'cell') ownCell.push({ mesh, geo: mesh.geometry });
+    });
+    /** How the mounted gun was seated: its size and where it was moved (gun space). */
+    let seatSize = 1;
+    const seatMove = new THREE.Vector3();
+
     // ---- mount a separate gun on the skeleton, piece by piece ----------------------
     const mount = look.mount;
     if (mount && files.gun && info.frame) {
@@ -134,8 +165,12 @@ class Rig {
       const gun = files.gun.scene.clone(true);
       const size = mount.size ?? 1;
       const move = new THREE.Vector3(...(mount.nudge ?? [0, 0, 0]));
+      seatSize = size;
+      seatMove.copy(move);
       const seat = new THREE.Matrix4().compose(move, new THREE.Quaternion(), new THREE.Vector3(size, size, size));
       const gunSpace = new THREE.Matrix4().fromArray(info.frame).invert().multiply(seat);
+      const swings = new Set(mount.hinge?.pieces ?? []);
+      if (mount.hinge) this.hinge = { at: new THREE.Vector3(...mount.hinge.at), angle: mount.hinge.angle };
       const hang = (piece: THREE.Object3D, on: string): void => {
         const j = joints.get(on);
         if (!j) return;
@@ -144,6 +179,7 @@ class Rig {
         h.matrix.copy(placeOf(j)).invert().multiply(gunSpace);
         h.add(piece);
         j.add(h);
+        if (swings.has(pieceOf(piece.name))) this.hinged.push({ holder: h, closed: h.matrix.clone() });
       };
       const pieces: THREE.Mesh[] = [];
       gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o as THREE.Mesh); });
@@ -184,6 +220,12 @@ class Rig {
       mesh.castShadow = false;
       meshes.push(mesh);
       const src = mesh.material as THREE.Material;
+      if (isReticle(src)) {
+        mesh.material = reticleMaterial(src, skin?.glow ?? 0xff4030);
+        mesh.renderOrder = 4;
+        meshes.pop();
+        return;
+      }
       if (isArms(src)) {
         // The suit's weave is laid out on the arms as modelled (before the skeleton poses them).
         tagGunSpace(mesh, new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld));
@@ -200,6 +242,32 @@ class Rig {
     });
     const length = new THREE.Vector2(gunBox.min.x, gunBox.max.x);
     const cell = cellBox.isEmpty() ? new THREE.Vector2(0, 1) : new THREE.Vector2(cellBox.min.y, cellBox.max.y);
+
+    // ---- fit the left hand to this gun ---------------------------------------------------
+    // The arms were animated round the pack's own gun. Another gun's fore-end and magazine
+    // are somewhere else, so the whole left arm is shifted: onto the fore-end while it holds
+    // the gun, and onto the magazine while it changes it (the shoulder end is out of view).
+    this.leftArm = [...joints.values()].find((j) => /^L_arm/.test(j.name)) ?? null;
+    if (this.leftArm?.parent && mount) {
+      this.leftArmRest.copy(this.leftArm.position);
+      const gunToArm = new THREE.Matrix3().setFromMatrix4(
+        new THREE.Matrix4().copy(this.leftArm.parent.matrixWorld).invert().multiply(scene.matrixWorld).multiply(new THREE.Matrix4().copy(packToGun).invert()),
+      );
+      if (look.support) this.holdShift.set(...look.support).applyMatrix3(gunToArm);
+      const packBox = new THREE.Box3();
+      for (const { mesh, geo } of ownCell) {
+        const pos = geo.getAttribute('position');
+        if (!pos) continue;
+        const toGun = new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld);
+        for (let i = 0; i < pos.count; i += 4) packBox.expandByPoint(_v.fromBufferAttribute(pos, i).applyMatrix4(toGun));
+      }
+      if (!packBox.isEmpty() && !cellBox.isEmpty()) {
+        const mine = cellBox.getCenter(new THREE.Vector3()).multiplyScalar(seatSize).add(seatMove);
+        this.magShift.copy(mine).sub(packBox.getCenter(_v)).applyMatrix3(gunToArm);
+      }
+    } else {
+      this.leftArm = null;
+    }
 
     // One material for each source material and each part of the gun that wears it.
     const wearers = new Map<string, { src: THREE.Material; role: Role | null; list: THREE.Mesh[] }>();
@@ -253,8 +321,39 @@ class Rig {
   /** Stand in one movement, `k` of the way through it (0..1). */
   pose(clip: string, k: number): void {
     const r = this.info.clips[clip] ?? this.info.clips['idle'] ?? [0, 0];
-    const t = (r[0] + (r[1] - r[0]) * (k < 0 ? 0 : k > 1 ? 1 : k)) / this.info.fps;
+    k = k < 0 ? 0 : k > 1 ? 1 : k;
+    const t = (r[0] + (r[1] - r[0]) * k) / this.info.fps;
+    const arm = this.leftArm;
+    if (arm) arm.position.copy(this.leftArmRest);
     this.mixer.setTime(Math.min(this.length - 1e-4, t));
+    if (arm) {
+      // On the fore-end, except in the middle of a reload, when the hand is on the magazine.
+      const u = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.02, 0.14) * (1 - THREE.MathUtils.smoothstep(k, 0.86, 0.98)) : 0;
+      arm.position.addScaledVector(this.holdShift, 1 - u).addScaledVector(this.magShift, u);
+    }
+    if (this.hinge) {
+      // Break open early in the reload, snap shut near its end.
+      const open = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.06, 0.2) * (1 - THREE.MathUtils.smoothstep(k, 0.8, 0.9)) : 0;
+      const { at, angle } = this.hinge;
+      _swing.makeTranslation(at.x, at.y, at.z)
+        .multiply(_turn.makeRotationZ(-angle * open))
+        .multiply(_back.makeTranslation(-at.x, -at.y, -at.z));
+      for (const { holder, closed } of this.hinged) holder.matrix.copy(closed).multiply(_swing);
+    }
+  }
+  /**
+   * Stand `k` of the way through a reload that lasts `seconds`. Guns that end by working the
+   * action play the magazine change and then the bolt, each at the speed it was animated at.
+   */
+  poseReload(k: number): void {
+    if (!this.rack) {
+      this.pose('reload', k);
+      return;
+    }
+    const a = this.seconds('reload'), b = this.info.clips['bolt'] ? (this.info.clips['bolt'][1] - this.info.clips['bolt'][0]) / this.info.fps : 0;
+    const split = a / (a + b);
+    if (k < split) this.pose('reload', k / split);
+    else this.pose('bolt', (k - split) / (1 - split));
   }
 }
 
@@ -299,12 +398,17 @@ export interface ViewState {
   reloadT: number; // 0 = not reloading, else progress 0..1
   /** How full the magazine is, 0..1. */
   ammo: number;
+  /** Where the spray has pushed the aim: radians up and left of where the player is looking. */
+  recoilPitch: number;
+  recoilYaw: number;
   scoped: boolean;
   grappling: boolean;
   mantling: boolean;
 }
 
 const SHELLS = 8;
+/** How much of the spray's push the gun itself shows (the camera shows the rest: see VIEW_PUNCH in game.ts). */
+const GUN_FOLLOWS = 0.4;
 
 export class Viewmodel {
   readonly scene = new THREE.Scene();
@@ -328,6 +432,9 @@ export class Viewmodel {
   private landY = new Spring(120, 13);
   private bobPhase = 0;
   private bobAmt = 0;
+  /** The part of the recoil the camera does not show, which the gun shows instead. */
+  private climb = 0;
+  private drift = 0;
   private wasGround = true;
   private idleT = 0;
 
@@ -396,7 +503,7 @@ export class Viewmodel {
   onShot(def: WeaponDef): void {
     const k = def.kick;
     this.kickZ.kick(1.5 * k);
-    this.kickPitch.kick(3.4 * k);
+    this.kickPitch.kick(2.4 * k);
     this.kickRoll.kick((Math.random() - 0.5) * 5 * k);
     this.swayX.kick((Math.random() - 0.5) * 0.2 * k);
     this.flashT = 0.045;
@@ -468,7 +575,7 @@ export class Viewmodel {
         else { r.pose('idle', 0); procDraw = st.drawT; }
         this.fireT = this.meleeT = -1;
       } else if (reloading) {
-        r.pose('reload', st.reloadT);
+        r.poseReload(st.reloadT);
         this.fireT = -1;
       } else if (this.meleeT >= 0) {
         this.meleeT += dt / 0.4;
@@ -511,19 +618,25 @@ export class Viewmodel {
     const kz = this.kickZ.step(0, dt);
     const kp = this.kickPitch.step(0, dt);
     const kr = this.kickRoll.step(0, dt);
-    const drawE = procDraw * procDraw;
+    // The camera follows part of the spray; the gun takes up the rest, so the muzzle points
+    // where the rounds are actually going and can be seen climbing and walking sideways.
+    const follow = Math.min(1, dt * 26);
+    this.climb += (st.recoilPitch * GUN_FOLLOWS - this.climb) * follow;
+    this.drift += (st.recoilYaw * GUN_FOLLOWS - this.drift) * follow;
+    // Drawn by the springs: up from low and to the right, canted, straightening as it arrives.
+    const drawE = procDraw * procDraw * (3 - 2 * procDraw);
 
     const breath = Math.sin(this.idleT * 1.5) * 0.0012 * (1 - this.bobAmt);
     const h = this.holder;
     h.position.set(
-      sx * 0.3 + bobX + procInspect * -0.05,
-      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.3 + st.crouch * 0.006 + procInspect * 0.03,
-      kz * 0.3,
+      sx * 0.3 + bobX + drawE * 0.06 + procInspect * -0.05,
+      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.26 + st.crouch * 0.006 + procInspect * 0.03,
+      kz * 0.3 + drawE * 0.05,
     );
     h.rotation.set(
-      kp * 0.22 + sy * 0.8 - drawE * 1.1 + air * 2 + procInspect * 0.25,
-      sx * 1.0 + bobX * 1.5 + procInspect * 0.9,
-      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 + procInspect * 0.6,
+      kp * 0.22 + this.climb + sy * 0.8 - drawE * 0.95 + air * 2 + procInspect * 0.25,
+      sx * 1.0 + this.drift + bobX * 1.5 - drawE * 0.3 + procInspect * 0.9,
+      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - drawE * 0.45 + procInspect * 0.6,
       'YXZ',
     );
 

@@ -9,7 +9,7 @@
 // in the long-gun pack. The packs and models come from the ZONA project's asset pipeline;
 // see CREDITS.md for their authors.
 
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
@@ -43,21 +43,28 @@ export interface GunMount {
   nudge?: V3;
   /** drawn at this fraction of its own size (hands sized for another gun) */
   size?: number;
+  /**
+   * a break-action: these pieces swing down about a hinge while the gun is reloaded
+   * (`at` is the hinge in the gun's own space, `angle` how far they drop, radians)
+   */
+  hinge?: { pieces: string[]; at: V3; angle: number };
 }
 
 /** Which joint of the pistol pack each piece of a mounted gun rides on. */
 const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag', hammer: 'hammer' };
 /** The same for the long-gun pack (its magazine joint is called "clip"). */
 const LONG_JOINTS = { base: 'base', mag: 'clip' };
-/** Rifles are held where the long-gun pack's own rifle has its grip, which is further back than theirs. */
-const RIFLE_SEAT: V3 = [-0.125, 0.02, 0.004];
-/** The same for guns modelled with the grip near their own origin. */
-const SHORT_SEAT: V3 = [-0.345, 0.02, 0.004];
+// Every mounted gun is seated (`nudge`) so that its trigger is where the pack's own gun has
+// its trigger: that is where the animation's trigger finger is, and the grip follows from it.
+// (Measured from the models: the long-gun pack's trigger is at [-0.261, -0.009, -0.015] in gun
+// space, the pistol pack's at [0.077, 0.031, 0.004].)
 
 export const PACKS: Record<string, PackInfo> = {
   m9: {
     file: 'm9_fp.glb', fps: 30,
-    clips: { fire: [0, 11], reload: [12, 82], fireLast: [83, 94], reloadEmpty: [95, 175], holster: [176, 187], draw: [187, 233], idle: [234, 264] },
+    // (its draw, frames 187-233, racks the slide on the way up: too much to fit in a half-second
+    // draw, so pistols are raised by the spring layer instead)
+    clips: { fire: [0, 11], reload: [12, 82], fireLast: [83, 94], reloadEmpty: [95, 175], holster: [176, 187], idle: [234, 264] },
     view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1],
     hold: [0.1, -0.19, -0.09],
     frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.1514388, -0.0360554, 0.0042332, 1],
@@ -88,52 +95,61 @@ export interface WeaponLook {
   hold?: V3;
   /** movements of the pack this weapon does not use */
   skip?: string[];
+  /** the reload ends by working the action: the magazine change is followed by the pack's bolt movement */
+  rack?: boolean;
+  /**
+   * where the left hand holds this gun, relative to where it holds the pack's own
+   * (the gun's own space: x towards the muzzle, y up, z to the right; metres)
+   */
+  support?: V3;
   scale?: number;
   /** which model other players see this weapon as */
   world: string;
 }
 
 /** Where a mounted long gun is held (closer in than the pack's own scoped rifle). */
-const LONG_HOLD: V3 = [0.11, -0.2, -0.12];
+const LONG_HOLD: V3 = [0.125, -0.195, -0.25];
 
 /** How each weapon id is drawn in first person. */
 export const WEAPON_LOOK: Record<string, WeaponLook> = {
   edge: { pack: 'knife', world: 'knife' },
   // ---- attackers ----
   kite: { pack: 'm9', world: 'm9' },
-  wasp: { pack: 'm9', world: 'smg', mount: { file: 'smg.glb', ride: PISTOL_JOINTS } },
+  wasp: { pack: 'm9', world: 'smg', mount: { file: 'smg.glb', ride: PISTOL_JOINTS, nudge: [0.018, 0.013, 0.007] } },
   // (the long-gun pack's bolt-action cycle is not for a self-loading rifle)
-  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: RIFLE_SEAT } },
-  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: SHORT_SEAT } },
+  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: [-0.116, -0.033, -0.017] } },
+  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: [-0.317, -0.038, -0.018] } },
   // ---- defenders ----
-  tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS } },
+  tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS, nudge: [0.01, 0, 0] } },
   hornet: {
     pack: 'm9', world: 'mp7',
     // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
     // the stock is left off too: extended, its rails run past the camera)
-    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'] },
+    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
   },
   lumen: {
-    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt'],
-    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: RIFLE_SEAT },
+    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt'], rack: true,
+    // (this model has no separate trigger to measure: seated by eye)
+    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: [-0.134, -0.029, -0.017] },
   },
-  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'a91.glb', ride: LONG_JOINTS, nudge: RIFLE_SEAT } },
+  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
   // ---- both sides ----
-  stinger: { pack: 'm9', world: 'scorpion', mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS } },
+  // (the model is larger than life: drawn at seven tenths, here and in other players' hands)
+  stinger: { pack: 'm9', world: 'scorpion', mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
   thresher: {
     pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt'],
-    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.36, 0.016, 0.01] },
+    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.55, 0, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
   },
   colossus: {
-    pack: 'sniper', world: 'barrett', skip: ['bolt'],
-    mount: { file: 'barrett.glb', ride: LONG_JOINTS, nudge: SHORT_SEAT },
+    pack: 'sniper', world: 'barrett', skip: ['bolt'], rack: true,
+    mount: { file: 'barrett.glb', ride: LONG_JOINTS, nudge: [-0.287, -0.005, -0.017] },
   },
-  maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94 } },
+  maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94, nudge: [-0.012, 0.008, 0] } },
   breaker: {
-    pack: 'sniper', world: 'benelli', hold: LONG_HOLD,
+    pack: 'sniper', world: 'benelli', hold: LONG_HOLD, rack: true,
     mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0] },
   },
-  longsight: { pack: 'sniper', world: 'sniper' },
+  longsight: { pack: 'sniper', world: 'sniper', rack: true },
 };
 
 // ---- loading ----------------------------------------------------------------------------
@@ -153,7 +169,12 @@ const RESHAPE: Record<string, [piece: string, scale: number, about: number][]> =
   'world/db12_lod1.glb': [['barrels', 0.46, 0.22]],
 };
 
+/** Models drawn at other than the size they came. */
+const RESIZE: Record<string, number> = { 'world/scorpion_lod1.glb': 0.7 };
+
 function reshape(name: string, g: GLTF): void {
+  const size = RESIZE[name];
+  if (size) g.scene.scale.multiplyScalar(size);
   for (const [piece, scale, about] of RESHAPE[name] ?? []) {
     g.scene.traverse((o) => {
       if (o.name.replace(/_\d+$/, '') !== piece) return;
@@ -165,11 +186,51 @@ function reshape(name: string, g: GLTF): void {
   }
 }
 
+/**
+ * Parts from another model fitted to a gun as it loads, so they are part of it everywhere it
+ * is drawn (in hand, in other players' hands, in the armory): where the part's foot stands on
+ * the gun (the gun's own space) and the size it is drawn at.
+ */
+interface Fitted { part: string; at: V3; size: number }
+const HOLO = 'holo_sight.glb';
+const FITTED: Record<string, Fitted[]> = {};
+for (const [gun, fit] of [
+  // (on the top cover, behind the rear sight)
+  ['ak', { part: HOLO, at: [-0.095, 0.1062, 0.0012], size: 0.85 }],
+  // (on the rail along the top)
+  ['smg', { part: HOLO, at: [0.035, 0.082, -0.003], size: 0.8 }],
+  // (on its rail, between the folded irons, where its own painted-over optic stood)
+  ['mp7a1', { part: HOLO, at: [0.049, 0.1171, -0.0085], size: 0.8 }],
+  // (on the rear sight's block, over the folded stock)
+  ['a91', { part: HOLO, at: [-0.03, 0.1092, 0.0015], size: 0.85 }],
+] as [string, Fitted][]) {
+  FITTED[`${gun}.glb`] = [fit];
+  FITTED[`world/${gun}_lod1.glb`] = [fit];
+}
+
+/** Stand a copy of each fitted part on the gun, as pieces named `optic`. */
+async function fit(name: string, g: GLTF): Promise<void> {
+  for (const { part, at, size } of FITTED[name] ?? []) {
+    const src = await loadFile(part);
+    if (!src) continue;
+    src.scene.updateMatrixWorld(true);
+    const seat = new THREE.Matrix4().compose(new THREE.Vector3(...at), new THREE.Quaternion(), new THREE.Vector3(size, size, size));
+    src.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const piece = new THREE.Mesh(mesh.geometry, mesh.material);
+      piece.name = 'optic';
+      new THREE.Matrix4().copy(seat).multiply(mesh.matrixWorld).decompose(piece.position, piece.quaternion, piece.scale);
+      g.scene.add(piece);
+    });
+  }
+}
+
 function loadFile(name: string): Promise<GLTF | null> {
   let p = pending.get(name);
   if (!p) {
     p = loader.loadAsync(base + name).then(
-      (g) => { reshape(name, g); files.set(name, g); return g; },
+      async (g) => { reshape(name, g); await fit(name, g); files.set(name, g); return g; },
       (err) => { console.warn(`weapon file "${name}" failed to load`, err); files.set(name, null); return null; },
     );
     pending.set(name, p);
@@ -250,7 +311,7 @@ const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', grip: PISTOL_GRIP, support: PISTOL_SUPPORT, muzzle: [0.263, 0.06, 0] },
   sniper: { file: 'world/sniper_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.726, 0.03, 0] },
   benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', grip: LONG_GRIP, support: [-0.041, -0.016, -0.064], muzzle: [0.83, 0.03, 0] },
-  scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', grip: [-0.08, -0.02, 0.03], support: [0.173, 0.023, -0.064], muzzle: [0.396, 0.03, 0] },
+  scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', grip: [-0.056, -0.014, 0.021], support: [0.121, 0.016, -0.045], muzzle: [0.277, 0.021, 0] },
   aks74u: { file: 'world/aks74u_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.205, 0.033, -0.058], muzzle: [0.473, 0.03, 0.01] },
   a91: { file: 'world/a91_lod1.glb', carry: 'rifle', grip: RIFLE_GRIP, support: [0.0137, 0.029, -0.049], muzzle: [0.485, 0.03, 0.01] },
   barrett: { file: 'world/barrett_lod1.glb', carry: 'rifle', grip: [-0.08, -0.02, 0.03], support: [0.32, -0.002, -0.054], muzzle: [1.103, 0.03, 0] },
