@@ -279,6 +279,10 @@ export class CharacterView {
   /** How far the torso is turned for the weapon in hand, and the kick of its last shot (1 -> 0). */
   private blade = 0;
   private kick = 0;
+  /** Being hit: how far into the jerk (1 -> 0), which side it came on, and whether it was the head. */
+  private flinch = 0;
+  private flinchSide = 1;
+  private flinchHead = false;
   private waist: THREE.Object3D | null = null;
   private head: THREE.Object3D | null = null;
   private legs: { chain: Arm; knee: THREE.Vector3; foot: THREE.Vector3; turn: THREE.Quaternion }[] = [];
@@ -582,15 +586,24 @@ export class CharacterView {
       const held = p.weapons[p.active]?.def;
       const shouldered = !!held && held.kind !== 'pistol' && held.kind !== 'knife';
       this.blade += ((shouldered ? BLADED : 0) - this.blade) * Math.min(1, dt * 8);
-      _e.set(THREE.MathUtils.clamp(this.pitch, -1.1, 1.1) * 0.7, -this.legYaw + this.blade, 0);
+      // (a hit throws the shoulders back and round, away from the side it landed on)
+      this.flinch *= Math.exp(-dt * 7);
+      const jerk = this.flinch;
+      _e.set(
+        THREE.MathUtils.clamp(this.pitch, -1.1, 1.1) * 0.7 + jerk * (this.flinchHead ? 0.2 : 0.3),
+        -this.legYaw + this.blade - this.flinchSide * jerk * (this.flinchHead ? 0.18 : 0.42),
+        this.flinchSide * jerk * 0.14,
+      );
       _q2.setFromEuler(_e).premultiply(groupQ).multiply(_q3.copy(groupQ).invert()); // world-space delta
       this.spine.parent.getWorldQuaternion(_q3);
       _q1.copy(_q3).invert().multiply(_q2).multiply(_q3);
       this.spine.quaternion.premultiply(_q1);
       this.spine.updateMatrixWorld(true);
-      // The head keeps looking where the player looks while the shoulders are turned.
-      if (this.neck?.parent && Math.abs(this.blade) > 1e-3) {
-        _e.set(0, -this.blade, 0);
+      // The head keeps looking where the player looks while the shoulders are turned
+      // (and is snapped back by a round that hits it).
+      const snap = this.flinchHead ? jerk : 0;
+      if (this.neck?.parent && (Math.abs(this.blade) > 1e-3 || snap > 1e-3)) {
+        _e.set(snap * 0.55, -this.blade - this.flinchSide * snap * 0.3, this.flinchSide * snap * 0.2);
         _q2.setFromEuler(_e).premultiply(groupQ).multiply(_q3.copy(groupQ).invert());
         this.neck.parent.getWorldQuaternion(_q3);
         this.neck.quaternion.premultiply(_q1.copy(_q3).invert().multiply(_q2).multiply(_q3));
@@ -665,6 +678,17 @@ export class CharacterView {
     } else {
       this.muzzle.set(x, y + 1.4, z);
     }
+  }
+
+  /**
+   * This player was hit: their body shows it.
+   * @param side which side of them the round landed on (1 = their right)
+   * @param hard how hard (1 = about half their health)
+   */
+  hurt(side: number, hard: number, head: boolean): void {
+    this.flinch = Math.min(1, Math.max(this.flinch, 0.62 + hard * 0.5));
+    this.flinchSide = side;
+    this.flinchHead = head;
   }
 
   /** This player fired: their gun kicks. */

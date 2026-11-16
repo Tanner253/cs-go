@@ -57,6 +57,12 @@ button { cursor: pointer; }
 #hitmarker i:nth-child(3) { transform: rotate(225deg) translateX(7px); }
 #hitmarker i:nth-child(4) { transform: rotate(315deg) translateX(7px); }
 #hitmarker.kill i { background: var(--bad); }
+/* (a headshot: the same mark, longer and set wider) */
+#hitmarker.head i { width: 17px; }
+#hitmarker.head i:nth-child(1) { transform: rotate(45deg) translateX(9px); }
+#hitmarker.head i:nth-child(2) { transform: rotate(135deg) translateX(9px); }
+#hitmarker.head i:nth-child(3) { transform: rotate(225deg) translateX(9px); }
+#hitmarker.head i:nth-child(4) { transform: rotate(315deg) translateX(9px); }
 
 #scope { position: absolute; inset: 0; display: none; }
 #scope.on { display: block; }

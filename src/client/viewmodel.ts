@@ -634,6 +634,8 @@ export class Viewmodel {
   private fireDur = 0.2;
   private boltDur = 0;
   private pumpDur = 0;
+  /** A hand-worked gun has a spent case still in it, thrown out when the pump or bolt comes back. */
+  private caseIn = false;
   private meleeT = -1;
   private meleeClip = 'cutA';
   private meleeI = 0;
@@ -718,7 +720,10 @@ export class Viewmodel {
       if (r.pumps) this.fireDur = Math.min(this.fireDur, 0.24);
       this.pumpDur = r.pumps ? Math.min(PUMP_SECONDS, Math.max(0.25, interval - this.fireDur - 0.06)) : 0;
     }
-    if (def.kind !== 'shotgun' && def.kind !== 'sniper') this.ejectShell();
+    const worked = !!r && (r.pumps || this.boltDur > 0);
+    this.caseIn = worked;
+    // (a break-action keeps its cases until it is opened)
+    if (!worked && def.kind !== 'shotgun') this.ejectShell();
   }
 
   onMelee(): void {
@@ -791,10 +796,14 @@ export class Viewmodel {
       } else if (this.fireT >= 0) {
         this.fireT += dt;
         if (this.fireT < this.fireDur) r.pose(r.has('fire') ? 'fire' : 'idle', r.has('fire') ? this.fireT / this.fireDur : 0);
-        else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) r.pose('bolt', (this.fireT - this.fireDur) / this.boltDur);
-        else if (this.pumpDur > 0 && this.fireT < this.fireDur + this.pumpDur) {
+        else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) {
+          const through = (this.fireT - this.fireDur) / this.boltDur;
+          r.pose('bolt', through);
+          if (this.caseIn && through > 0.42) { this.caseIn = false; this.ejectShell(); }
+        } else if (this.pumpDur > 0 && this.fireT < this.fireDur + this.pumpDur) {
           r.pose('idle', 0);
           pumping = (this.fireT - this.fireDur) / this.pumpDur;
+          if (this.caseIn && pumping > 0.36) { this.caseIn = false; this.ejectShell(); }
         } else this.fireT = -1;
       }
       if (st.drawT <= 0 && !reloading && this.meleeT < 0 && this.fireT < 0) {

@@ -177,9 +177,10 @@ export class Hud {
   }
 
   /** Confirm one of the local player's bullets landed. */
-  hitMarker(kill: boolean): void {
+  hitMarker(kill: boolean, head = false): void {
     this.hit = kill ? 1.6 : 1;
     this.el.hit.classList.toggle('kill', kill);
+    this.el.hit.classList.toggle('head', head);
   }
 
   /** Show which way damage came from. `worldYaw` is the direction from the player to the attacker. */

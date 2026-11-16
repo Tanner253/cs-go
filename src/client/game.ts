@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { Sim } from '../sim/game';
 import { lerp, yawTo } from '../sim/math';
-import { ATK, DEF, HIT_WORLD, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
+import { ATK, DEF, HIT_PLAYER, HIT_WORLD, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
 import { WEAPONS } from '../sim/weapons';
 import type { Replica } from '../net/replica';
 import { buildWorld } from './world';
@@ -65,6 +65,15 @@ export class GameApp {
   private jolt = new Spring(1700, 46);
   private joltYaw = new Spring(1700, 50);
   private shake = 0;
+  /**
+   * Being hit knocks the view up and away from where the round came from, and it swings back:
+   * a single jolt with a direction, not a rattle. (Seen only: the aim itself is not moved.)
+   */
+  private flinchP = new Spring(230, 19);
+  private flinchY = new Spring(230, 19);
+  private flinchR = new Spring(200, 16);
+  /** When a passing round was last heard, so a burst is a few cracks and not thirty. */
+  private crackAt = -9;
   private roll = 0;
   private landDip = 0;
   private landVel = 0;
@@ -331,14 +340,34 @@ export class GameApp {
             this.fx.muzzleFlash(ox, oy, oz, 1);
           }
           this.fx.flashLight(ox, oy, oz);
+          let nearest = Infinity, nx = 0, ny = 0, nz = 0;
           for (let i = 0; i < e.hitKinds.length; i++) {
             const b = i * 6;
             const ex = e.ends[b]!, ey = e.ends[b + 1]!, ez = e.ends[b + 2]!;
             this.fx.tracer(ox, oy, oz, ex, ey, ez);
+            // Someone else's round going past the head (not into it).
+            if (!own && view.alive && s.team !== view.team && e.hitKinds[i] !== HIT_PLAYER) {
+              const cam = this.camera.position;
+              const dx = ex - e.ox, dy = ey - e.oy, dz = ez - e.oz;
+              const len2 = dx * dx + dy * dy + dz * dz;
+              const u = len2 > 0 ? ((cam.x - e.ox) * dx + (cam.y - e.oy) * dy + (cam.z - e.oz) * dz) / len2 : 0;
+              if (u > 0 && u < 1 && u * Math.sqrt(len2) > 4) {
+                const px = e.ox + dx * u, py = e.oy + dy * u, pz = e.oz + dz * u;
+                const d = Math.hypot(px - cam.x, py - cam.y, pz - cam.z);
+                if (d < nearest) { nearest = d; nx = px; ny = py; nz = pz; }
+              }
+            }
             if (e.hitKinds[i] === HIT_WORLD) {
               this.fx.impact(ex, ey, ez, e.ends[b + 3]!, e.ends[b + 4]!, e.ends[b + 5]!);
               if (i === 0) this.audio.impact(ex, ey, ez);
             }
+          }
+          if (nearest < 1.8 && sim.time - this.crackAt > 0.07) {
+            this.crackAt = sim.time;
+            const close = 1 - nearest / 1.8;
+            this.audio.crack(nx, ny, nz, 0.35 + 0.65 * close);
+            // (close enough to make you duck)
+            if (close > 0.55) this.flinchP.kick(-0.25 * close);
           }
           break;
         }
@@ -350,13 +379,27 @@ export class GameApp {
           this.fx.blood(e.x, e.y, e.z, dx / d, 0.2, dz / d, e.head);
           if (v === view) {
             this.hud.damageFlash(e.damage);
-            if (a) this.hud.damageFrom(yawTo(v.pos.x, v.pos.z, a.pos.x, a.pos.z));
-            this.shake = Math.min(1, this.shake + e.damage / 60);
+            const hard = Math.min(1.5, e.damage / 30);
+            let from = 0;
+            if (a) {
+              const bearing = yawTo(v.pos.x, v.pos.z, a.pos.x, a.pos.z);
+              this.hud.damageFrom(bearing);
+              // (+ = the attacker is to the left: the view is knocked to the right)
+              from = Math.sin(bearing - this.camera.rotation.y);
+            }
+            this.flinchP.kick(1.05 * hard);
+            this.flinchY.kick(-0.75 * hard * from);
+            this.flinchR.kick(0.55 * hard * (from || (Math.random() < 0.5 ? -0.5 : 0.5)));
+            this.shake = Math.min(1, this.shake + e.damage / 160);
             this.audio.hurt();
+          } else {
+            // Seen from outside: the body jerks away from the side it was hit on.
+            const side = (e.x - v.pos.x) * Math.cos(v.yaw) - (e.z - v.pos.z) * Math.sin(v.yaw);
+            this.chars[v.id]?.hurt(side >= 0 ? 1 : -1, e.damage / 50, e.head);
           }
           if (a && a === me) {
             this.audio.hit(e.head);
-            this.hud.hitMarker(v.hp <= 0 || !v.alive);
+            this.hud.hitMarker(v.hp <= 0 || !v.alive, e.head);
           }
           break;
         }
@@ -364,7 +407,7 @@ export class GameApp {
           const v = sim.players[e.victim]!;
           const killer = e.killer >= 0 ? sim.players[e.killer]! : null;
           this.hud.kill(killer, v, e.weapon, e.head, e.wallbang, me);
-          if (killer === me && me) this.hud.hitMarker(true);
+          if (killer === me && me) this.hud.hitMarker(true, e.head);
           if (v === me) {
             this.deathAt = sim.time;
             if (this.hud.buyOpen) { this.hud.setBuyOpen(false); this.input.requestLock(); }
@@ -591,13 +634,14 @@ export class GameApp {
     this.roll += (-side * 0.003 - this.roll) * Math.min(1, dt * 8);
     this.shake = Math.max(0, this.shake - dt * 3);
     const sh = this.shake * this.shake * 0.018;
+    const flinchP = this.flinchP.step(0, dt), flinchY = this.flinchY.step(0, dt), flinchR = this.flinchR.step(0, dt);
 
     const dead = !view.alive;
     this.camera.position.set(x, this.eyeY + (dead ? 0.45 : eye) + this.landDip * 0.06, z);
     this.camera.rotation.set(
-      pitch + this.punchP + jolt + (Math.random() - 0.5) * sh,
-      yaw + this.punchY + joltYaw + (Math.random() - 0.5) * sh,
-      this.roll + (dead ? 0.5 : 0),
+      pitch + this.punchP + jolt + flinchP + (Math.random() - 0.5) * sh,
+      yaw + this.punchY + joltYaw + flinchY + (Math.random() - 0.5) * sh,
+      this.roll + flinchR + (dead ? 0.5 : 0),
     );
 
     // FOV: scope zoom and a touch of shot kick.

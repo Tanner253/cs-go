@@ -197,6 +197,8 @@ export class GameAudio {
     if (this.ctx) this.master.gain.value = v * 1.4;
   }
 
+  private crackBuf: AudioBuffer | null = null;
+
   setListener(x: number, y: number, z: number, yaw: number): void {
     this.listener.x = x; this.listener.y = y; this.listener.z = z; this.listener.yaw = yaw;
   }
@@ -336,6 +338,38 @@ export class GameAudio {
 
   hurt(): void {
     this.play('hurt', null);
+  }
+
+  /**
+   * A round going past the listener's head: the sharp crack of it, then a short hiss.
+   * (Made here rather than recorded: a burst of noise, high-passed, gone in a twentieth of a second.)
+   */
+  crack(x: number, y: number, z: number, loud: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const out = this.out(x, y, z, 5, 0.06);
+    if (!out) return;
+    if (!this.crackBuf) {
+      const n = Math.floor(ctx.sampleRate * 0.07);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) {
+        const t = i / ctx.sampleRate;
+        // The crack (2 ms), and the hiss falling away behind it.
+        d[i] = (Math.random() * 2 - 1) * (Math.exp(-t / 0.0022) + 0.22 * Math.exp(-t / 0.018));
+      }
+      this.crackBuf = buf;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.crackBuf;
+    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1700;
+    const g = ctx.createGain();
+    g.gain.value = 0.2 * loud;
+    src.connect(hp).connect(g).connect(out);
+    src.start();
   }
 
   /** A bullet striking the level near the listener. */

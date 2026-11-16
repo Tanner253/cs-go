@@ -2,7 +2,7 @@ import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
 import { BTN_FIRE, TICK, emptyCmd, type Cmd } from '../src/sim/types';
-import { RULES_1V1, encodeHidden, takeSnapshot, type ServerMsg } from '../src/net/protocol';
+import { PROTOCOL, RULES_1V1, encodeHidden, takeSnapshot, type ServerMsg } from '../src/net/protocol';
 import { canSee } from '../server/visibility';
 import { Replica } from '../src/net/replica';
 
@@ -132,7 +132,7 @@ describe('online match (real server, two clients)', () => {
 
   beforeAll(async () => {
     execSync('npm run build:server', { stdio: 'ignore' });
-    server = spawn(process.execPath, ['dist-server/index.cjs'], { env: { ...process.env, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'inherit'] });
+    server = spawn(process.execPath, ['dist-server/index.cjs'], { env: { ...process.env, PORT: String(PORT), BAN_MINUTES: '0.0005' }, stdio: ['ignore', 'pipe', 'inherit'] });
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('server did not start')), 10000);
       server.stdout!.on('data', (d: Buffer) => { if (d.toString().includes('listening')) { clearTimeout(t); resolve(); } });
@@ -155,7 +155,7 @@ describe('online match (real server, two clients)', () => {
     const connect = (name: string): Promise<TestClient> => new Promise((resolve) => {
       const ws = new WebSocket(`ws://localhost:${PORT}`);
       const c: TestClient = { ws, replica: null, cmd: emptyCmd(), lobbies: 0, corrections: [], left: '' };
-      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', v: 1, name })); };
+      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL, name })); };
       ws.onmessage = (ev) => {
         const m = JSON.parse(ev.data as string) as ServerMsg;
         if (m.t === 'welcome') { ws.send(JSON.stringify({ t: 'join', id: 2 })); resolve(c); }
@@ -227,6 +227,10 @@ describe('online match (real server, two clients)', () => {
       expect(a.corrections.length).toBeGreaterThan(40);
       expect(mean).toBeLessThan(0.02);
 
+      // Two honest clients have given the anti-cheat nothing to note.
+      const watch = (await (await fetch(`http://localhost:${PORT}/`)).json()) as { anticheat: { flagged: number; removed: number } };
+      expect(watch.anticheat).toMatchObject({ flagged: 0, removed: 0 });
+
       // Opponent leaving ends the match for the other player.
       b.ws.close();
       await until(() => a.left !== '', 3000, 'opponent-left notice');
@@ -236,4 +240,36 @@ describe('online match (real server, two clients)', () => {
       b.ws.close();
     }
   }, 40000);
+
+  it('turns away an out-of-date page, and removes a client that sends what the game cannot', async () => {
+    const open = (v: number) => new Promise<{ ws: WebSocket; msgs: ServerMsg[]; closed: Promise<number> }>((resolve) => {
+      const ws = new WebSocket(`ws://localhost:${PORT}`);
+      const msgs: ServerMsg[] = [];
+      const closed = new Promise<number>((done) => { ws.onclose = (ev) => done(ev.code); });
+      ws.onmessage = (ev) => {
+        const m = JSON.parse(ev.data as string) as ServerMsg;
+        msgs.push(m);
+        if (m.t === 'welcome') resolve({ ws, msgs, closed });
+      };
+      ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v, name: 'Probe' }));
+    });
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    // An old build is told to refresh and is not let into an arena.
+    const old = await open(PROTOCOL - 1);
+    old.ws.send(JSON.stringify({ t: 'join', id: 4 }));
+    await wait(300);
+    expect(old.msgs.some((m) => m.t === 'error' && /refresh/.test(m.message))).toBe(true);
+    expect(old.msgs.some((m) => m.t === 'joined')).toBe(false);
+    old.ws.close();
+
+    // Commands no client can produce: full speed in two directions at three times the limit, an
+    // item that does not exist, a view angle past straight up.
+    const bad = await open(PROTOCOL);
+    for (let i = 0; i < 8; i++) bad.ws.send(JSON.stringify({ t: 'c', q: i + 1, f: 3, s: -3, y: 0, p: 9, b: 1, w: -1, u: 'godmode', v: 0 }));
+    expect(await Promise.race([bad.closed, wait(3000).then(() => -1)])).toBe(4001);
+    const info = (await (await fetch(`http://localhost:${PORT}/`)).json()) as { anticheat: { mode: string; removed: number } };
+    expect(info.anticheat.mode).toBe('enforce');
+    expect(info.anticheat.removed).toBe(1);
+  }, 15000);
 });

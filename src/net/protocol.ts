@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import type { Charge, Phase, Player, SimEvent, Team, WinReason } from '../sim/types';
 import { WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 5;
+export const PROTOCOL = 6;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -103,6 +103,24 @@ export function encodeHidden(p: Player): number[] {
 }
 export const isHidden = (a: number[]): boolean => a.length <= 4;
 
+/**
+ * What a living player is told about an enemy they can see: where they are, how they are
+ * moving and what is in their hands, but not their health, armour, money, ammunition or
+ * what else they carry, none of which a player could see by looking.
+ */
+export function encodeEnemy(p: Player): number[] {
+  const out = encodePlayer(p);
+  out[2] = p.alive ? 100 : 0; // hp
+  out[3] = 0; out[4] = 0; out[5] = 0; out[6] = 0; // armour, helmet, kit, money
+  const first = out.length - 9;
+  for (let s = 0; s < 3; s++) {
+    const at = first + s * 3;
+    if (s !== p.active) out[at] = -1;
+    out[at + 1] = 0; out[at + 2] = 0;
+  }
+  return out;
+}
+
 export function decodePlayer(p: Player, a: number[]): void {
   let i = 0;
   const n = (): number => a[i++]!;
@@ -135,8 +153,10 @@ export function decodePlayer(p: Player, a: number[]): void {
 
 /**
  * @param hidden per player id: true where the recipient must not be told where that player is
+ * @param viewer the player the snapshot is for (omitted: everything is told, as to a spectator)
  */
-export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidden?: boolean[]): Snapshot {
+export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidden?: boolean[], viewer?: Player): Snapshot {
+  const secret = (p: Player): boolean => !!viewer && viewer.alive && p !== viewer && p.team !== viewer.team;
   const c = sim.charge;
   return {
     k: sim.tickCount,
@@ -152,7 +172,7 @@ export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidde
     lr: REASONS.indexOf(sim.lastReason),
     mw: sim.matchWinner,
     c: [CHARGE_STATES.indexOf(c.state), c.carrier, r4(c.pos.x), r4(c.pos.y), r4(c.pos.z), r4(c.timer), c.site],
-    p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : encodePlayer(p))),
+    p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : secret(p) ? encodeEnemy(p) : encodePlayer(p))),
     a: acks,
     e: events,
   };

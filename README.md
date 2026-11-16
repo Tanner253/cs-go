@@ -57,12 +57,37 @@ The server is the only authority; a client sends inputs and nothing else.
 - **Lag compensation is bounded** by the latency the server itself measures.
 - **Spread** comes from a server-side secret, so it cannot be predicted or chosen.
 - **Input rate**: one command per player per tick; backlogs are trimmed, floods are disconnected.
+- **Nothing a player could not see**: an enemy in view is sent without health, armour, money,
+  ammunition or the rest of their kit, and what they buy, draw or reload is told only to them.
 - Purchases, names, angles and message sizes are validated server-side. Set `ALLOWED_ORIGINS`
-  on the server to accept connections only from your site.
+  on the server to accept connections only from your site. An out-of-date page cannot join; an
+  address may hold 8 connections (`MAX_PER_ADDRESS`).
 
-What this does not stop: aim assistance running on the player's own machine. Recoil and
-spread are still applied by the server, but a program that moves the crosshair for the player
-needs statistical detection or a client-side anti-cheat, neither of which exists here.
+### Detection (`server/anticheat.ts`)
+
+What is left to a cheat is aiming or timing its input by program. The server judges that from
+each player's stream of commands, looking only for what a hand on a mouse cannot do, and only
+acts once it has happened repeatedly:
+
+| Detector | What it catches |
+|---|---|
+| snap | the aim arrives at speed, stops dead on a target's centre, and hits |
+| flickback | the aim is on the target for the one tick of the shot, then back ("silent aim") |
+| lock | the aim stays within 0.15° of a moving target's centre through a change of direction |
+| recoil | a spray's recoil cancelled to within 0.06° |
+| spin | the view turning faster than 1600°/s while still landing hits |
+| timer | commands arriving faster than real time (a sped-up client) |
+| protocol | messages the game cannot produce |
+
+A player it is sure of is removed from the match, the opponent is told why, and the address is
+kept out for 15 minutes (`BAN_MINUTES`). `ANTICHEAT=log` only writes what it sees; `off`
+disables it. Counts are on the server's status page (`/`). `tests/anticheat.test.ts` plays six
+simulated cheats and two simulated honest players (one strong, one at a low frame rate) against
+it.
+
+What this does not stop: a cheat that aims like a person (slow, imprecise, with human error).
+Catching that takes more play data than a duel provides, or software on the player's machine,
+which a browser game cannot have.
 
 ## Deploying
 
@@ -97,10 +122,11 @@ src/sim/      engine-agnostic simulation (no DOM, no three.js); runs on client a
   world.ts movement.ts weapons.ts map.ts nav.ts bot.ts game.ts
 src/net/      protocol.ts (snapshots, messages)   replica.ts (prediction, interpolation)
 server/       index.ts — lobbies and authoritative 64 Hz matches (Node + ws)
+              visibility.ts (who may be told where whom is)  anticheat.ts (detection)
 src/client/   game.ts (loop)  gfx.ts world.ts effects.ts (rendering)  viewmodel.ts assets.ts
               (weapon packs)  characters.ts  audio.ts  input.ts  hud.ts  menu.ts  net.ts  settings.ts
 public/assets weapon packs (GLB) and sounds
-tests/        sim, bots and a real-server network test
+tests/        sim, bots, anti-cheat and a real-server network test
 ```
 
 Online, the client predicts its own player every tick and re-simulates from each server
@@ -110,5 +136,5 @@ rewinds targets to what the shooter saw when testing hits.
 ## Not built yet
 
 Grenades, weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
-anti-cheat beyond server authority, direction-specific strafe animations and hit reactions
-for other players, and audio compressed for download size (sounds ship mostly as WAV).
+direction-specific strafe animations, and audio compressed for download size (sounds ship
+mostly as WAV).

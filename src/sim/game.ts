@@ -531,6 +531,22 @@ export class Sim {
     }
   }
 
+  /**
+   * Where a player stood `ticks` ago (fractions are interpolated), as far back as lag
+   * compensation remembers. Used by the server to judge what a shooter was looking at.
+   */
+  posAgo(id: number, ticks: number, out: { x: number; y: number; z: number; crouchT: number }): void {
+    const h = this.history[id]!;
+    const back = ticks < 0 ? 0 : ticks > HISTORY - 2 ? HISTORY - 2 : ticks;
+    const whole = Math.floor(back), f = back - whole;
+    const a = ((((this.tickCount - whole) % HISTORY) + HISTORY) % HISTORY) * 4;
+    const b = ((((this.tickCount - whole - 1) % HISTORY) + HISTORY) % HISTORY) * 4;
+    out.x = h[a]! + (h[b]! - h[a]!) * f;
+    out.y = h[a + 1]! + (h[b + 1]! - h[a + 1]!) * f;
+    out.z = h[a + 2]! + (h[b + 2]! - h[a + 2]!) * f;
+    out.crouchT = h[a + 3]! + (h[b + 3]! - h[a + 3]!) * f;
+  }
+
   private startReload(p: Player, w: WeaponState): void {
     p.reloadTimer = w.def.reloadTime;
     p.scope = 0;

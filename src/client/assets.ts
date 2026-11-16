@@ -215,8 +215,7 @@ for (const [gun, fit] of [
   ['smg', { part: HOLO, at: [0.035, 0.082, -0.003], size: 0.62 }],
   // (on its rail, between the folded irons, where its own painted-over optic stood)
   ['mp7a1', { part: HOLO, at: [0.049, 0.1171, -0.0085], size: 0.66 }],
-  // (on the rear sight's block, over the folded stock)
-  ['a91', { part: HOLO, at: [-0.03, 0.1092, 0.0015], size: 0.85 }],
+  // (the Osprey's a91 keeps its own carry-handle sight: nothing is fitted)
 ] as [string, Fitted][]) {
   FITTED[`${gun}.glb`] = [fit];
   FITTED[`world/${gun}_lod1.glb`] = [fit];

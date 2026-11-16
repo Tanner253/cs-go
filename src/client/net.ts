@@ -69,10 +69,12 @@ export class NetClient {
       this.pinger = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000);
     };
     ws.onmessage = (ev) => this.handle(JSON.parse(ev.data as string) as ServerMsg);
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       clearInterval(this.pinger);
       if (this.ws !== ws) return;
       this.ws = null;
+      // (4001: the server will not have this connection, and has said why: do not keep knocking)
+      const refused = ev.code === 4001;
       const wasOnline = this.state === 'online';
       const inMatch = this.replica !== null;
       this.replica = null;
@@ -85,7 +87,9 @@ export class NetClient {
         return;
       }
       // Cold starts on free hosting refuse connections for a while: keep trying.
-      if (!wasOnline && this.attempts < 30) {
+      if (refused) {
+        this.fail(ev.reason || this.message || 'The server refused the connection');
+      } else if (!wasOnline && this.attempts < 30) {
         this.attempts++;
         this.state = 'waking';
         this.message = 'Waking the server — free hosting sleeps when idle, this can take up to a minute…';
