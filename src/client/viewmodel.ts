@@ -7,7 +7,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { WeaponDef } from '../sim/weapons';
 import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
 import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
-import { SKINS } from './skins';
+import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 
 /** Damped spring used for all secondary motion. */
 class Spring {
@@ -49,7 +49,7 @@ const isLens = (m: THREE.Material): boolean => /lens/i.test(m.name);
 /** Every pair of arms wears the same finish, and every gun its skin (see finish.ts). */
 function finishFor(src: THREE.Material, team: number, meshes: readonly THREE.Mesh[], wear?: SkinWear): THREE.Material {
   if (isLens(src)) return lensMaterial(src);
-  if (isArms(src)) return applyFinish(src, ARMS_FINISH, meshes);
+  if (isArms(src)) return applyFinish(src, ARMS_FINISH, meshes, wear);
   if (/^knife$/i.test(src.name)) return applyFinish(src, BLADE_FINISH, meshes, wear);
   return applyFinish(src, gunFinish(team), meshes, wear);
 }
@@ -61,41 +61,17 @@ const EYE_TO_GUN = new THREE.Matrix4().set(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 
 export interface SkinLive {
   heat: { value: number };
   ammo: { value: number };
+  /** The light of the thread in the player's sleeves: their side's colour. */
+  suitGlow: THREE.Color;
 }
+/** The sleeves do not heat up or count rounds. */
+const SUIT_STATE = { heat: { value: 0 }, ammo: { value: 1 } };
 
 const _v = new THREE.Vector3();
+const UNIT = new THREE.Vector2(0, 1);
 
 const EMPTY = new THREE.BufferGeometry();
 const pieceOf = (name: string): string => name.replace(/_\d+$/, '');
-
-/**
- * A point on top of a gun's magazine (the gun's own space), used to seat one gun where
- * another's magazine well is: pistols held in hands that were drawn round a bigger gun.
- */
-function magMark(gun: THREE.Object3D): THREE.Vector3 | null {
-  const pts: number[] = [];
-  let top = -Infinity, z0 = Infinity, z1 = -Infinity;
-  gun.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh || !/^mag/.test(mesh.name)) return;
-    const pos = mesh.geometry.getAttribute('position');
-    mesh.updateMatrix();
-    for (let i = 0; i < pos.count; i++) {
-      _v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrix);
-      pts.push(_v.x, _v.y);
-      if (_v.y > top) top = _v.y;
-      if (_v.z < z0) z0 = _v.z;
-      if (_v.z > z1) z1 = _v.z;
-    }
-  });
-  let x0 = Infinity, x1 = -Infinity;
-  for (let i = 0; i < pts.length; i += 2) {
-    if (pts[i + 1]! > top - 0.03 || pts[i + 1]! < top - 0.055) continue;
-    if (pts[i]! < x0) x0 = pts[i]!;
-    if (pts[i]! > x1) x1 = pts[i]!;
-  }
-  return x0 <= x1 ? new THREE.Vector3((x0 + x1) / 2, top, (z0 + z1) / 2) : null;
-}
 
 /** One weapon's instance: an arm pack with its gun, its own skeleton, materials and animation state. */
 class Rig {
@@ -105,12 +81,14 @@ class Rig {
   readonly muzzle = new THREE.Vector3(0.08, -0.08, -0.6);
   private mixer: THREE.AnimationMixer;
   private length: number;
+  private skip: Set<string>;
 
   /**
    * @param team the side the weapon belongs to (-1 = both), which tints its bare finish
    * @param skin the paint the gun wears, if any
    */
   constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook, team: number, skin: Skin | undefined, live: SkinLive) {
+    this.skip = new Set(look.skip ?? []);
     const scene = SkeletonUtils.clone(files.pack.scene);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
@@ -121,14 +99,9 @@ class Rig {
     if (look.scale) holder.matrix.premultiply(new THREE.Matrix4().makeScale(look.scale, look.scale, look.scale));
     holder.matrix.premultiply(new THREE.Matrix4().makeTranslation(hold[0], hold[1], hold[2]));
 
-    // Where every joint stands in the file as loaded, in the pack's own space.
-    scene.updateMatrixWorld(true);
-    const sceneInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
     const joints = new Map<string, THREE.Object3D>();
-    const filed = new Map<THREE.Object3D, THREE.Matrix4>();
     scene.traverse((o) => {
       if (!joints.has(o.name)) joints.set(o.name, o);
-      filed.set(o, new THREE.Matrix4().copy(sceneInv).multiply(o.matrixWorld));
     });
 
     this.mixer = new THREE.AnimationMixer(scene);
@@ -152,31 +125,25 @@ class Rig {
           for (const c of o.children) strip(c);
         });
       }
-      if (!info.skinned) {
-        // Rigid packs: a joint's place is where the first frame of the animation puts it.
-        this.mixer.setTime(0);
-        scene.updateMatrixWorld(true);
-      }
+      // A joint's place is where the first frame of the animation puts it.
+      this.mixer.setTime(0);
+      scene.updateMatrixWorld(true);
       const placeOf = (joint: THREE.Object3D): THREE.Matrix4 =>
-        info.skinned ? filed.get(joint)! : new THREE.Matrix4().copy(scene.matrixWorld).invert().multiply(joint.matrixWorld);
+        new THREE.Matrix4().copy(scene.matrixWorld).invert().multiply(joint.matrixWorld);
 
       const gun = files.gun.scene.clone(true);
       const size = mount.size ?? 1;
       const move = new THREE.Vector3(...(mount.nudge ?? [0, 0, 0]));
-      if (mount.alignMagTo && files.magRef) {
-        const ref = magMark(files.magRef.scene), mark = magMark(gun);
-        if (ref && mark) move.add(ref).sub(mark.multiplyScalar(size));
-      }
       const seat = new THREE.Matrix4().compose(move, new THREE.Quaternion(), new THREE.Vector3(size, size, size));
       const gunSpace = new THREE.Matrix4().fromArray(info.frame).invert().multiply(seat);
-      const hang = (piece: THREE.Object3D, on: string, by: string): void => {
-        const n = joints.get(on), j = joints.get(by);
-        if (!n || !j) return;
+      const hang = (piece: THREE.Object3D, on: string): void => {
+        const j = joints.get(on);
+        if (!j) return;
         const h = new THREE.Group();
         h.matrixAutoUpdate = false;
         h.matrix.copy(placeOf(j)).invert().multiply(gunSpace);
         h.add(piece);
-        n.add(h);
+        j.add(h);
       };
       const pieces: THREE.Mesh[] = [];
       gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o as THREE.Mesh); });
@@ -187,12 +154,7 @@ class Rig {
         const joint = mount.ride[name] ?? mount.ride['base']!;
         piece.updateMatrix();
         onGun.set(piece, { toGun: piece.matrix.clone(), role: roleOf(name) });
-        if (name === 'mag' && mount.spare) {
-          const spare = piece.clone(true);
-          onGun.set(spare, onGun.get(piece)!);
-          hang(spare, mount.spare[0], mount.spare[1]);
-        }
-        hang(piece, joint, joint);
+        hang(piece, joint);
       }
     }
 
@@ -222,7 +184,12 @@ class Rig {
       mesh.castShadow = false;
       meshes.push(mesh);
       const src = mesh.material as THREE.Material;
-      if (!skin || isArms(src) || isLens(src) || mesh.geometry === EMPTY) return;
+      if (isArms(src)) {
+        // The suit's weave is laid out on the arms as modelled (before the skeleton poses them).
+        tagGunSpace(mesh, new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld));
+        return;
+      }
+      if (!skin || isLens(src) || mesh.geometry === EMPTY) return;
       let place = onGun.get(mesh);
       if (!place) {
         place = { toGun: new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld), role: roleOf(mesh.name) };
@@ -246,7 +213,9 @@ class Rig {
       else wearers.set(key, { src, role, list: [mesh] });
     }
     for (const { src, role, list } of wearers.values()) {
-      const wear = skin && role ? { skin, role, length, cell, heat: live.heat, ammo: live.ammo } : undefined;
+      const wear: SkinWear | undefined = isArms(src)
+        ? { skin: SUIT, role: 'body', length: UNIT, cell: UNIT, ...SUIT_STATE, glow: live.suitGlow }
+        : skin && role ? { skin, role, length, cell, heat: live.heat, ammo: live.ammo } : undefined;
       const finished = finishFor(src, team, list, wear);
       for (const mesh of list) mesh.material = finished;
     }
@@ -275,7 +244,7 @@ class Rig {
   }
 
   has(clip: string): boolean {
-    return clip in this.info.clips;
+    return clip in this.info.clips && !this.skip.has(clip);
   }
   seconds(clip: string): number {
     const r = this.info.clips[clip];
@@ -374,7 +343,7 @@ export class Viewmodel {
   /** Muzzle position in viewmodel-camera space (for tracers). */
   readonly muzzleWorld = new THREE.Vector3();
   /** What the guns' skins react to. */
-  private live: SkinLive = { heat: { value: 0 }, ammo: { value: 1 } };
+  private live: SkinLive = { heat: { value: 0 }, ammo: { value: 1 }, suitGlow: new THREE.Color() };
 
   constructor() {
     // Lit like the level: cool sky light from above, a cool key over the left shoulder and a
@@ -476,6 +445,7 @@ export class Viewmodel {
     FINISH_TIME.value += dt;
     this.live.heat.value *= Math.exp(-dt * 1.9);
     this.live.ammo.value += (st.ammo - this.live.ammo.value) * Math.min(1, dt * 12);
+    this.live.suitGlow.set(SIDE_GLOW[st.team] ?? 0x9fc4ff).multiplyScalar(SUIT_GLOW);
     const r = this.rig(st.def);
     if (this.currentId !== st.def.id) {
       if (this.current) this.current.root.visible = false;

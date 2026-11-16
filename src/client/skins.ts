@@ -5,6 +5,15 @@
 
 import type { Skin } from './finish';
 
+/** The suit on the player's own arms: a dark weave with a thread of their side's colour. */
+export const SUIT: Skin = {
+  name: 'Suit', pattern: 'carbon', scale: 120,
+  a: 0x252a32, b: 0x14171c, accent: 0x14171c, glow: 0xffffff, glowStrength: 1, metal: 0, rough: 0.8,
+};
+/** The colour of each side's thread (attackers, defenders) and how strongly it is lit. */
+export const SIDE_GLOW = [0xff7a2e, 0x35e0ff];
+export const SUIT_GLOW = 0.9;
+
 export const SKINS: Record<string, Skin> = {
   // ---- attackers ----
   kite: {

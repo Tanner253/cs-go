@@ -67,6 +67,8 @@ export interface SkinWear {
   /** Live: heat from firing (0..1) and the fraction of the magazine left (0..1). */
   heat: { value: number };
   ammo: { value: number };
+  /** The light the lines give off, if it can change while worn (in place of the skin's own). */
+  glow?: THREE.Color;
 }
 
 /** Seconds, advanced once a frame by whoever draws: drives every skin's pulse. */
@@ -88,9 +90,13 @@ export function gunFinish(team: number): Finish {
     metal: 0.85, roughMin: 0.38, roughMax: 0.6, env: 1.4,
   };
 }
-/** Dark slate sleeves and gloves, identical whichever weapon is held. */
+/**
+ * Sleeves and gloves, identical whichever weapon is held. (No contrast: the arm models'
+ * own textures differ, so none of their light and dark is kept; the suit's weave is painted
+ * on as a skin and the folds come from the models' relief.)
+ */
 export const ARMS_FINISH: Finish = {
-  sat: 0, tint: [0.74, 0.8, 0.92], level: 0.018, contrast: 0.42, rim: SHEEN, rimStrength: 0.03, metal: 0, roughMin: 0.7, roughMax: 1, env: 0.5,
+  sat: 0, tint: [0.74, 0.8, 0.92], level: 0.018, contrast: 0, rim: SHEEN, rimStrength: 0.03, metal: 0, roughMin: 0.7, roughMax: 1, env: 0.5,
 };
 /** Bright worn steel for the blade. */
 export const BLADE_FINISH: Finish = {
@@ -211,6 +217,7 @@ function usedLuminance(tex: THREE.Texture, meshes: readonly THREE.Mesh[]): numbe
 /**
  * Record on a mesh where each of its vertices sits on the gun (gun space: x towards the
  * muzzle, y up, metres), which is what a skin's pattern is painted in. `box` grows to hold it.
+ * `toGun` takes the mesh's own space to gun space.
  */
 export function tagGunSpace(mesh: THREE.Mesh, toGun: THREE.Matrix4, box?: THREE.Box3): void {
   const geo = mesh.geometry;
@@ -218,9 +225,14 @@ export function tagGunSpace(mesh: THREE.Mesh, toGun: THREE.Matrix4, box?: THREE.
   if (!pos) return;
   let tag = geo.getAttribute('npPos') as THREE.BufferAttribute | undefined;
   if (!tag) {
+    // A mesh on a skeleton is measured as the skeleton currently poses it.
+    const skinned = (mesh as THREE.SkinnedMesh).isSkinnedMesh ? (mesh as THREE.SkinnedMesh) : null;
+    skinned?.skeleton.update();
     const out = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
-      _a.fromBufferAttribute(pos, i).applyMatrix4(toGun);
+      if (skinned) skinned.getVertexPosition(i, _a);
+      else _a.fromBufferAttribute(pos, i);
+      _a.applyMatrix4(toGun);
       out[i * 3] = _a.x;
       out[i * 3 + 1] = _a.y;
       out[i * 3 + 2] = _a.z;
@@ -389,8 +401,8 @@ export function applyFinish(src: THREE.Material, f: Finish, meshes: readonly THR
     shader.uniforms['npGrade'] = { value: new THREE.Vector3(base, f.level, f.contrast) };
     let head = 'uniform float npSat;\nuniform vec3 npTint;\nuniform vec3 npRim;\nuniform vec3 npGrade;\n';
     if (wear && skin) {
-      const glowA = new THREE.Color(skin.glow).multiplyScalar(skin.glowStrength);
-      const glowB = new THREE.Color(skin.glow2 ?? skin.glow).multiplyScalar(skin.glowStrength);
+      const glowA = wear.glow ?? new THREE.Color(skin.glow).multiplyScalar(skin.glowStrength);
+      const glowB = wear.glow ?? new THREE.Color(skin.glow2 ?? skin.glow).multiplyScalar(skin.glowStrength);
       shader.uniforms['npPattern'] = { value: PATTERN_ID[skin.pattern] };
       shader.uniforms['npScale'] = { value: skin.scale };
       shader.uniforms['npColA'] = { value: new THREE.Color(skin.a) };

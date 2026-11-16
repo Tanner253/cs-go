@@ -1,10 +1,13 @@
 // Weapon and character assets.
 //
 // A first-person weapon is an "arm pack" (arms + skeleton + one long animation) with a gun
-// on it. Three packs carry their own gun; for the others, and for every alternative gun,
-// a separate gun model is hung piece by piece on named joints of the pack's skeleton, so
-// one set of authored animations serves several weapons. The packs and models come from
-// the ZONA project's asset pipeline; see CREDITS.md for their authors.
+// on it. There are three packs, all by one artist and all with the same arms: one holds a
+// pistol, one a long gun, one a knife. Each carries its own gun; every other gun is a
+// separate model hung piece by piece on named joints of a pack's skeleton, so one set of
+// authored animations serves several weapons and the player's arms never change: sidearms
+// and submachine guns (magazine in the grip) go in the pistol pack, rifles and the shotgun
+// in the long-gun pack. The packs and models come from the ZONA project's asset pipeline;
+// see CREDITS.md for their authors.
 
 import type * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
@@ -23,11 +26,6 @@ export interface PackInfo {
   hold: V3;
   /** pack space -> the space gun models are authored in (x along the barrel, y up), column-major */
   frame?: number[];
-  /**
-   * The pack's gun was drawn on the skeleton with the arms, so a joint's place is taken from
-   * the file as loaded rather than from the first frame of animation.
-   */
-  skinned?: boolean;
   /** this pack's arms have no textures of their own: borrow them from another pack by the same maker */
   armsFrom?: string;
   /** meshes of the pack's own gun, hidden when another gun is mounted in its place */
@@ -41,38 +39,20 @@ export interface GunMount {
   ride: Record<string, string>;
   /** optional attachments stored in the file that are not fitted */
   hide?: string[];
-  /** a second magazine shown in the hand during reloads: [joint it hangs on, joint it is placed by] */
-  spare?: [string, string];
   /** fine placement in the gun's own space */
   nudge?: V3;
   /** drawn at this fraction of its own size (hands sized for another gun) */
   size?: number;
-  /** seat it so the top of its magazine meets the top of this other gun's magazine */
-  alignMagTo?: string;
 }
 
-const AK_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', safety: 'Safety_061', trigger: 'Trigger_060', mag: 'Pmag_062' };
-const SMG_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', trigger: 'Trigger_060', mag: 'Pmag_061' };
-const PISTOL_JOINTS = { base: 'base', slide: 'slide', mag: 'mag', hammer: 'hammer' };
+/** Which joint of the pistol pack each piece of a mounted gun rides on. */
+const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag', hammer: 'hammer' };
+/** The same for the long-gun pack (its magazine joint is called "clip"). */
+const LONG_JOINTS = { base: 'base', mag: 'clip' };
+/** Rifles are held where the long-gun pack's own rifle has its grip, which is further back than theirs. */
+const RIFLE_SEAT: V3 = [-0.125, 0.02, 0.004];
 
 export const PACKS: Record<string, PackInfo> = {
-  ak: {
-    file: 'ak_fp.glb', fps: 30,
-    clips: { idle: [0, 59.45], draw: [61.45, 80.9], fire: [82.9, 92.35], reload: [94.35, 173.8], reloadEmpty: [175.8, 280.75], reloadAlt: [282.75, 367.2], walk: [369.2, 398.65], run: [400.65, 412.6] },
-    view: [-0.3419853, 0, 0, 0, 0, 0.3419853, 0, 0, 0, 0, -0.3419853, 0, 0, 0, 0, 1],
-    hold: [0.05, -0.17, -0.12],
-    frame: [0.0083554, 0.0369341, -0.3398824, 0, 0, 0.3399839, 0.0369451, 0, 0.3418833, -0.0009026, 0.0083065, 0, -0.2204215, -0.0081636, -0.041764, 1],
-    skinned: true,
-  },
-  smg: {
-    file: 'smg_fp.glb', fps: 30,
-    clips: { idle: [0, 49.45], draw: [51.45, 70.9], fire: [72.9, 82.35], reload: [84.35, 202.8], reloadEmpty: [204.8, 336.75], inspect: [338.75, 556.7], walk: [558.7, 580.65], run: [582.65, 597.1] },
-    view: [-0.3443, 0, 0, 0, 0, 0.3443, 0, 0, 0, 0, -0.3443, 0, 0, 0, 0, 1],
-    // (close in: further out, the left elbow hangs in the corner of the view)
-    hold: [0.07, -0.215, -0.02],
-    frame: [0.0052278, 0.0347936, -0.3424975, 0, 0, 0.342537, 0.0347977, 0, 0.3442603, -0.0005284, 0.005201, 0, -0.1702436, -0.0486295, -0.0435524, 1],
-    skinned: true,
-  },
   m9: {
     file: 'm9_fp.glb', fps: 30,
     clips: { fire: [0, 11], reload: [12, 82], fireLast: [83, 94], reloadEmpty: [95, 175], holster: [176, 187], draw: [187, 233], idle: [234, 264] },
@@ -104,35 +84,40 @@ export interface WeaponLook {
   mount?: GunMount;
   /** overrides the pack's hold position */
   hold?: V3;
+  /** movements of the pack this weapon does not use */
+  skip?: string[];
   scale?: number;
   /** which model other players see this weapon as */
   world: string;
 }
+
+/** Where a mounted long gun is held (closer in than the pack's own scoped rifle). */
+const LONG_HOLD: V3 = [0.11, -0.2, -0.12];
 
 /** How each weapon id is drawn in first person. */
 export const WEAPON_LOOK: Record<string, WeaponLook> = {
   edge: { pack: 'knife', world: 'knife' },
   // ---- attackers ----
   kite: { pack: 'm9', world: 'm9' },
-  wasp: { pack: 'smg', world: 'smg', mount: { file: 'smg.glb', ride: SMG_JOINTS, spare: ['Pmag_2_062', 'Pmag_061'] } },
-  hammerhead: { pack: 'ak', world: 'ak', mount: { file: 'ak.glb', ride: AK_JOINTS, spare: ['Pmag2_063', 'Pmag_062'] } },
+  wasp: { pack: 'm9', world: 'smg', mount: { file: 'smg.glb', ride: PISTOL_JOINTS } },
+  // (the long-gun pack's bolt-action cycle is not for a self-loading rifle)
+  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: RIFLE_SEAT } },
   // ---- defenders ----
-  // (every pistol is held in the pistol pack's two-handed grip, so the hands never change between sidearms)
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS } },
   hornet: {
-    pack: 'smg', world: 'mp7', hold: [0.08, -0.23, -0.05],
+    pack: 'm9', world: 'mp7',
     // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
     // the stock is left off too: extended, its rails run past the camera)
-    mount: { file: 'mp7a1.glb', ride: SMG_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], spare: ['Pmag_2_062', 'Pmag_061'] },
+    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'] },
   },
   lumen: {
-    pack: 'ak', world: 'ar15',
-    mount: { file: 'ar15_lod1.glb', ride: { base: AK_JOINTS.base, mag: AK_JOINTS.mag }, hide: ['silencer', 'foregrip', 'light'], spare: ['Pmag2_063', 'Pmag_062'] },
+    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt'],
+    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: RIFLE_SEAT },
   },
   // ---- both sides ----
   maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94 } },
   breaker: {
-    pack: 'sniper', world: 'benelli', hold: [0.11, -0.2, -0.12],
+    pack: 'sniper', world: 'benelli', hold: LONG_HOLD,
     mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0] },
   },
   longsight: { pack: 'sniper', world: 'sniper' },
@@ -161,8 +146,6 @@ function loadFile(name: string): Promise<GLTF | null> {
 export interface WeaponFiles {
   pack: GLTF;
   gun: GLTF | null;
-  /** the gun whose magazine this one's is aligned to */
-  magRef: GLTF | null;
   /** a pack whose arm textures are borrowed */
   arms: GLTF | null;
 }
@@ -171,7 +154,6 @@ function filesFor(look: WeaponLook): string[] {
   const info = PACKS[look.pack]!;
   const out = [info.file];
   if (look.mount) out.push(look.mount.file);
-  if (look.mount?.alignMagTo) out.push(look.mount.alignMagTo);
   if (info.armsFrom) out.push(PACKS[info.armsFrom]!.file);
   return out;
 }
@@ -187,7 +169,6 @@ export function getWeapon(id: string): WeaponFiles | null {
   return {
     pack,
     gun: look.mount ? files.get(look.mount.file) ?? null : null,
-    magRef: look.mount?.alignMagTo ? files.get(look.mount.alignMagTo) ?? null : null,
     arms: info.armsFrom ? files.get(PACKS[info.armsFrom]!.file) ?? null : null,
   };
 }

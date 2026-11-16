@@ -7,24 +7,24 @@ No sounds come from ZONA.
 
 ## First-person weapons, arms and animation — CC BY 4.0
 
-- This work is based on "FPS AK-74m animations" (https://sketchfab.com/3d-models/fps-ak-74m-animations-94be8385c402474cacd39bc096c6ca14) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
-  Files: `public/assets/weapons/ak_fp.glb`, `ak.glb`.
-  Changes made: scaled to metres; its eight animations laid end to end as one; the rifle taken off its skeleton in pieces (rifle, bolt, trigger, safety, magazine) and hung back on the arm joints at run time; textures re-encoded as WebP; geometry compressed. Recoloured in game for the second rifle.
-- This work is based on "SMG FPS Animations" (https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/smg_fp.glb`, `smg.glb`.
-  Changes made: as above.
 - "animated pistol" (https://skfb.ly/ooPqJ) by DJMaesen is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/m9_fp.glb`.
-  Changes made: its one long animation cut into the movements the game plays; textures re-encoded as WebP; geometry compressed. Recoloured in game for the other two pistols.
+  Changes made: its one long animation cut into the movements the game plays; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold the other pistols and both submachine guns.
 - "sniper animated" (https://sketchfab.com/3d-models/sniper-animated-b48999a250b2433da59f705c371a49b2) by DJMaesen is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/sniper_fp.glb`.
-  Changes made: scaled to metres; its one long animation cut into movements; textures re-encoded as WebP; geometry compressed.
+  Changes made: scaled to metres; its one long animation cut into movements; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold both rifles and the shotgun.
 - This work is based on "knife Animated" (https://sketchfab.com/3d-models/knife-animated-f3140db917cc43389c14b5b2536c1dc8) by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/knife_fp.glb`.
   Changes made: scaled to metres; its one long animation cut into movements; its arms drawn with the textures of the same maker's sniper pack; textures re-encoded as WebP; geometry compressed.
 
+- This work is based on "FPS AK-74m animations" (https://sketchfab.com/3d-models/fps-ak-74m-animations-94be8385c402474cacd39bc096c6ca14) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+  Files: `public/assets/weapons/ak.glb`, `world/ak_lod1.glb`.
+  Changes made: only the rifle is used: taken off its skeleton in pieces (rifle, bolt, trigger, safety, magazine) and scaled to metres; its arms and animation are left out; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
+- This work is based on "SMG FPS Animations" (https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/smg.glb`, `world/smg_lod1.glb`.
+  Changes made: as above. Held in the arms of the pistol pack.
 - This work is based on "AR-15" (https://sketchfab.com/3d-models/ar-15-33e225811b404192b89dcd4096603fbe) by wafla (https://sketchfab.com/wafla) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/ar15_lod1.glb`. Changes made: scaled to metres and set in separate pieces (rifle, magazine, brake, sight and unused attachments); reduced in detail; textures re-encoded as WebP; geometry compressed. Held in the arms of the AK pack.
+  Files: `public/assets/weapons/ar15_lod1.glb`. Changes made: scaled to metres and set in separate pieces (rifle, magazine, brake, sight and unused attachments); reduced in detail; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
 - This work is based on "Colt 1911" (https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553) by AlexChuchvaga (https://sketchfab.com/AlexChuchvaga) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/colt_1911.glb`, `world/colt_1911_lod1.glb`. Changes made: taken off its skeleton and set in rigid pieces (frame, slide, hammer, magazine), scaled to metres; its own animation is not used; textures re-encoded as WebP; geometry compressed. Held in the arms of the pistol pack.
 - This work is based on "Desert Eagle" (https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95) by ELIZION (https://sketchfab.com/ELIZION) licensed under CC-BY-4.0.
@@ -32,7 +32,7 @@ No sounds come from ZONA.
 - This work is based on "Benelli M3 Tactical" (https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd) by Amapsis (https://sketchfab.com/Amapsis) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/benelli_m3.glb`, `world/benelli_m3_lod1.glb`. Changes made: set in rigid pieces and laid along the barrel; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
 - This work is based on "MP7A1 Animations" (https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc) by TheParaziT (https://sketchfab.com/TheParaziT) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the SMG pack.
+  Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the pistol pack.
 
 ## Player character
 
