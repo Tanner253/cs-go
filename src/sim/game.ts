@@ -31,6 +31,8 @@ export const RULES = {
   blastDamage: 500,
   /** Grapple hook, wall-jump and mantle. Off: the game plays as a classic ground shooter. */
   verticalKit: false,
+  /** Bullets passing through thin cover. Off: any wall stops any bullet. */
+  wallbang: false,
 };
 
 export interface SimOptions {
@@ -143,6 +145,11 @@ export class Sim {
    * but nothing authoritative (damage, purchases, objective completion) is applied.
    */
   predicting = false;
+  /**
+   * Set on a server: weapon spread is then seeded from this secret and the server tick, so a
+   * client cannot choose (or predict) which way its bullets will stray.
+   */
+  spreadSecret = 0;
   private history: Float32Array[] = [];
   private shotRng = new Rng(1);
   private saved = new Float32Array(4 * 16);
@@ -553,7 +560,11 @@ export class Sim {
     const def = w.def;
     // Online, spread is seeded from the command so the client's predicted tracer matches the server.
     let rng = this.rng;
-    if (seq > 0) {
+    if (this.spreadSecret !== 0 && !this.predicting) {
+      rng = this.shotRng;
+      rng.reseed(Math.imul(this.tickCount, 2654435761) ^ Math.imul(p.id + 1, 40503) ^ this.spreadSecret);
+    } else if (seq > 0) {
+      // Client prediction: a stand-in seed, good enough for the tracer it draws.
       rng = this.shotRng;
       rng.reseed(Math.imul(seq, 2654435761) ^ Math.imul(p.id + 1, 40503));
     }
@@ -647,7 +658,7 @@ export class Sim {
       // Wall penetration: thin cover does not stop a rifle round.
       const exit = this.world.exitDistance(wbox, sx, sy, sz, dx, dy, dz);
       const thickness = exit - wdist;
-      if (def.penetration <= 0 || thickness > def.penetration) return;
+      if (!this.rules.wallbang || def.penetration <= 0 || thickness > def.penetration) return;
       factor *= 0.8 - 0.45 * (thickness / def.penetration);
       travelled += exit + 0.01;
       sx += dx * (exit + 0.01); sy += dy * (exit + 0.01); sz += dz * (exit + 0.01);

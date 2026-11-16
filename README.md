@@ -16,6 +16,7 @@ npm run dev          # game client at http://localhost:5180
 npm run dev:server   # game server for online duels at ws://localhost:8787
 npm test             # simulation, bot and network tests
 npm run build        # typecheck + production client in dist/
+node tools/build-sounds.mjs   # rebuild public/assets/audio from the raw CC0 packs
 ```
 
 URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automated testing),
@@ -26,6 +27,37 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
 - **Play online** — 1v1 duel on a server-authoritative match. Five arenas run at once; a match
   starts when two players are in one. First to 7 rounds, sides swap after 6.
 - **Practice** — the full round loop offline against bots, 1v1 up to 5v5.
+
+## Weapons
+
+| | Attackers | Defenders |
+|---|---|---|
+| Sidearm | Kite-9 | Tern P7 (1911) |
+| SMG | Wasp SMG | Hornet PDW |
+| Rifle | Hammerhead AR (AK) | Lumen AR (AR-15) |
+| Both sides | Maul .50, Breaker shotgun, Longsight sniper, Edge knife | |
+
+Each has its own model, sound and stats. Several guns share an animated pair of arms: the gun
+model is mounted piece by piece on the arm skeleton's joints (`src/client/assets.ts`).
+
+## Cheat resistance
+
+The server is the only authority; a client sends inputs and nothing else.
+
+- **Movement and collision** run on the server. A client cannot report a position.
+- **Hits** are decided on the server against its own record of where players were. Walls stop
+  every bullet (`rules.wallbang` is off).
+- **No wallhack data**: an enemy the player has no line of sight to is sent without a position
+  (`server/visibility.ts`), so a modified client has nothing to draw.
+- **Lag compensation is bounded** by the latency the server itself measures.
+- **Spread** comes from a server-side secret, so it cannot be predicted or chosen.
+- **Input rate**: one command per player per tick; backlogs are trimmed, floods are disconnected.
+- Purchases, names, angles and message sizes are validated server-side. Set `ALLOWED_ORIGINS`
+  on the server to accept connections only from your site.
+
+What this does not stop: aim assistance running on the player's own machine. Recoil and
+spread are still applied by the server, but a program that moves the crosshair for the player
+needs statistical detection or a client-side anti-cheat, neither of which exists here.
 
 ## Deploying
 
@@ -74,5 +106,4 @@ rewinds targets to what the shooter saw when testing hits.
 
 Grenades, weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
 anti-cheat beyond server authority, direction-specific strafe animations and hit reactions
-for other players, a shotgun model (the shotgun is out of the armory until it has one), and audio
-compressed for download size (sounds ship as WAV).
+for other players, and audio compressed for download size (sounds ship mostly as WAV).

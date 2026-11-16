@@ -106,11 +106,20 @@ const defs: WeaponDef[] = [
     pattern: makePattern(7, 5.5, 3, 0.8, 2, 5, 13), penetration: 0.6, kick: 1.6, range: 120,
   },
   {
-    id: 'wasp', name: 'Wasp SMG', kind: 'smg', slot: 0, price: 1250, killReward: 600, team: -1,
-    damage: 26, armorPen: 0.6, rangeMod: 0.82, headMult: 4, rpm: 800, auto: true, pellets: 1,
-    magSize: 30, reserve: 120, reloadTime: 2.6, drawTime: 0.6, maxSpeed: 6.1,
-    spreadStand: 0.009, spreadCrouch: 0.007, spreadMove: 0.028, spreadAir: 0.16, spreadPerShot: 0.0028, spreadDecay: 5,
-    pattern: makePattern(30, 4.6, 7, 1.5, 6, 9, 21), penetration: 0.3, kick: 0.6, range: 120,
+    // Attackers' SMG: cheap, fast-firing and loose.
+    id: 'wasp', name: 'Wasp SMG', kind: 'smg', slot: 0, price: 1050, killReward: 600, team: 0,
+    damage: 29, armorPen: 0.575, rangeMod: 0.8, headMult: 4, rpm: 800, auto: true, pellets: 1,
+    magSize: 30, reserve: 100, reloadTime: 2.6, drawTime: 0.6, maxSpeed: 6.1,
+    spreadStand: 0.0105, spreadCrouch: 0.008, spreadMove: 0.026, spreadAir: 0.16, spreadPerShot: 0.003, spreadDecay: 5,
+    pattern: makePattern(30, 5.0, 7, 1.8, 6, 9, 21), penetration: 0.3, kick: 0.65, range: 120,
+  },
+  {
+    // Defenders' SMG: dearer, tighter, better against armour.
+    id: 'hornet', name: 'Hornet PDW', kind: 'smg', slot: 0, price: 1500, killReward: 600, team: 1,
+    damage: 27, armorPen: 0.65, rangeMod: 0.86, headMult: 4, rpm: 750, auto: true, pellets: 1,
+    magSize: 30, reserve: 120, reloadTime: 3.0, drawTime: 0.6, maxSpeed: 5.6,
+    spreadStand: 0.0075, spreadCrouch: 0.006, spreadMove: 0.03, spreadAir: 0.16, spreadPerShot: 0.0026, spreadDecay: 5.5,
+    pattern: makePattern(30, 4.0, 7.5, 1.3, 7, 10, 22), penetration: 0.35, kick: 0.55, range: 120,
   },
   {
     id: 'breaker', name: 'Breaker', kind: 'shotgun', slot: 0, price: 1100, killReward: 900, team: -1,

@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import type { Charge, Phase, Player, SimEvent, Team, WinReason } from '../sim/types';
 import { WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -94,9 +94,22 @@ export function encodePlayer(p: Player): number[] {
   return out;
 }
 
+/**
+ * What a client is told about a player it has no line of sight to: enough for the
+ * scoreboard, and nothing that would let a modified client draw them through walls.
+ */
+export function encodeHidden(p: Player): number[] {
+  return [p.team, p.alive ? 1 : 0, p.kills, p.deaths];
+}
+export const isHidden = (a: number[]): boolean => a.length <= 4;
+
 export function decodePlayer(p: Player, a: number[]): void {
   let i = 0;
   const n = (): number => a[i++]!;
+  if (isHidden(a)) {
+    p.team = n() as Team; p.alive = n() === 1; p.kills = n(); p.deaths = n();
+    return;
+  }
   p.team = n() as Team; p.alive = n() === 1; p.hp = n(); p.armor = n(); p.helmet = n() === 1; p.kit = n() === 1;
   p.money = n(); p.kills = n(); p.deaths = n(); p.hasCharge = n() === 1;
   p.pos.x = n(); p.pos.y = n(); p.pos.z = n(); p.vel.x = n(); p.vel.y = n(); p.vel.z = n(); p.yaw = n(); p.pitch = n();
@@ -120,7 +133,10 @@ export function decodePlayer(p: Player, a: number[]): void {
   }
 }
 
-export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[]): Snapshot {
+/**
+ * @param hidden per player id: true where the recipient must not be told where that player is
+ */
+export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidden?: boolean[]): Snapshot {
   const c = sim.charge;
   return {
     k: sim.tickCount,
@@ -136,7 +152,7 @@ export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[]): Snap
     lr: REASONS.indexOf(sim.lastReason),
     mw: sim.matchWinner,
     c: [CHARGE_STATES.indexOf(c.state), c.carrier, r4(c.pos.x), r4(c.pos.y), r4(c.pos.z), r4(c.timer), c.site],
-    p: sim.players.map(encodePlayer),
+    p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : encodePlayer(p))),
     a: acks,
     e: events,
   };

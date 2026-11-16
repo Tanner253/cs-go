@@ -2,7 +2,8 @@ import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
 import { BTN_FIRE, TICK, emptyCmd, type Cmd } from '../src/sim/types';
-import { RULES_1V1, type ServerMsg } from '../src/net/protocol';
+import { RULES_1V1, encodeHidden, takeSnapshot, type ServerMsg } from '../src/net/protocol';
+import { canSee } from '../server/visibility';
 import { Replica } from '../src/net/replica';
 
 describe('lag compensation', () => {
@@ -49,6 +50,78 @@ describe('lag compensation', () => {
       // The victim must be back at their real position afterwards.
       expect(Math.abs(victim.pos.x - oldX)).toBeGreaterThan(0.6);
     }
+  });
+});
+
+describe('server-side cheat resistance', () => {
+  const duel = () => {
+    const sim = new Sim({ teamSize: 1, bots: false, rules: { ...RULES_1V1, freezeTime: 0.02 } });
+    const cmds = [emptyCmd(), emptyCmd()];
+    const step = (n = 1) => { for (let i = 0; i < n; i++) { sim.tick((p) => cmds[p.id]!); sim.events.length = 0; } };
+    step(4);
+    return { sim, a: sim.players[0]!, b: sim.players[1]!, cmds, step };
+  };
+
+  it('withholds the position of an enemy with no line of sight, and sends it when there is one', () => {
+    const { sim, a, b } = duel();
+    // At their spawns the two cannot see each other.
+    expect(canSee(sim, a, b)).toBe(false);
+    const snap = takeSnapshot(sim, [0, 0], [], [false, true]);
+    expect(snap.p[1]).toEqual(encodeHidden(b));
+    expect(snap.p[1]!.length).toBe(4);
+    expect(JSON.stringify(snap.p[1])).not.toContain(String(b.pos.z));
+    // Face to face down a lane they can.
+    a.pos.x = 24; a.pos.z = 20; b.pos.x = 24; b.pos.z = 4;
+    expect(canSee(sim, a, b)).toBe(true);
+    // About to round a corner: sight is granted a moment early, never late.
+    a.pos.x = 3.6; a.pos.z = 10.9; b.pos.x = 12; b.pos.z = 8; // b inside the east connector, a just short of its mouth
+    a.vel.x = a.vel.z = 0;
+    expect(canSee(sim, a, b)).toBe(false);
+    a.vel.z = -6; // running toward the opening
+    expect(canSee(sim, a, b)).toBe(true);
+  });
+
+  it('walls stop bullets: no damage through cover', () => {
+    const { sim, a, b, cmds, step } = duel();
+    a.money = 9000;
+    sim.phase = 'freeze';
+    sim.tryBuy(a, 'hammerhead');
+    sim.phase = 'live';
+    // The 0.8 m shield wall at z 23.4..24.2 stands between them.
+    a.pos.x = 0; a.pos.z = 27; a.pos.y = 0.002;
+    b.pos.x = 0; b.pos.z = 21; b.pos.y = 0.002;
+    step(64);
+    cmds[0]!.yaw = 0; cmds[0]!.pitch = Math.atan2(1.3 - 1.63, 6);
+    cmds[0]!.buttons = BTN_FIRE;
+    step(40);
+    expect(a.weapons[0]!.mag).toBeLessThan(30);
+    expect(b.hp).toBe(100);
+  });
+
+  it('a server-side secret, not the client, decides bullet spread', () => {
+    const run = (secret: number): number[] => {
+      const { sim, a, cmds } = duel();
+      sim.spreadSecret = secret;
+      a.money = 9000;
+      sim.phase = 'freeze';
+      sim.tryBuy(a, 'hammerhead');
+      sim.phase = 'live';
+      a.pos.x = 24; a.pos.z = 20;
+      for (let i = 0; i < 64; i++) { sim.tick((p) => cmds[p.id]!); sim.events.length = 0; }
+      cmds[0]!.buttons = BTN_FIRE;
+      cmds[0]!.seq = 777; // the same client sequence every time
+      const ends: number[] = [];
+      for (let i = 0; i < 30; i++) {
+        sim.tick((p) => cmds[p.id]!);
+        for (const e of sim.events) if (e.type === 'shot') ends.push(...e.ends.slice(0, 3));
+        sim.events.length = 0;
+      }
+      return ends;
+    };
+    const one = run(1234567), two = run(7654321);
+    expect(one.length).toBeGreaterThan(6);
+    // Same inputs and client sequence, different secret: the bullets go elsewhere.
+    expect(one).not.toEqual(two);
   });
 });
 
@@ -140,8 +213,11 @@ describe('online match (real server, two clients)', () => {
 
       const movedA = Math.hypot(a.replica!.player.pos.x - startA.x, a.replica!.player.pos.z - startA.z);
       expect(movedA).toBeGreaterThan(4); // some spawns meet a wall after ~4.2 m
+      // Anti-wallhack: the spawns have no line of sight, so B's client is never told where A
+      // went. Its copy of A must still be at the last position it was allowed to know.
       const aOnB = b.replica!.sim.players[a.replica!.me]!.pos;
-      expect(Math.hypot(aOnB.x - seenByB.x, aOnB.z - seenByB.z)).toBeGreaterThan(3.5);
+      expect(b.replica!.hidden[a.replica!.me]).toBe(true);
+      expect(Math.hypot(aOnB.x - seenByB.x, aOnB.z - seenByB.z)).toBeLessThan(0.01);
       // Prediction should agree with the server almost exactly during steady movement.
       const worst = Math.max(...a.corrections);
       const mean = a.corrections.reduce((s, v) => s + v, 0) / a.corrections.length;

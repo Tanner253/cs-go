@@ -1086,7 +1086,7 @@ export class Bot {
       if (me.money >= full) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armorhelmet'); }
       else if (!B.eco) {
         if (me.money >= riflePrice + 650) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armor'); }
-        else if (me.money >= 1900) { sim.tryBuy(me, rng.next() < 0.8 ? 'wasp' : 'breaker'); sim.tryBuy(me, 'armor'); }
+        else if (me.money >= 1900) { sim.tryBuy(me, rng.next() < 0.8 ? (me.team === ATK ? 'wasp' : 'hornet') : 'breaker'); sim.tryBuy(me, 'armor'); }
         else if (me.money >= 1350) { sim.tryBuy(me, 'maul'); sim.tryBuy(me, 'armor'); }
         else if (me.money >= 650) sim.tryBuy(me, 'armor');
       }

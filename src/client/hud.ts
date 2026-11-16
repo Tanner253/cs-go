@@ -27,7 +27,7 @@ interface BuyEntry {
 }
 
 const BUY_ORDER: BuyEntry[] = [
-  ...['maul', 'wasp', 'hammerhead', 'lumen', 'longsight'].map((id) => {
+  ...['maul', 'wasp', 'hornet', 'breaker', 'hammerhead', 'lumen', 'longsight'].map((id) => {
     const d = WEAPONS[id]!;
     const kind = { rifle: 'Assault rifle', smg: 'SMG', pistol: 'Heavy pistol', sniper: 'Bolt-action sniper', shotgun: 'Shotgun', knife: '' }[d.kind];
     return { id, name: d.name, desc: `${kind} · ${d.damage}${d.pellets > 1 ? `×${d.pellets}` : ''} dmg · ${d.rpm} rpm`, price: d.price, team: d.team };

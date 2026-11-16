@@ -3,6 +3,7 @@
 import type { Team } from '../sim/types';
 import type { NetClient } from './net';
 import { CREDITS } from './credits';
+import { GameAudio } from './audio';
 import { onSettings, setSetting, settings, type AspectSetting, type QualitySetting, type Settings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -15,6 +16,7 @@ export class Menu {
   onClick: () => void = () => {};
   onResume: () => void = () => {};
   onLeave: () => void = () => {};
+  onSoundTest: (name: string) => void = () => {};
 
   private root = $('menu');
   private pause = $('pause');
@@ -193,5 +195,12 @@ export class Menu {
     choice<'crosshairDot'>('Centre dot', 'crosshairDot', [['On', true], ['Off', false]]);
     choice<'invertY'>('Invert Y', 'invertY', [['Off', false], ['On', true]]);
     choice<'showFps'>('FPS counter', 'showFps', [['On', true], ['Off', false]]);
+    // Sound test: audition any cue, so a sound that is off can be named exactly.
+    const st = document.createElement('label');
+    st.innerHTML = `<span>Sound test</span><div class="row"><select>${GameAudio.cueNames().map((n) => `<option>${n}</option>`).join('')}</select><button class="btn alt">PLAY</button></div>`;
+    const sel = st.querySelector('select')!;
+    st.querySelector('button')!.addEventListener('click', (e) => { e.preventDefault(); this.onSoundTest(sel.value); });
+    sel.addEventListener('change', () => this.onSoundTest(sel.value));
+    root.appendChild(st);
   }
 }

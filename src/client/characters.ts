@@ -87,10 +87,9 @@ function gunMaterial(s: Shared, src: THREE.Material): THREE.Material {
 
 /** How each kind of weapon is carried: grip position relative to the chest, in the aim frame. */
 const CARRY: Record<string, { grip: [number, number, number]; twoHanded: boolean }> = {
-  ak: { grip: [0.15, 0.1, -0.3], twoHanded: true },
+  rifle: { grip: [0.15, 0.1, -0.3], twoHanded: true },
   smg: { grip: [0.14, 0.1, -0.34], twoHanded: true },
-  sniper: { grip: [0.15, 0.11, -0.26], twoHanded: true },
-  m9: { grip: [0.06, 0.2, -0.52], twoHanded: true },
+  pistol: { grip: [0.06, 0.2, -0.52], twoHanded: true },
   knife: { grip: [0.24, -0.08, -0.36], twoHanded: false },
 };
 
@@ -272,8 +271,8 @@ export class CharacterView {
     if (!obj) {
       obj = this.gun.scene.clone(true);
       obj.traverse((o) => {
-        // Optional attachments and spare magazines are stored beside the gun in these files.
-        if (/^(silencer|mag_[2-9])$/.test(o.name)) o.visible = false;
+        // Optional attachments are stored in these files but not fitted.
+        if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name)) o.visible = false;
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
           mesh.material = gunMaterial(shared!, mesh.material as THREE.Material);
@@ -410,10 +409,9 @@ export class CharacterView {
 
     // ---- weapon at the shoulder, pointing along the aim ---------------------------------
     const def = p.weapons[p.active]?.def;
-    const key = def ? (WEAPON_LOOK[def.id]?.pack ?? 'ak') : 'ak';
-    this.setGun(key);
+    this.setGun(def ? (WEAPON_LOOK[def.id]?.world ?? 'ak') : 'ak');
     const gun = this.gun;
-    const carry = CARRY[key] ?? CARRY['ak']!;
+    const carry = CARRY[gun?.carry ?? 'rifle']!;
     if (gun && this.chest) {
       const obj = this.guns.get(this.gunKey)!;
       // Aim frame in the group's space: gun +x maps onto the group's forward (-Z).

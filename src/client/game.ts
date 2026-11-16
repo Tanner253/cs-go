@@ -115,6 +115,7 @@ export class GameApp {
     this.menu.onClick = () => { this.audio.unlock(); this.audio.ui('click'); };
     this.menu.onResume = () => { this.input.enterFullscreen(); this.setPaused(false); this.input.requestLock(); };
     this.menu.onLeave = () => this.leave();
+    this.menu.onSoundTest = (name) => this.audio.test(name);
 
     this.net.onStart = (r) => this.startOnline(r);
     this.net.onEvents = (ev) => { if (this.mode === 'online') this.handleEvents(ev); };
@@ -304,14 +305,14 @@ export class GameApp {
           if (own) {
             this.vm.onShot(def);
             this.fovKick = Math.min(2.5, this.fovKick + def.kick * 0.55);
-            this.audio.shot(def.kind, null, 0, 0, def.id);
+            this.audio.shot(def.kind, null, 0, 0, def.id, s.id);
             // Viewmodel muzzle -> world, compensating for the viewmodel's narrower FOV.
             const k = Math.tan((this.vm.camera.fov * Math.PI) / 360) / Math.tan((this.camera.fov * Math.PI) / 360);
             this.tmp.set(this.vm.muzzleWorld.x * k, this.vm.muzzleWorld.y * k, this.vm.muzzleWorld.z);
             this.camera.localToWorld(this.tmp);
             ox = this.tmp.x; oy = this.tmp.y; oz = this.tmp.z;
           } else {
-            this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id);
+            this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id, s.id);
             const m = this.chars[s.id]!.muzzle;
             ox = m.x; oy = m.y; oz = m.z;
             this.fx.muzzleFlash(ox, oy, oz, 1);
@@ -372,13 +373,16 @@ export class GameApp {
           break;
         }
         case 'reload':
-          if (sim.players[e.player] === view) this.audio.reload(WEAPONS[e.weapon]!.kind, WEAPONS[e.weapon]!.reloadTime);
+          if (sim.players[e.player] === view) this.audio.reload(WEAPONS[e.weapon]!.kind, WEAPONS[e.weapon]!.reloadTime, e.weapon);
           break;
         case 'dry':
           if (sim.players[e.player] === view) this.audio.dry();
           break;
+        case 'scope':
+          if (sim.players[e.player] === view) this.audio.ui('scope');
+          break;
         case 'draw':
-          if (sim.players[e.player] === view) this.audio.draw();
+          if (sim.players[e.player] === view) this.audio.draw(e.weapon);
           break;
         case 'buy':
           if (sim.players[e.player] === me) this.audio.ui(e.ok ? 'buy' : 'deny');
@@ -597,7 +601,7 @@ export class GameApp {
 
     // ---- characters ----
     for (const p of sim.players) {
-      this.chars[p.id]!.update(p, alpha, dt, !!me && p.team === me.team && p !== me, p === view && view.alive);
+      this.chars[p.id]!.update(p, alpha, dt, !!me && p.team === me.team && p !== me, (p === view && view.alive) || (this.replica?.hidden[p.id] === true && p.alive));
     }
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
 

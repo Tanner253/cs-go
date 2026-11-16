@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Sim } from '../src/sim/game';
 import { TICK, emptyCmd, type Cmd, type SimEvent } from '../src/sim/types';
+import { GRACE, canSee } from './visibility';
 import {
   MAX_LOBBIES, PROTOCOL, RULES_1V1, SNAP_EVERY, cleanName, takeSnapshot, validItem,
   type ClientMsg, type LobbyInfo, type ServerMsg,
@@ -14,6 +15,12 @@ const PORT = Number(process.env['PORT']) || 8787;
 const MAX_CONNECTIONS = 64;
 const COUNTDOWN = 3;
 const REMATCH_DELAY = 12;
+/** More messages per second than any honest client sends (64 inputs + pings + slack). */
+const MAX_MSGS_PER_SEC = 240;
+/** Interpolation delay the client draws opponents at, plus slack, in seconds. */
+const LAG_SLACK = 0.1 + 0.06;
+/** Allowed page origins (comma separated), or empty to accept any. */
+const ALLOWED_ORIGINS = (process.env['ALLOWED_ORIGINS'] ?? '').split(',').map((o) => o.trim()).filter(Boolean);
 
 interface Client {
   ws: WebSocket;
@@ -27,6 +34,14 @@ interface Client {
   ack: number;
   alive: boolean;
   hello: boolean;
+  /** Round trip time measured by the server (seconds), and when the last probe went out. */
+  rtt: number;
+  pingAt: number;
+  /** Flood control: messages seen in the current one-second window. */
+  msgCount: number;
+  msgWindow: number;
+  /** Sim time at which this client last had sight of each other player. */
+  sawAt: number[];
 }
 
 interface Lobby {
@@ -77,6 +92,9 @@ function startMatch(l: Lobby): void {
   });
   const names = l.clients.map((c) => c.name);
   l.sim = new Sim({ teamSize: 1, bots: false, names, rules: RULES_1V1, seed: (Math.random() * 2 ** 31) | 0 });
+  // Clients never learn this, so they cannot predict or pick their bullet spread.
+  l.sim.spreadSecret = ((Math.random() * 2 ** 32) | 0) || 1;
+  for (const c of l.clients) c.sawAt = [];
   l.events = [];
   l.acc = 0;
   l.restartAt = 0;
@@ -122,6 +140,13 @@ const num = (v: unknown, lo: number, hi: number): number => {
 };
 
 function onMessage(c: Client, raw: string): void {
+  // Flood control: far more traffic than a real client produces gets the connection dropped.
+  const sec = Math.floor(Date.now() / 1000);
+  if (sec !== c.msgWindow) { c.msgWindow = sec; c.msgCount = 0; }
+  if (++c.msgCount > MAX_MSGS_PER_SEC) {
+    c.ws.close(1008, 'Too many messages');
+    return;
+  }
   let m: ClientMsg;
   try {
     m = JSON.parse(raw) as ClientMsg;
@@ -164,6 +189,31 @@ function onMessage(c: Client, raw: string): void {
   }
 }
 
+/** Quiet movement sounds from someone the recipient cannot see and is too far away to hear. */
+const HEARING = 28;
+
+/** Each client gets its own snapshot: enemies it has no sight of are sent without a position. */
+function sendSnapshots(l: Lobby): void {
+  const sim = l.sim!;
+  const acks = l.clients.map((c) => c.ack);
+  for (const c of l.clients) {
+    if (c.ws.readyState !== 1) continue;
+    const me = sim.players[c.slot]!;
+    const hidden: boolean[] = [];
+    for (const p of sim.players) {
+      if (p === me || !p.alive || !me.alive || p.team === me.team) { hidden[p.id] = false; continue; }
+      if (canSee(sim, me, p)) c.sawAt[p.id] = sim.time;
+      hidden[p.id] = sim.time - (c.sawAt[p.id] ?? -99) > GRACE;
+    }
+    const events = l.events.filter((e) => {
+      if (e.type !== 'step' && e.type !== 'jump' && e.type !== 'land') return true;
+      const p = sim.players[e.player]!;
+      return !hidden[p.id] || Math.hypot(p.pos.x - me.pos.x, p.pos.z - me.pos.z) < HEARING;
+    });
+    c.ws.send(JSON.stringify({ t: 'snap', s: takeSnapshot(sim, acks, events, hidden) } satisfies ServerMsg));
+  }
+}
+
 function stepLobby(l: Lobby): void {
   const sim = l.sim!;
   for (const c of l.clients) {
@@ -176,8 +226,10 @@ function stepLobby(l: Lobby): void {
     const next = c.queue.shift();
     if (next) {
       const view = c.viewTimes.shift() ?? 0;
-      // Rewind targets to where this client was seeing them (capped at 400 ms).
-      next.lag = view > 0 ? Math.max(0, Math.min(26, Math.round((sim.time + TICK - view) / TICK))) : 0;
+      // Rewind targets to where this client was seeing them. The claim is capped by the
+      // latency the server itself has measured, so nobody can ask to shoot further into the past.
+      const maxLag = Math.min(26, Math.ceil((c.rtt * 0.5 + LAG_SLACK) / TICK));
+      next.lag = view > 0 ? Math.max(0, Math.min(maxLag, Math.round((sim.time + TICK - view) / TICK))) : 0;
       c.cmd = next;
       c.ack = next.seq;
     } else {
@@ -193,9 +245,7 @@ function stepLobby(l: Lobby): void {
     sim.events.length = 0;
   }
   if (sim.tickCount % SNAP_EVERY === 0) {
-    const acks = l.clients.map((c) => c.ack);
-    const msg = JSON.stringify({ t: 'snap', s: takeSnapshot(sim, acks, l.events) } satisfies ServerMsg);
-    for (const c of l.clients) if (c.ws.readyState === 1) c.ws.send(msg);
+    sendSnapshots(l);
     l.events = [];
   }
   if (sim.phase === 'over') {
@@ -204,11 +254,9 @@ function stepLobby(l: Lobby): void {
       l.restartAt = 0;
       sim.restart();
       // `tick` is a no-op while the match is over, so push the fresh round out now.
-      const acks = l.clients.map((c) => c.ack);
       l.events.push(...sim.events);
       sim.events.length = 0;
-      const msg = JSON.stringify({ t: 'snap', s: takeSnapshot(sim, acks, l.events) } satisfies ServerMsg);
-      for (const c of l.clients) if (c.ws.readyState === 1) c.ws.send(msg);
+      sendSnapshots(l);
       l.events = [];
     }
   }
@@ -251,17 +299,32 @@ const http = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: http, maxPayload: 4096 });
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   if (clients.size >= MAX_CONNECTIONS) {
     ws.close(1013, 'Server full');
     return;
   }
-  const c: Client = { ws, name: 'Operator', lobby: null, slot: 0, queue: [], viewTimes: [], cmd: emptyCmd(), ack: 0, alive: true, hello: false };
+  if (ALLOWED_ORIGINS.length > 0 && !ALLOWED_ORIGINS.includes(req.headers.origin ?? '')) {
+    ws.close(1008, 'Origin not allowed');
+    return;
+  }
+  const c: Client = {
+    ws, name: 'Operator', lobby: null, slot: 0, queue: [], viewTimes: [], cmd: emptyCmd(), ack: 0, alive: true, hello: false,
+    rtt: 0.15, pingAt: 0, msgCount: 0, msgWindow: 0, sawAt: [],
+  };
   clients.add(c);
   ws.on('message', (data, isBinary) => {
     if (!isBinary) onMessage(c, data.toString());
   });
-  ws.on('pong', () => { c.alive = true; });
+  ws.on('pong', () => {
+    c.alive = true;
+    if (c.pingAt > 0) {
+      const sample = (performance.now() - c.pingAt) / 1000;
+      // Track the low end: latency spikes should not widen what a client may claim.
+      c.rtt = sample < c.rtt ? sample : c.rtt + (sample - c.rtt) * 0.1;
+      c.pingAt = 0;
+    }
+  });
   ws.on('close', () => {
     leave(c, `${c.name} disconnected`);
     clients.delete(c);
@@ -277,9 +340,17 @@ setInterval(() => {
       continue;
     }
     c.alive = false;
-    c.ws.ping();
   }
 }, 15000);
+
+// Measure each client's latency ourselves (never trust the client's own figure).
+setInterval(() => {
+  for (const c of clients) {
+    if (c.ws.readyState !== 1) continue;
+    c.pingAt = performance.now();
+    c.ws.ping();
+  }
+}, 2000);
 
 http.listen(PORT, () => console.log(`nullpoint-server listening on :${PORT} (${MAX_LOBBIES} arenas)`));
 

@@ -9,3 +9,6 @@ _reference/
 dist-server/
 .vercel/
 .vercel
+
+# Superseded sound set; the game loads public/assets/audio
+public/assets/sounds/

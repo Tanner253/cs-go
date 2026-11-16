@@ -4,9 +4,8 @@
 
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { WeaponDef } from '../sim/weapons';
-import { PACKS, WEAPON_LOOK, getPack, loadPack, type LoadedPack, type PackInfo, type WeaponLook } from './assets';
+import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
 
 /** Damped spring used for all secondary motion. */
 class Spring {
@@ -54,10 +53,11 @@ function liftMaterial(src: THREE.Material, look: WeaponLook): THREE.Material {
     m.roughness = Math.max(m.roughness, 0.5);
     m.envMapIntensity = 1.2;
   } else {
+    const lift = look.lift ?? 1.5;
     m.metalness = Math.min(m.metalness, 0.6);
-    if (m.map) m.color.setScalar(1.5);
-    else m.color.multiplyScalar(1.5);
-    m.envMapIntensity = 1.5;
+    if (m.map) m.color.setScalar(lift);
+    else m.color.multiplyScalar(lift);
+    m.envMapIntensity = lift;
     if (m.emissiveMap) m.emissiveIntensity = 0.22;
   }
   if (look.tint && !isArm) {
@@ -74,7 +74,39 @@ function liftMaterial(src: THREE.Material, look: WeaponLook): THREE.Material {
 
 const _v = new THREE.Vector3();
 
-/** One weapon's pack instance: its own skeleton, materials and animation state. */
+const EMPTY = new THREE.BufferGeometry();
+const pieceOf = (name: string): string => name.replace(/_\d+$/, '');
+
+/**
+ * A point on top of a gun's magazine (the gun's own space), used to seat one gun where
+ * another's magazine well is: pistols held in hands that were drawn round a bigger gun.
+ */
+function magMark(gun: THREE.Object3D): THREE.Vector3 | null {
+  const pts: number[] = [];
+  let top = -Infinity, z0 = Infinity, z1 = -Infinity;
+  gun.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !/^mag/.test(mesh.name)) return;
+    const pos = mesh.geometry.getAttribute('position');
+    mesh.updateMatrix();
+    for (let i = 0; i < pos.count; i++) {
+      _v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrix);
+      pts.push(_v.x, _v.y);
+      if (_v.y > top) top = _v.y;
+      if (_v.z < z0) z0 = _v.z;
+      if (_v.z > z1) z1 = _v.z;
+    }
+  });
+  let x0 = Infinity, x1 = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    if (pts[i + 1]! > top - 0.03 || pts[i + 1]! < top - 0.055) continue;
+    if (pts[i]! < x0) x0 = pts[i]!;
+    if (pts[i]! > x1) x1 = pts[i]!;
+  }
+  return x0 <= x1 ? new THREE.Vector3((x0 + x1) / 2, top, (z0 + z1) / 2) : null;
+}
+
+/** One weapon's instance: an arm pack with its gun, its own skeleton, materials and animation state. */
 class Rig {
   /** Eye space: x right, y up, the muzzle away down -z, metres. */
   readonly root = new THREE.Group();
@@ -83,49 +115,86 @@ class Rig {
   private mixer: THREE.AnimationMixer;
   private length: number;
 
-  constructor(files: LoadedPack, readonly info: PackInfo, look: WeaponLook) {
-    const gltf: GLTF = files.pack;
-    const scene = SkeletonUtils.clone(gltf.scene);
+  constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook) {
+    const scene = SkeletonUtils.clone(files.pack.scene);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
     holder.matrix.fromArray(info.view);
     holder.add(scene);
     this.root.add(holder);
+    const hold = look.hold ?? info.hold;
     if (look.scale) holder.matrix.premultiply(new THREE.Matrix4().makeScale(look.scale, look.scale, look.scale));
-    holder.matrix.premultiply(new THREE.Matrix4().makeTranslation(info.hold[0], info.hold[1], info.hold[2]));
+    holder.matrix.premultiply(new THREE.Matrix4().makeTranslation(hold[0], hold[1], hold[2]));
 
-    // Hang the separate gun model on the arm skeleton, piece by piece. Each piece is placed
-    // by where its joint stands in the file as loaded (before any animation is posed).
-    if (info.gun && files.gun) {
-      scene.updateMatrixWorld(true);
-      const sceneInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
-      const gunSpace = new THREE.Matrix4().fromArray(info.gun.frame).invert();
-      const joints = new Map<string, THREE.Object3D>();
-      scene.traverse((o) => joints.set(o.name, o));
+    // Where every joint stands in the file as loaded, in the pack's own space.
+    scene.updateMatrixWorld(true);
+    const sceneInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
+    const joints = new Map<string, THREE.Object3D>();
+    const filed = new Map<THREE.Object3D, THREE.Matrix4>();
+    scene.traverse((o) => {
+      if (!joints.has(o.name)) joints.set(o.name, o);
+      filed.set(o, new THREE.Matrix4().copy(sceneInv).multiply(o.matrixWorld));
+    });
+
+    this.mixer = new THREE.AnimationMixer(scene);
+    const clip = files.pack.animations[0]!;
+    this.length = clip.duration;
+    this.mixer.clipAction(clip).play();
+
+    // ---- mount a separate gun on the skeleton, piece by piece ----------------------
+    const mount = look.mount;
+    if (mount && files.gun && info.frame) {
+      // The pack's own gun, if it has one, makes way.
+      if (info.ownGun) {
+        const own = new Set(info.ownGun);
+        scene.traverse((o) => {
+          if (!own.has(pieceOf(o.name))) return;
+          const strip = (m: THREE.Object3D): void => { if ((m as THREE.Mesh).isMesh) (m as THREE.Mesh).geometry = EMPTY; };
+          strip(o);
+          for (const c of o.children) strip(c);
+        });
+      }
+      if (!info.skinned) {
+        // Rigid packs: a joint's place is where the first frame of the animation puts it.
+        this.mixer.setTime(0);
+        scene.updateMatrixWorld(true);
+      }
+      const placeOf = (joint: THREE.Object3D): THREE.Matrix4 =>
+        info.skinned ? filed.get(joint)! : new THREE.Matrix4().copy(scene.matrixWorld).invert().multiply(joint.matrixWorld);
+
+      const gun = files.gun.scene.clone(true);
+      const size = mount.size ?? 1;
+      const move = new THREE.Vector3(...(mount.nudge ?? [0, 0, 0]));
+      if (mount.alignMagTo && files.magRef) {
+        const ref = magMark(files.magRef.scene), mark = magMark(gun);
+        if (ref && mark) move.add(ref).sub(mark.multiplyScalar(size));
+      }
+      const seat = new THREE.Matrix4().compose(move, new THREE.Quaternion(), new THREE.Vector3(size, size, size));
+      const gunSpace = new THREE.Matrix4().fromArray(info.frame).invert().multiply(seat);
       const hang = (piece: THREE.Object3D, on: string, by: string): void => {
-        const n = joints.get(on), b = joints.get(by);
-        if (!n || !b) return;
-        const filed = new THREE.Matrix4().copy(sceneInv).multiply(b.matrixWorld);
+        const n = joints.get(on), j = joints.get(by);
+        if (!n || !j) return;
         const h = new THREE.Group();
         h.matrixAutoUpdate = false;
-        h.matrix.copy(filed).invert().multiply(gunSpace);
+        h.matrix.copy(placeOf(j)).invert().multiply(gunSpace);
         h.add(piece);
         n.add(h);
       };
-      const gun = files.gun.scene.clone(true);
-      const pieces = new Map<string, THREE.Object3D>();
-      gun.traverse((o) => { if (o.name in info.gun!.ride) pieces.set(o.name, o); });
-      for (const [name, piece] of pieces) {
-        const joint = info.gun.ride[name]!;
-        if (name === 'mag' && info.gun.spare) hang(piece.clone(true), info.gun.spare[0], info.gun.spare[1]);
+      const pieces: THREE.Object3D[] = [];
+      gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o); });
+      const hide = new Set(mount.hide ?? []);
+      for (const piece of pieces) {
+        const name = pieceOf(piece.name);
+        if (hide.has(name)) continue;
+        const joint = mount.ride[name] ?? mount.ride['base']!;
+        if (name === 'mag' && mount.spare) hang(piece.clone(true), mount.spare[0], mount.spare[1]);
         hang(piece, joint, joint);
       }
     }
 
     // Arms that came without textures borrow the same maker's from another pack.
     let borrowedArms: THREE.Material | null = null;
-    const donor = info.armsFrom ? getPack(info.armsFrom) : null;
-    donor?.pack.scene.traverse((o) => {
+    files.arms?.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
       if (m && !Array.isArray(m) && /arm/i.test(m.name) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
     });
@@ -145,10 +214,6 @@ class Rig {
       meshes.push(mesh);
     });
 
-    this.mixer = new THREE.AnimationMixer(scene);
-    const clip = gltf.animations[0]!;
-    this.length = clip.duration;
-    this.mixer.clipAction(clip).play();
     this.pose('idle', 0);
 
     // Find the muzzle: the centroid of the vertices furthest down -z in the rest pose.
@@ -303,13 +368,13 @@ export class Viewmodel {
   private rig(def: WeaponDef): Rig | null {
     let r = this.rigs.get(def.id);
     if (r) return r;
-    const look = WEAPON_LOOK[def.id] ?? WEAPON_LOOK['hammerhead']!;
-    const gltf = getPack(look.pack);
-    if (!gltf) {
-      void loadPack(look.pack);
+    const look = WEAPON_LOOK[def.id];
+    const files = look ? getWeapon(def.id) : null;
+    if (!look || !files) {
+      void loadWeapon(def.id);
       return null;
     }
-    r = new Rig(gltf, PACKS[look.pack]!, look);
+    r = new Rig(files, PACKS[look.pack]!, look);
     r.root.visible = false;
     this.holder.add(r.root);
     this.rigs.set(def.id, r);

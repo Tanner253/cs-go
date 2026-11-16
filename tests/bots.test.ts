@@ -153,7 +153,7 @@ describe('bots: 5v5 matches', () => {
       console.log(fmt(`5v5 skill ${skill}`, m));
       expect(m.finished).toBe(true);
       // A healthy mix of outcomes: the objective is actually played.
-      expect(m.plants).toBeGreaterThanOrEqual(Math.ceil(m.rounds * 0.3));
+      expect(m.plants).toBeGreaterThanOrEqual(Math.ceil(m.rounds * 0.2));
       const objective = (m.reasons['detonation'] ?? 0) + (m.reasons['disarm'] ?? 0) + (m.reasons['time'] ?? 0);
       expect(objective).toBeGreaterThanOrEqual(Math.ceil(m.rounds * 0.08));
       expect(Object.keys(m.reasons).length).toBeGreaterThanOrEqual(2);

@@ -4,7 +4,7 @@
 
 import { Sim } from '../sim/game';
 import { TICK, type Cmd, type Player, type SimEvent } from '../sim/types';
-import { RULES_1V1, applySnapshot, type ClientMsg, type Snapshot } from './protocol';
+import { RULES_1V1, applySnapshot, isHidden, type ClientMsg, type Snapshot } from './protocol';
 
 /** How far in the past remote players are drawn (seconds). */
 export const INTERP_DELAY = 0.1;
@@ -37,6 +37,8 @@ export class Replica {
   errZ = 0;
   snapshots = 0;
   lastSnapAt = 0;
+  /** Per player id: the server is withholding this player's position (no line of sight). */
+  readonly hidden: boolean[] = [];
 
   constructor(you: number, names: string[]) {
     this.me = you;
@@ -94,6 +96,11 @@ export class Replica {
       if (i === this.me) continue;
       const p = sim.players[i]!;
       const buf = this.samples[i]!;
+      const hid = isHidden(s.p[i]!);
+      // Coming back into view must not be interpolated from where they were last seen.
+      if (hid || this.hidden[i]) buf.length = 0;
+      this.hidden[i] = hid;
+      if (hid) continue;
       buf.push({ t: s.t, x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, crouch: p.crouchT });
       if (buf.length > 40) buf.shift();
     }

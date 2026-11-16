@@ -1,6 +1,13 @@
-// Game audio (WebAudio). Weapons, handling and footsteps are recordings (see CREDITS.md),
-// decoded after the first user gesture; anything without a recording, or not loaded yet,
-// falls back to a synthesised recipe. Everything is positioned with a pan + distance model.
+// Game audio (WebAudio).
+//
+// Every sound is a named cue: one or more recordings (variations are picked at random).
+// Each recording's loudness is measured when it is decoded and cues are played at a stated
+// level, so a magazine click can never end up as loud as a gunshot. Cues are positioned
+// with a pan + distance model and share one short, dark room reverb. Automatic fire chokes
+// the tail of the previous shot so tails never pile up.
+//
+// The files in public/assets/audio are built by tools/build-sounds.mjs from CC0 packs
+// (see CREDITS.md).
 
 import type { WeaponKind } from '../sim/weapons';
 
@@ -11,60 +18,110 @@ interface Listener {
   yaw: number;
 }
 
-interface ShotRecipe {
-  dur: number;
-  lp: number;
-  thump: number;
-  thumpGain: number;
-  crack: number;
-  gain: number;
-  tail: number;
+interface Cue {
+  /** Recordings to choose from (file names without extension). */
+  files: string[];
+  /** Level the loudest 100 ms should be played at, dBFS, for a sound at the listener. */
+  level: number;
+  /** Playback speed (pitch) and its random spread. */
+  rate?: number;
+  jitter?: number;
+  /** Distance (m) at which it has dropped to half. */
+  ref?: number;
+  /** Reverb send, 0..1. */
+  wet?: number;
 }
 
-const SHOTS: Record<WeaponKind, ShotRecipe> = {
-  rifle: { dur: 0.2, lp: 3600, thump: 130, thumpGain: 0.9, crack: 0.5, gain: 0.85, tail: 0.3 },
-  smg: { dur: 0.12, lp: 5200, thump: 170, thumpGain: 0.5, crack: 0.45, gain: 0.6, tail: 0.18 },
-  pistol: { dur: 0.14, lp: 4400, thump: 190, thumpGain: 0.6, crack: 0.55, gain: 0.65, tail: 0.2 },
-  sniper: { dur: 0.42, lp: 2600, thump: 85, thumpGain: 1.3, crack: 0.7, gain: 1.0, tail: 0.6 },
-  shotgun: { dur: 0.3, lp: 2400, thump: 100, thumpGain: 1.2, crack: 0.4, gain: 0.95, tail: 0.4 },
-  knife: { dur: 0, lp: 0, thump: 0, thumpGain: 0, crack: 0, gain: 0, tail: 0 },
+const takes = (name: string, n: number): string[] => Array.from({ length: n }, (_, i) => (i ? `${name}_${i + 1}` : name));
+const numbered = (name: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${name}_${i + 1}`);
+/** Recordings that ship as MP3 rather than WAV. */
+const isMp3 = (file: string): boolean => /^(reload_|knife_|cloth_)/.test(file);
+
+const SHOT = { ref: 20, wet: 0.18, jitter: 0.02 };
+
+export const CUES: Record<string, Cue> = {
+  // ---- gunshots: one recording set per weapon ----
+  'shot.kite': { files: takes('shot_pistol9', 2), level: -17.5, ...SHOT },
+  'shot.tern': { files: takes('shot_pistol45', 2), level: -17, ...SHOT },
+  'shot.maul': { files: takes('shot_heavy', 3), level: -15.5, rate: 0.88, ...SHOT },
+  'shot.wasp': { files: takes('shot_smg_a', 3), level: -17.5, ...SHOT },
+  'shot.hornet': { files: takes('shot_smg_b', 3), level: -17.5, ...SHOT },
+  'shot.hammerhead': { files: takes('shot_ak', 3), level: -16, ...SHOT },
+  'shot.lumen': { files: takes('shot_ar', 2), level: -16.5, ...SHOT },
+  'shot.breaker': { files: takes('shot_shotgun', 2), level: -14.5, ...SHOT },
+  'shot.longsight': { files: takes('shot_bolt', 2), level: -14, rate: 0.94, ...SHOT, wet: 0.28 },
+  // ---- weapon handling ----
+  'reload.pistol': { files: ['reload_pistol'], level: -30, ref: 2, wet: 0.04 },
+  'reload.rifle': { files: ['reload_rifle'], level: -29, ref: 2, wet: 0.04 },
+  bolt: { files: numbered('click_plate', 2), level: -30, rate: 0.8, ref: 2, wet: 0.04, jitter: 0.04 },
+  draw: { files: numbered('cloth', 2), level: -34, ref: 2, wet: 0.03, jitter: 0.06 },
+  draw_metal: { files: numbered('click_metal', 3), level: -36, ref: 2, wet: 0.03, jitter: 0.08 },
+  dry: { files: ['click_metal_1'], level: -32, rate: 1.6, ref: 2, wet: 0 },
+  // ---- knife ----
+  'knife.slash': { files: numbered('knife_slash', 3), level: -29, ref: 4, wet: 0.04, jitter: 0.05 },
+  'knife.hit': { files: numbered('knife_flesh', 2), level: -24, ref: 4, wet: 0.05, jitter: 0.05 },
+  'knife.draw': { files: ['knife_draw'], level: -32, ref: 2, wet: 0.03 },
+  // ---- movement ----
+  step: { files: numbered('step', 5), level: -30, ref: 7, wet: 0.08, jitter: 0.07 },
+  land: { files: numbered('land', 3), level: -27, ref: 7, wet: 0.08, jitter: 0.05 },
+  // ---- combat feedback ----
+  impact: { files: numbered('impact', 4), level: -31, ref: 6, wet: 0.12, jitter: 0.15 },
+  hit_body: { files: numbered('hit_body', 3), level: -29, rate: 1.25, ref: 1, wet: 0.02, jitter: 0.06 },
+  hit_head: { files: numbered('hit_head', 2), level: -25, rate: 1.5, ref: 1, wet: 0.05 },
+  hurt: { files: numbered('hurt', 2), level: -22, rate: 0.9, ref: 1, wet: 0.02, jitter: 0.05 },
+  explosion: { files: numbered('explosion', 3), level: -11, rate: 0.8, ref: 40, wet: 0.45 },
+  explosion_low: { files: ['explosion_low'], level: -10, ref: 40, wet: 0.3 },
+  // ---- interface ----
+  'ui.click': { files: ['ui_click_002'], level: -35, ref: 1, wet: 0 },
+  'ui.tick': { files: ['ui_tick_001'], level: -36, ref: 1, wet: 0 },
+  'ui.deny': { files: ['ui_error_004'], level: -32, ref: 1, wet: 0 },
+  'ui.buy': { files: ['ui_confirmation_002'], level: -31, ref: 1, wet: 0 },
+  'ui.plant': { files: ['ui_drop_002'], level: -29, ref: 1, wet: 0.1 },
+  'ui.disarm': { files: ['ui_confirmation_001'], level: -29, ref: 1, wet: 0.1 },
+  'ui.start': { files: ['ui_bong_001'], level: -31, ref: 1, wet: 0.1 },
+  'ui.win': { files: ['ui_maximize_006'], level: -28, ref: 1, wet: 0.12 },
+  'ui.lose': { files: ['ui_minimize_006'], level: -28, ref: 1, wet: 0.12 },
+  'ui.scope': { files: ['ui_switch_002'], level: -36, ref: 1, wet: 0 },
 };
 
-/** Recordings shipped in public/assets/sounds. */
-const SAMPLES = [
-  'shot_ak', 'shot_ar', 'shot_pistol', 'shot_pistol_2', 'shot_pistol_3', 'shot_deagle', 'shot_mp7', 'shot_rifle', 'shot_50', 'shot_shotgun',
-  'bolt', 'pistol_mag_in', 'pistol_mag_out', 'rifle_mag_in', 'rifle_mag_out', 'ak_mag_in', 'ak_mag_out', 'ak_rack', 'rack',
-  'uzi_mag_in', 'uzi_mag_out', 'uzi_rack', 'casing', 'step_concrete', 'step_concrete_2', 'step_concrete_3', 'step_concrete_4', 'step_concrete_5',
-  'bullet_crack', 'bullet_crack_2', 'bullet_crack_3', 'hit_metal', 'hit_metal_2', 'hit_metal_3', 'c4_beep', 'punch', 'punch_2', 'thud', 'thud_2',
-  'drop_gun', 'take_metal', 'cloth', 'cloth_2',
-] as const;
-type SampleName = (typeof SAMPLES)[number];
-
-const SHOT_SAMPLE: Record<string, SampleName> = {
-  hammerhead: 'shot_ak', lumen: 'shot_ar', wasp: 'shot_mp7', kite: 'shot_pistol', tern: 'shot_pistol_2', maul: 'shot_deagle',
-  longsight: 'shot_50', breaker: 'shot_shotgun',
+/** Which reload recording each weapon uses. It is stretched to the weapon's reload time. */
+const RELOAD_CUE: Record<string, string> = {
+  kite: 'reload.pistol', tern: 'reload.pistol', maul: 'reload.pistol', wasp: 'reload.pistol', hornet: 'reload.pistol',
+  hammerhead: 'reload.rifle', lumen: 'reload.rifle', breaker: 'reload.rifle', longsight: 'reload.rifle',
 };
 
-/** Handling sounds through a reload: [fraction of the reload, sample, gain]. */
-const RELOAD_FOLEY: Record<WeaponKind, [number, SampleName, number][]> = {
-  rifle: [[0.16, 'ak_mag_out', 0.9], [0.52, 'ak_mag_in', 1], [0.8, 'ak_rack', 1]],
-  smg: [[0.14, 'uzi_mag_out', 0.9], [0.5, 'uzi_mag_in', 1], [0.8, 'uzi_rack', 1]],
-  pistol: [[0.14, 'pistol_mag_out', 0.9], [0.55, 'pistol_mag_in', 1], [0.84, 'rack', 0.9]],
-  sniper: [[0.1, 'bolt', 0.9], [0.5, 'rifle_mag_in', 1], [0.82, 'bolt', 1]],
-  shotgun: [[0.2, 'rifle_mag_in', 0.9], [0.5, 'rifle_mag_in', 0.9], [0.84, 'rack', 1]],
-  knife: [],
-};
+interface Sample {
+  buf: AudioBuffer;
+  /** Loudest 100 ms, dBFS. */
+  loud: number;
+}
+
+interface Voice {
+  gain: GainNode;
+  until: number;
+}
+
+function measure(buf: AudioBuffer): number {
+  const x = buf.getChannelData(0);
+  const w = Math.floor(buf.sampleRate * 0.1);
+  let acc = 0, best = 0;
+  for (let i = 0; i < x.length; i++) {
+    acc += x[i]! * x[i]!;
+    if (i >= w) acc -= x[i - w]! * x[i - w]!;
+    if (acc > best) best = acc;
+  }
+  return 10 * Math.log10(best / Math.min(w, x.length) + 1e-12);
+}
 
 export class GameAudio {
-  private bank = new Map<string, AudioBuffer>();
-  private loading = false;
-
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private reverb!: ConvolverNode;
-  private reverbGain!: GainNode;
-  private noise!: AudioBuffer;
+  private bank = new Map<string, Sample>();
+  private loading = false;
   private listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
+  /** The last shot of each shooter, so the next one can choke its tail. */
+  private lastShot = new Map<number, Voice>();
   volume = 0.7;
 
   /** Must be called from a user gesture. */
@@ -77,32 +134,35 @@ export class GameAudio {
     if (!AC) return;
     const ctx = new AC({ latencyHint: 'interactive' });
     this.ctx = ctx;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 5;
-    comp.attack.value = 0.002;
-    comp.release.value = 0.12;
+    // A limiter, not a compressor: it only acts on peaks, so sustained fire does not pump.
+    const limit = ctx.createDynamicsCompressor();
+    limit.threshold.value = -5;
+    limit.knee.value = 4;
+    limit.ratio.value = 16;
+    limit.attack.value = 0.001;
+    limit.release.value = 0.08;
     this.master = ctx.createGain();
-    this.master.gain.value = this.volume;
-    this.master.connect(comp).connect(ctx.destination);
+    this.master.gain.value = this.volume * 1.4;
+    this.master.connect(limit).connect(ctx.destination);
 
-    const len = ctx.sampleRate * 2;
-    this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = this.noise.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-
-    // Small synthetic room so shots do not sound bone dry.
-    const irLen = Math.floor(ctx.sampleRate * 0.9);
+    // A short, dark room: decaying noise that loses its highs as it dies away, different in
+    // each ear. Bright white-noise tails are what make cheap reverbs hiss.
+    const irLen = Math.floor(ctx.sampleRate * 1.1);
     const ir = ctx.createBuffer(2, irLen, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const c = ir.getChannelData(ch);
-      for (let i = 0; i < irLen; i++) c[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 3.2);
+      let lp = 0;
+      for (let i = 0; i < irLen; i++) {
+        const t = i / irLen;
+        lp += ((Math.random() * 2 - 1) - lp) * (0.5 - 0.42 * t);
+        c[i] = lp * Math.pow(1 - t, 2.6) * (i < 400 ? i / 400 : 1);
+      }
     }
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = ir;
-    this.reverbGain = ctx.createGain();
-    this.reverbGain.gain.value = 0.35;
-    this.reverb.connect(this.reverbGain).connect(this.master);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.5;
+    this.reverb.connect(wet).connect(this.master);
     this.loadSamples();
   }
 
@@ -110,13 +170,15 @@ export class GameAudio {
     if (this.loading || !this.ctx) return;
     this.loading = true;
     const ctx = this.ctx;
-    const base = `${import.meta.env.BASE_URL}assets/sounds/`;
-    for (const name of SAMPLES) {
-      fetch(`${base}${name}.wav`)
+    const base = `${import.meta.env.BASE_URL}assets/audio/`;
+    const names = new Set<string>();
+    for (const cue of Object.values(CUES)) for (const f of cue.files) names.add(f);
+    for (const name of names) {
+      fetch(`${base}${name}.${isMp3(name) ? 'mp3' : 'wav'}`)
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
         .then((data) => ctx.decodeAudioData(data))
-        .then((buf) => { this.bank.set(name, buf); })
-        .catch(() => { /* synth fallback stays in use for this sound */ });
+        .then((buf) => { this.bank.set(name, { buf, loud: measure(buf) }); })
+        .catch(() => { /* that recording is skipped; its cue uses the others or stays silent */ });
     }
   }
 
@@ -125,58 +187,40 @@ export class GameAudio {
     return this.bank.size;
   }
 
-  /** Play a recording if it is loaded. Returns false so callers can fall back to synthesis. */
-  private sample(
-    name: SampleName, x: number | null, y: number, z: number,
-    gain = 1, refDist = 9, wet = 0.2, rate = 1, delay = 0,
-  ): boolean {
-    const buf = this.bank.get(name);
-    if (!buf) return false;
-    const o = this.out(x, y, z, refDist, wet);
-    if (!o) return true;
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = rate;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    src.connect(g).connect(o.node);
-    src.start(ctx.currentTime + delay);
-    return true;
-  }
-
   setVolume(v: number): void {
     this.volume = v;
-    if (this.ctx) this.master.gain.value = v;
+    if (this.ctx) this.master.gain.value = v * 1.4;
   }
 
   setListener(x: number, y: number, z: number, yaw: number): void {
     this.listener.x = x; this.listener.y = y; this.listener.z = z; this.listener.yaw = yaw;
   }
 
-  /** Output chain for a sound at a world position (or centred if `pos` is null). */
-  private out(x: number | null, y = 0, z = 0, refDist = 9, wet = 0.25): { node: AudioNode; gain: number } | null {
+  /** Output chain for a sound at a world position (or centred if `x` is null). */
+  private out(x: number | null, y: number, z: number, refDist: number, wet: number): GainNode | null {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return null;
-    let gain = 1, pan = 0, muffle = 20000;
+    let gain = 1, pan = 0, cutoff = 20000;
     if (x !== null) {
       const L = this.listener;
       const dx = x - L.x, dy = y - L.y, dz = z - L.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      gain = 1 / (1 + (dist / refDist) ** 1.6);
-      if (gain < 0.012) return null;
+      gain = 1 / (1 + (dist / refDist) ** 1.5);
+      if (gain < 0.01) return null;
       // Right vector of the listener is (cos yaw, 0, -sin yaw).
       const d2 = Math.hypot(dx, dz) || 1;
-      pan = ((dx * Math.cos(L.yaw) - dz * Math.sin(L.yaw)) / d2) * Math.min(1, dist / 2) * 0.85;
-      muffle = 20000 / (1 + dist / 18);
+      pan = ((dx * Math.cos(L.yaw) - dz * Math.sin(L.yaw)) / d2) * Math.min(1, dist / 2) * 0.8;
+      // Air soaks up highs with distance, gently.
+      cutoff = 18000 / (1 + dist / 35);
     }
     const g = ctx.createGain();
     g.gain.value = gain;
     let head: AudioNode = g;
-    if (muffle < 16000) {
+    if (cutoff < 15000) {
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = Math.max(700, muffle);
+      lp.frequency.value = Math.max(1400, cutoff);
+      lp.Q.value = 0.5;
       g.connect(lp);
       head = lp;
     }
@@ -186,220 +230,155 @@ export class GameAudio {
     p.connect(this.master);
     if (wet > 0) {
       const w = ctx.createGain();
-      w.gain.value = wet;
+      // Distant sounds are mostly room.
+      w.gain.value = wet * (x === null ? 1 : 1 + (1 - gain) * 1.5);
       p.connect(w).connect(this.reverb);
     }
-    return { node: g, gain };
+    return g;
   }
 
-  private noiseBurst(dest: AudioNode, t: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, freqEnd = freq): void {
-    const ctx = this.ctx!;
+  /**
+   * Play a cue. Returns the voice (for choking) or null if nothing sounded.
+   * @param mul extra gain
+   * @param delay seconds from now
+   * @param fit play it over this many seconds (speed changed within reason)
+   */
+  private play(name: string, x: number | null, y = 0, z = 0, mul = 1, delay = 0, fit = 0): Voice | null {
+    const cue = CUES[name];
+    const ctx = this.ctx;
+    if (!cue || !ctx) return null;
+    const start = Math.floor(Math.random() * cue.files.length);
+    let sample: Sample | undefined;
+    for (let i = 0; i < cue.files.length && !sample; i++) sample = this.bank.get(cue.files[(start + i) % cue.files.length]!);
+    if (!sample) return null;
+    const out = this.out(x, y, z, cue.ref ?? 8, cue.wet ?? 0.1);
+    if (!out) return null;
     const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loopStart = 0;
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.Q.value = q;
-    f.frequency.setValueAtTime(freq, t);
-    if (freqEnd !== freq) f.frequency.exponentialRampToValueAtTime(Math.max(40, freqEnd), t + dur);
+    src.buffer = sample.buf;
+    let rate = (cue.rate ?? 1) * (1 + (Math.random() * 2 - 1) * (cue.jitter ?? 0));
+    if (fit > 0) rate = Math.min(1.45, Math.max(0.7, sample.buf.duration / fit));
+    src.playbackRate.value = rate;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(f).connect(g).connect(dest);
-    src.start(t, Math.random() * 1.5, dur + 0.02);
+    g.gain.value = Math.pow(10, (cue.level - sample.loud) / 20) * mul;
+    src.connect(g).connect(out);
+    const at = ctx.currentTime + delay;
+    src.start(at);
+    return { gain: g, until: at + sample.buf.duration / rate };
   }
 
-  private tone(dest: AudioNode, t: number, dur: number, type: OscillatorType, f0: number, f1: number, gain: number): void {
-    const ctx = this.ctx!;
-    const o = ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, t);
-    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g).connect(dest);
-    o.start(t);
-    o.stop(t + dur + 0.02);
-  }
+  // ---- game-facing API ------------------------------------------------------------------
 
-  shot(kind: WeaponKind, x: number | null, y = 0, z = 0, id = ''): void {
-    const r = SHOTS[kind];
-    if (r.dur === 0) return;
-    const name = SHOT_SAMPLE[id];
-    if (name && this.sample(name, x, y, z, 0.95, 18, 0.28 + r.tail * 0.4, 0.97 + Math.random() * 0.06)) {
-      if (x === null) {
-        // Your own gun: the spent case, and the bolt on a bolt-action.
-        if (kind === 'sniper') this.sample('bolt', null, 0, 0, 0.8, 1, 0.1, 1, 0.42);
-        else if (kind !== 'shotgun') this.sample('casing', null, 0, 0, 0.25, 1, 0.1, 0.9 + Math.random() * 0.3, 0.38);
-      }
-      return;
+  /**
+   * A gunshot. `x` null = your own gun. `shooter` identifies who fired so rapid fire from
+   * one gun chokes its previous tail instead of stacking twenty of them.
+   */
+  shot(kind: WeaponKind, x: number | null, y = 0, z = 0, id = '', shooter = -1): void {
+    const ctx = this.ctx;
+    if (!ctx || kind === 'knife') return;
+    const prev = this.lastShot.get(shooter);
+    if (prev && prev.until > ctx.currentTime) {
+      prev.gain.gain.cancelScheduledValues(ctx.currentTime);
+      prev.gain.gain.setTargetAtTime(0, ctx.currentTime + 0.04, 0.06);
     }
-    const o = this.out(x, y, z, 16, 0.3 + r.tail * 0.5);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    const v = 0.94 + Math.random() * 0.12;
-    // Body: low-passed noise that closes down quickly.
-    this.noiseBurst(o.node, t, r.dur, 'lowpass', r.lp * v, 0.7, r.gain, r.lp * 0.25);
-    // Crack: a few milliseconds of bright noise.
-    this.noiseBurst(o.node, t, 0.03, 'highpass', 2600, 0.5, r.crack);
-    // Thump: pitch-dropping sine for chest weight.
-    this.tone(o.node, t, r.dur * 0.8, 'sine', r.thump * 1.6 * v, r.thump * 0.45, r.thumpGain);
+    const v = this.play(`shot.${id}`, x, y, z, x === null ? 1 : 1.15);
+    if (v) this.lastShot.set(shooter, v);
+    // Your own bolt or pump being worked.
+    if (x === null && (kind === 'sniper' || kind === 'shotgun')) {
+      this.play('bolt', null, 0, 0, 1, 0.4);
+      this.play('bolt', null, 0, 0, 0.9, 0.62);
+    }
   }
 
   step(x: number | null, y = 0, z = 0): void {
-    const n = 1 + Math.floor(Math.random() * 5);
-    const name = (n === 1 ? 'step_concrete' : `step_concrete_${n}`) as SampleName;
-    if (this.sample(name, x, y, z, x === null ? 0.45 : 0.9, 6, 0.1, 0.94 + Math.random() * 0.12)) return;
-    const o = this.out(x, y, z, 5, 0.08);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 0.07, 'bandpass', 380 + Math.random() * 180, 1.2, 0.5);
-    this.tone(o.node, t, 0.06, 'sine', 110, 60, 0.35);
+    this.play('step', x, y, z, x === null ? 0.7 : 1.3);
   }
 
   land(x: number | null, y: number, z: number, hard: number): void {
-    if (this.sample(Math.random() < 0.5 ? 'thud' : 'thud_2', x, y, z, 0.35 + hard * 0.6, 6, 0.12)) return;
-    const o = this.out(x, y, z, 6, 0.1);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 0.12, 'lowpass', 700, 0.8, 0.5 + hard * 0.5);
-    this.tone(o.node, t, 0.12, 'sine', 120, 45, 0.6 + hard * 0.4);
+    this.play('land', x, y, z, 0.5 + hard * 0.7);
   }
 
-  jump(x: number | null, y = 0, z = 0): void {
-    const o = this.out(x, y, z, 4, 0.05);
-    if (!o) return;
-    this.noiseBurst(o.node, this.ctx!.currentTime, 0.08, 'bandpass', 600, 0.8, 0.25);
+  /** Jumping makes no sound of its own; the landing does. */
+  jump(_x: number | null, _y = 0, _z = 0): void {}
+
+  /** The reload recording for this weapon, stretched to its reload time. */
+  reload(_kind: WeaponKind, duration: number, id = ''): void {
+    const cue = RELOAD_CUE[id];
+    if (cue) this.play(cue, null, 0, 0, 1, duration * 0.08, duration * 0.84);
   }
 
-  reload(kind: WeaponKind, duration: number): void {
-    const foley = RELOAD_FOLEY[kind];
-    if (foley.length > 0 && this.bank.has(foley[0]![1])) {
-      for (const [at, name, gain] of foley) this.sample(name, null, 0, 0, gain, 1, 0.08, 1, at * duration);
+  draw(id = ''): void {
+    if (id === 'edge') {
+      this.play('knife.draw', null);
       return;
     }
-    const o = this.out(null, 0, 0, 1, 0.05);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    const click = (at: number, f: number, g: number) => {
-      this.noiseBurst(o.node, t + at * duration, 0.035, 'bandpass', f, 3, g);
-      this.tone(o.node, t + at * duration, 0.03, 'square', f * 0.5, f * 0.3, g * 0.15);
-    };
-    click(0.16, 1800, 0.5); // mag release
-    click(0.3, 900, 0.35); // mag out
-    click(0.64, 1400, 0.6); // mag seated
-    click(0.78, 2400, 0.55); // charging handle back
-    click(0.83, 2000, 0.6); // ...and forward
-    void kind;
-  }
-
-  draw(): void {
-    if (this.sample(Math.random() < 0.5 ? 'cloth' : 'cloth_2', null, 0, 0, 0.5, 1, 0.05)) {
-      this.sample('take_metal', null, 0, 0, 0.35, 1, 0.05, 1, 0.12);
-      return;
-    }
-    const o = this.out(null, 0, 0, 1, 0.03);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 0.12, 'bandpass', 1500, 0.7, 0.18, 3200);
-    this.noiseBurst(o.node, t + 0.14, 0.03, 'bandpass', 2400, 3, 0.3);
+    this.play('draw', null);
+    this.play('draw_metal', null, 0, 0, 1, 0.14);
   }
 
   dry(): void {
-    const o = this.out(null, 0, 0, 1, 0);
-    if (!o) return;
-    this.noiseBurst(o.node, this.ctx!.currentTime, 0.025, 'bandpass', 3000, 4, 0.5);
+    this.play('dry', null);
   }
 
   knife(hit: boolean, x: number | null, y = 0, z = 0): void {
-    const o = this.out(x, y, z, 4, 0.05);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 0.16, 'bandpass', 900, 1.2, 0.45, 4200);
-    if (hit && this.sample(Math.random() < 0.5 ? 'punch' : 'punch_2', x, y, z, 0.9, 4, 0.08, 1, 0.05)) return;
-    if (hit) {
-      this.noiseBurst(o.node, t + 0.05, 0.1, 'lowpass', 900, 1, 0.8);
-      this.tone(o.node, t + 0.05, 0.1, 'sine', 160, 70, 0.6);
-    }
+    this.play('knife.slash', x, y, z);
+    if (hit) this.play('knife.hit', x, y, z, 1, 0.06);
   }
 
   /** Feedback when one of your bullets lands. */
   hit(head: boolean): void {
-    const o = this.out(null, 0, 0, 1, 0.05);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    if (head) {
-      this.tone(o.node, t, 0.16, 'triangle', 2600, 2100, 0.4);
-      this.tone(o.node, t, 0.1, 'sine', 3900, 3500, 0.2);
-    } else {
-      this.noiseBurst(o.node, t, 0.05, 'bandpass', 1300, 2, 0.35);
-    }
+    this.play(head ? 'hit_head' : 'hit_body', null);
   }
 
   hurt(): void {
-    const o = this.out(null, 0, 0, 1, 0);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 0.12, 'lowpass', 500, 1, 0.8);
-    this.tone(o.node, t, 0.14, 'sine', 90, 50, 0.7);
-  }
-
-  grapple(ok: boolean, x: number | null, y = 0, z = 0): void {
-    const o = this.out(x, y, z, 12, 0.15);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.tone(o.node, t, 0.18, 'sawtooth', 300, ok ? 1600 : 500, 0.18);
-    this.noiseBurst(o.node, t, 0.2, 'bandpass', 2500, 2, 0.3, 6000);
-    if (ok) this.noiseBurst(o.node, t + 0.16, 0.06, 'bandpass', 1100, 3, 0.6);
-  }
-
-  whoosh(x: number | null, y = 0, z = 0): void {
-    const o = this.out(x, y, z, 6, 0.05);
-    if (!o) return;
-    this.noiseBurst(o.node, this.ctx!.currentTime, 0.2, 'bandpass', 500, 1, 0.3, 1800);
+    this.play('hurt', null);
   }
 
   /** A bullet striking the level near the listener. */
   impact(x: number, y: number, z: number): void {
-    const n = 1 + Math.floor(Math.random() * 3);
-    this.sample((n === 1 ? 'hit_metal' : `hit_metal_${n}`) as SampleName, x, y, z, 0.35, 5, 0.15, 0.9 + Math.random() * 0.3);
+    this.play('impact', x, y, z);
   }
 
+  /** Kept for API compatibility; the game has no grapple. */
+  grapple(_ok: boolean, _x: number | null, _y = 0, _z = 0): void {}
+  whoosh(_x: number | null, _y = 0, _z = 0): void {}
+
+  /** The planted charge's timer: a plain electronic blip. */
   beep(x: number, y: number, z: number, urgent: boolean): void {
-    if (this.sample('c4_beep', x, y, z, 0.8, 14, 0.2, urgent ? 1.25 : 1)) return;
-    const o = this.out(x, y, z, 14, 0.2);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.tone(o.node, t, 0.07, 'square', urgent ? 1900 : 1500, urgent ? 1900 : 1500, 0.16);
+    const o = this.out(x, y, z, 14, 0.15);
+    const ctx = this.ctx;
+    if (!o || !ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = urgent ? 2400 : 2000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.004);
+    g.gain.setValueAtTime(0.045, t + 0.055);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.075);
+    osc.connect(g).connect(o);
+    osc.start(t);
+    osc.stop(t + 0.09);
   }
 
   explosion(x: number, y: number, z: number): void {
-    const o = this.out(x, y, z, 40, 0.6);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    this.noiseBurst(o.node, t, 1.6, 'lowpass', 2400, 0.6, 1.6, 120);
-    this.tone(o.node, t, 1.1, 'sine', 90, 28, 1.6);
-    this.noiseBurst(o.node, t, 0.08, 'highpass', 1800, 0.5, 1.0);
+    this.play('explosion', x, y, z);
+    this.play('explosion_low', x, y, z);
   }
 
-  /** Short UI / announcer cues. */
-  ui(kind: 'click' | 'deny' | 'buy' | 'plant' | 'disarm' | 'win' | 'lose' | 'start' | 'tick'): void {
-    const o = this.out(null, 0, 0, 1, kind === 'click' || kind === 'tick' ? 0 : 0.2);
-    if (!o) return;
-    const t = this.ctx!.currentTime;
-    const n = (at: number, f: number, d = 0.12, g = 0.22, type: OscillatorType = 'triangle') => this.tone(o.node, t + at, d, type, f, f, g);
-    switch (kind) {
-      case 'click': n(0, 1200, 0.03, 0.12, 'square'); break;
-      case 'tick': n(0, 900, 0.03, 0.1, 'square'); break;
-      case 'deny': n(0, 220, 0.12, 0.2, 'square'); break;
-      case 'buy': n(0, 880, 0.06); n(0.06, 1320, 0.1); break;
-      case 'plant': n(0, 660, 0.1); n(0.12, 660, 0.1); n(0.24, 990, 0.25); break;
-      case 'disarm': n(0, 990, 0.1); n(0.1, 1320, 0.1); n(0.2, 1760, 0.3); break;
-      case 'start': n(0, 440, 0.1); n(0.12, 660, 0.2); break;
-      case 'win': n(0, 523, 0.14); n(0.14, 659, 0.14); n(0.28, 784, 0.14); n(0.42, 1047, 0.4); break;
-      case 'lose': n(0, 392, 0.2); n(0.2, 311, 0.2); n(0.4, 233, 0.5); break;
-    }
+  /** Interface and announcer cues. */
+  ui(kind: 'click' | 'deny' | 'buy' | 'plant' | 'disarm' | 'win' | 'lose' | 'start' | 'tick' | 'scope'): void {
+    this.play(`ui.${kind}`, null);
+  }
+
+  /** Audition a cue by name (Settings → sound test). */
+  test(name: string): void {
+    this.unlock();
+    if (name === 'charge beep') this.beep(this.listener.x, this.listener.y, this.listener.z - 2, false);
+    else this.play(name, null);
+  }
+
+  static cueNames(): string[] {
+    return [...Object.keys(CUES), 'charge beep'];
   }
 }
