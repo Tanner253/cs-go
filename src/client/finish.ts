@@ -247,7 +247,7 @@ export function tagGunSpace(mesh: THREE.Mesh, toGun: THREE.Matrix4, box?: THREE.
 
 /** What part of a gun a piece is, from its name. */
 export function roleOf(name: string): Role {
-  if (/^(mag|clip|shells)/i.test(name)) return 'cell';
+  if (/^(mag|clip)/i.test(name)) return 'cell';
   if (/^(slide|bolt|hammer|forend)/i.test(name)) return 'moving';
   return 'body';
 }

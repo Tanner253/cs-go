@@ -331,29 +331,43 @@ class Rig {
       const u = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.02, 0.14) * (1 - THREE.MathUtils.smoothstep(k, 0.86, 0.98)) : 0;
       arm.position.addScaledVector(this.holdShift, 1 - u).addScaledVector(this.magShift, u);
     }
-    if (this.hinge) {
-      // Break open early in the reload, snap shut near its end.
-      const open = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.06, 0.2) * (1 - THREE.MathUtils.smoothstep(k, 0.8, 0.9)) : 0;
-      const { at, angle } = this.hinge;
-      _swing.makeTranslation(at.x, at.y, at.z)
-        .multiply(_turn.makeRotationZ(-angle * open))
-        .multiply(_back.makeTranslation(-at.x, -at.y, -at.z));
-      for (const { holder, closed } of this.hinged) holder.matrix.copy(closed).multiply(_swing);
-    }
+    if (this.hinge) this.swing(0);
+  }
+  /** A break-action's barrels, swung `open` (0..1) of the way down. */
+  private swing(open: number): void {
+    if (!this.hinge) return;
+    const { at, angle } = this.hinge;
+    _swing.makeTranslation(at.x, at.y, at.z)
+      .multiply(_turn.makeRotationZ(-angle * open))
+      .multiply(_back.makeTranslation(-at.x, -at.y, -at.z));
+    for (const { holder, closed } of this.hinged) holder.matrix.copy(closed).multiply(_swing);
   }
   /**
    * Stand `k` of the way through a reload that lasts `seconds`. Guns that end by working the
    * action play the magazine change and then the bolt, each at the speed it was animated at.
+   * Returns how far through working the action it is (0 while it is not).
    */
-  poseReload(k: number): void {
+  poseReload(k: number): number {
+    if (!this.has('reload')) {
+      // A break-action: both hands stay on the gun; it is broken open, emptied and shut
+      // (the spring layer tips it down meanwhile).
+      this.pose('idle', 0);
+      this.swing(THREE.MathUtils.smoothstep(k, 0.08, 0.22) * (1 - THREE.MathUtils.smoothstep(k, 0.78, 0.9)));
+      return 0;
+    }
     if (!this.rack) {
       this.pose('reload', k);
-      return;
+      return 0;
     }
     const a = this.seconds('reload'), b = this.info.clips['bolt'] ? (this.info.clips['bolt'][1] - this.info.clips['bolt'][0]) / this.info.fps : 0;
     const split = a / (a + b);
-    if (k < split) this.pose('reload', k / split);
-    else this.pose('bolt', (k - split) / (1 - split));
+    if (k < split) {
+      this.pose('reload', k / split);
+      return 0;
+    }
+    const through = (k - split) / (1 - split);
+    this.pose('bolt', through);
+    return through;
   }
 }
 
@@ -433,6 +447,8 @@ export class Viewmodel {
   private bobPhase = 0;
   private bobAmt = 0;
   /** The part of the recoil the camera does not show, which the gun shows instead. */
+  private clearing = 0;
+  private tipping = 0;
   private climb = 0;
   private drift = 0;
   private wasGround = true;
@@ -508,7 +524,8 @@ export class Viewmodel {
     this.swayX.kick((Math.random() - 0.5) * 0.2 * k);
     this.flashT = 0.045;
     this.flash.rotation.z = Math.random() * Math.PI * 2;
-    const s = 0.7 + Math.random() * 0.5 + k * 0.25;
+    // (kept small: a flash that fills the view hides the target the next round is meant for)
+    const s = 0.42 + Math.random() * 0.22 + k * 0.1;
     this.flash.scale.set(s, s, s);
     this.inspectT = -1;
     this.fireT = 0;
@@ -565,6 +582,10 @@ export class Viewmodel {
 
     // ---- authored animation: pick the movement and how far through it ----------
     let procDraw = 0;
+    /** How far through working the action at the end of a reload (0 = not). */
+    let racking = 0;
+    /** How far the gun is tipped down and over for a reload that has no clip of its own (0..1). */
+    let tipped = 0;
     let procInspect = 0;
     if (r) {
       this.idleT += dt;
@@ -575,7 +596,8 @@ export class Viewmodel {
         else { r.pose('idle', 0); procDraw = st.drawT; }
         this.fireT = this.meleeT = -1;
       } else if (reloading) {
-        r.poseReload(st.reloadT);
+        racking = r.poseReload(st.reloadT);
+        if (!r.has('reload')) tipped = Math.sin(Math.PI * st.reloadT) ** 0.6;
         this.fireT = -1;
       } else if (this.meleeT >= 0) {
         this.meleeT += dt / 0.4;
@@ -583,7 +605,7 @@ export class Viewmodel {
         else r.pose(r.has(this.meleeClip) ? this.meleeClip : 'melee', this.meleeT);
       } else if (this.fireT >= 0) {
         this.fireT += dt;
-        if (this.fireT < this.fireDur) r.pose('fire', this.fireT / this.fireDur);
+        if (this.fireT < this.fireDur) r.pose(r.has('fire') ? 'fire' : 'idle', r.has('fire') ? this.fireT / this.fireDur : 0);
         else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) r.pose('bolt', (this.fireT - this.fireDur) / this.boltDur);
         else this.fireT = -1;
       }
@@ -624,19 +646,24 @@ export class Viewmodel {
     this.climb += (st.recoilPitch * GUN_FOLLOWS - this.climb) * follow;
     this.drift += (st.recoilYaw * GUN_FOLLOWS - this.drift) * follow;
     // Drawn by the springs: up from low and to the right, canted, straightening as it arrives.
-    const drawE = procDraw * procDraw * (3 - 2 * procDraw);
+    const drawE = procDraw * procDraw;
 
     const breath = Math.sin(this.idleT * 1.5) * 0.0012 * (1 - this.bobAmt);
+    // While the action is worked the hand comes back past the eye: ease the gun away and down
+    // for that moment, so a glove does not fill the corner of the view.
+    const clear = racking > 0 ? Math.sin(Math.PI * Math.min(1, racking * 1.15)) : 0;
+    this.clearing += (clear - this.clearing) * Math.min(1, dt * 14);
+    this.tipping += (tipped - this.tipping) * Math.min(1, dt * 12);
     const h = this.holder;
     h.position.set(
       sx * 0.3 + bobX + drawE * 0.06 + procInspect * -0.05,
-      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.26 + st.crouch * 0.006 + procInspect * 0.03,
-      kz * 0.3 + drawE * 0.05,
+      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.22 - this.clearing * 0.05 - this.tipping * 0.03 + st.crouch * 0.006 + procInspect * 0.03,
+      kz * 0.3 + drawE * 0.05 - this.clearing * 0.17,
     );
     h.rotation.set(
-      kp * 0.22 + this.climb + sy * 0.8 - drawE * 0.95 + air * 2 + procInspect * 0.25,
+      kp * 0.22 + this.climb + sy * 0.8 - drawE * 0.75 - this.tipping * 0.22 + air * 2 + procInspect * 0.25,
       sx * 1.0 + this.drift + bobX * 1.5 - drawE * 0.3 + procInspect * 0.9,
-      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - drawE * 0.45 + procInspect * 0.6,
+      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - drawE * 0.45 + this.tipping * 0.4 + procInspect * 0.6,
       'YXZ',
     );
 

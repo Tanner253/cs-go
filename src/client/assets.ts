@@ -107,6 +107,8 @@ export interface WeaponLook {
   world: string;
 }
 
+/** Submachine guns are held a little further out than a pistol, so they do not fill the view when raised to reload. */
+const SMG_HOLD: V3 = [0.105, -0.195, -0.16];
 /** Where a mounted long gun is held (closer in than the pack's own scoped rifle). */
 const LONG_HOLD: V3 = [0.125, -0.195, -0.25];
 
@@ -115,14 +117,16 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   edge: { pack: 'knife', world: 'knife' },
   // ---- attackers ----
   kite: { pack: 'm9', world: 'm9' },
-  wasp: { pack: 'm9', world: 'smg', mount: { file: 'smg.glb', ride: PISTOL_JOINTS, nudge: [0.018, 0.013, 0.007] } },
+  // (automatic guns in the pistol pack leave out its firing movement: a pistol's muzzle flip, repeated
+  // thirteen times a second, throws the gun about; the spring layer carries their recoil instead)
+  wasp: { pack: 'm9', world: 'smg', hold: SMG_HOLD, skip: ['fire'], mount: { file: 'smg.glb', ride: PISTOL_JOINTS, nudge: [0.018, 0.013, 0.007] } },
   // (the long-gun pack's bolt-action cycle is not for a self-loading rifle)
   hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: [-0.116, -0.033, -0.017] } },
   mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: [-0.317, -0.038, -0.018] } },
   // ---- defenders ----
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS, nudge: [0.01, 0, 0] } },
   hornet: {
-    pack: 'm9', world: 'mp7',
+    pack: 'm9', world: 'mp7', hold: SMG_HOLD, skip: ['fire'],
     // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
     // the stock is left off too: extended, its rails run past the camera)
     mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
@@ -135,9 +139,10 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
   // ---- both sides ----
   // (the model is larger than life: drawn at seven tenths, here and in other players' hands)
-  stinger: { pack: 'm9', world: 'scorpion', mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
+  stinger: { pack: 'm9', world: 'scorpion', skip: ['fire'], mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
   thresher: {
-    pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt'],
+    // (no magazine to change: the pack's reload is left out and the gun is simply broken open)
+    pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt', 'reload'],
     mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.55, 0, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
   },
   colossus: {
@@ -198,9 +203,9 @@ for (const [gun, fit] of [
   // (on the top cover, behind the rear sight)
   ['ak', { part: HOLO, at: [-0.095, 0.1062, 0.0012], size: 0.85 }],
   // (on the rail along the top)
-  ['smg', { part: HOLO, at: [0.035, 0.082, -0.003], size: 0.8 }],
+  ['smg', { part: HOLO, at: [0.035, 0.082, -0.003], size: 0.62 }],
   // (on its rail, between the folded irons, where its own painted-over optic stood)
-  ['mp7a1', { part: HOLO, at: [0.049, 0.1171, -0.0085], size: 0.8 }],
+  ['mp7a1', { part: HOLO, at: [0.049, 0.1171, -0.0085], size: 0.66 }],
   // (on the rear sight's block, over the folded stock)
   ['a91', { part: HOLO, at: [-0.03, 0.1092, 0.0015], size: 0.85 }],
 ] as [string, Fitted][]) {

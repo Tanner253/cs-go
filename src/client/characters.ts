@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
+import { eyeHeight } from '../sim/movement';
 import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
 import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
 import { SKINS } from './skins';
@@ -41,7 +42,8 @@ function prepare(assets: CharacterAssets): Shared {
   };
   add('idle', pick('idle'));
   add('walk', pick('walk', 'walkF'));
-  add('run', pick('run', 'jogF'));
+  // (the model's own run bounds: its head drops a quarter of a metre every stride. The jog is level.)
+  add('run', pick('jogF', 'run'));
   add('crouchIdle', pick('crouchIdle'));
   add('crouchWalk', pick('crouchWalk', 'crouchF'));
   add('air', pick('jumpLoop'));
@@ -139,6 +141,8 @@ const _pole = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _aimQ = new THREE.Quaternion();
 const _groupQ = new THREE.Quaternion();
+/** How far (radians from upright) a torso may lean before the posture pass straightens it. */
+const UPRIGHT = 0.3;
 const _HALF_PI_Y = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
 const _BLADE = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2.4, 0, 0));
 
@@ -207,6 +211,10 @@ export class CharacterView {
   private chest: THREE.Object3D | null = null;
   private armR: Arm | null = null;
   private armL: Arm | null = null;
+  private pelvis: THREE.Object3D | null = null;
+  private waist: THREE.Object3D | null = null;
+  private head: THREE.Object3D | null = null;
+  private legs: { chain: Arm; knee: THREE.Vector3; foot: THREE.Vector3; turn: THREE.Quaternion }[] = [];
   private meshes: THREE.Mesh[] = [];
 
   private gunHolder = new THREE.Group();
@@ -263,6 +271,16 @@ export class CharacterView {
     };
     this.armR = arm('r');
     this.armL = arm('l');
+    this.pelvis = bones.get('pelvis') ?? null;
+    this.waist = bones.get('spine_01') ?? null;
+    this.head = bones.get('Head') ?? bones.get('head') ?? null;
+    for (const side of ['l', 'r']) {
+      const upper = bones.get(`thigh_${side}`), lower = bones.get(`calf_${side}`), hand = bones.get(`foot_${side}`);
+      if (!upper || !lower || !hand) continue;
+      const l1 = upper.getWorldPosition(_a).distanceTo(lower.getWorldPosition(_b));
+      const l2 = lower.getWorldPosition(_a).distanceTo(hand.getWorldPosition(_b));
+      this.legs.push({ chain: { upper, lower, hand, finger: null, l1, l2 }, knee: new THREE.Vector3(), foot: new THREE.Vector3(), turn: new THREE.Quaternion() });
+    }
 
     this.mixer = new THREE.AnimationMixer(rig);
     for (const [key, clip] of shared.clips) {
@@ -308,6 +326,65 @@ export class CharacterView {
       this.guns.set(key, obj);
     }
     obj.visible = true;
+  }
+
+  /**
+   * Put the head where the game says it is. The hit boxes stand upright on the player's own
+   * spot, with the head at eye height; the clips lean, bob and squat as they please (the
+   * crouch sits a quarter of a metre under the crouched eye). So after each frame of
+   * animation the hips are moved until the head is over the player's spot at `headY`, and the
+   * legs are bent again to leave the feet where the clip had them.
+   */
+  private posture(headY: number): void {
+    const pelvis = this.pelvis, head = this.head;
+    if (!pelvis?.parent || !head || this.legs.length < 2) return;
+    this.group.updateMatrixWorld(true);
+    for (const leg of this.legs) {
+      leg.chain.lower.getWorldPosition(leg.knee);
+      leg.chain.hand.getWorldPosition(leg.foot);
+      leg.chain.hand.getWorldQuaternion(leg.turn);
+    }
+    // A torso bent far over (the crouch clips hunch) is stood most of the way up, and the head
+    // tipped back down by as much so it still looks ahead.
+    const waist = this.waist;
+    if (waist?.parent) {
+      pelvis.getWorldPosition(_a);
+      _d.copy(head.getWorldPosition(_b)).sub(_a).normalize();
+      const lean = Math.acos(Math.min(1, Math.max(-1, _d.y))) - UPRIGHT;
+      if (lean > 0) {
+        _t.set(-_d.z, 0, _d.x).normalize();
+        const turn = (bone: THREE.Object3D, by: number): void => {
+          _q2.setFromAxisAngle(_t, by);
+          bone.parent!.getWorldQuaternion(_q3);
+          bone.quaternion.premultiply(_q1.copy(_q3).invert().multiply(_q2).multiply(_q3));
+          bone.updateMatrixWorld(true);
+        };
+        turn(waist, lean * 0.8);
+        turn(head, -lean * 0.55);
+      }
+    }
+    // How far the head is from where it should be, in the world.
+    head.getWorldPosition(_a);
+    this.group.getWorldPosition(_b);
+    _c.set((_b.x - _a.x) * 0.85, (_b.y + headY - _a.y) * 0.85, (_b.z - _a.z) * 0.85);
+    _c.y = Math.min(0.45, Math.max(-0.08, _c.y));
+    const flat = Math.hypot(_c.x, _c.z);
+    if (flat > 0.4) { _c.x *= 0.4 / flat; _c.z *= 0.4 / flat; }
+    // Move the hips by that much (in their parent's own space).
+    pelvis.getWorldPosition(_a).add(_c);
+    pelvis.parent.worldToLocal(_a);
+    pelvis.position.copy(_a);
+    pelvis.updateMatrixWorld(true);
+    for (const leg of this.legs) {
+      // Knees keep bending the way the clip bent them.
+      leg.chain.upper.getWorldPosition(_a);
+      _pole.copy(leg.knee).sub(_a).addScaledVector(_d.copy(leg.foot).sub(_a), -0.5);
+      solveArm(leg.chain, leg.foot, _pole, _fwd);
+      const foot = leg.chain.hand;
+      foot.parent!.getWorldQuaternion(_q3);
+      foot.quaternion.copy(_q3.invert()).multiply(leg.turn);
+      foot.updateMatrixWorld(true);
+    }
   }
 
   private play(name: string, timeScale: number, dt: number): void {
@@ -417,6 +494,7 @@ export class CharacterView {
     // known pose in case no playing clip drives this bone.
     this.spine?.quaternion.copy(this.spineRest);
     this.mixer.update(dt);
+    if (p.onGround) this.posture(eyeHeight(p) - 0.03);
 
     // ---- torso follows the aim -----------------------------------------------------
     this.group.updateMatrixWorld(true);

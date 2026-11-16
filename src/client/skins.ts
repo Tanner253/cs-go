@@ -22,7 +22,7 @@ export const SKINS: Record<string, Skin> = {
   },
   wasp: {
     name: 'Hazard', pattern: 'chevron', scale: 26,
-    a: 0x131417, b: 0x6e5200, accent: 0x26272b, glow: 0xffa000, glowStrength: 2.2, metal: 0.45,
+    a: 0x131417, b: 0x4f3c00, accent: 0x26272b, glow: 0xffa000, glowStrength: 2.2, metal: 0.3, rough: 0.6,
   },
   hammerhead: {
     name: 'Magma', pattern: 'tiger', scale: 34,
