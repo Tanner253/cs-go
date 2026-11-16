@@ -73,6 +73,6 @@ rewinds targets to what the shooter saw when testing hits.
 ## Not built yet
 
 Grenades, weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
-anti-cheat beyond server authority, authored third-person characters (they are still simple
-shapes), a shotgun model (the shotgun is out of the armory until it has one), and audio
+anti-cheat beyond server authority, direction-specific strafe animations and hit reactions
+for other players, a shotgun model (the shotgun is out of the armory until it has one), and audio
 compressed for download size (sounds ship as WAV).

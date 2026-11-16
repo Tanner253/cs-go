@@ -1,6 +1,7 @@
 // Loads the shipped first-person weapon packs (model + arms + animation in one GLB).
 // The packs come from the ZONA project's asset pipeline; see CREDITS.md for their authors.
 
+import type * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
@@ -127,9 +128,78 @@ export function loadPack(key: string): Promise<LoadedPack | null> {
   return p;
 }
 
+// ---- third-person characters ---------------------------------------------------------
+
+/** A weapon as other players see it: a low-poly model whose +x runs along the barrel. */
+export interface WorldGun {
+  scene: THREE.Object3D;
+  /** where the right hand grips it, in the gun's own space */
+  grip: [number, number, number];
+  /** where the supporting (left) hand holds it, in the gun's own space */
+  support: [number, number, number];
+  /** muzzle tip in the gun's own space */
+  muzzle: [number, number, number];
+  /** a blade: its long axis is +y rather than +x */
+  blade?: boolean;
+}
+
+export interface CharacterAssets {
+  model: GLTF;
+  clips: Map<string, THREE.AnimationClip>;
+  guns: Map<string, WorldGun>;
+}
+
+const WORLD_GUNS: Record<string, { file: string; grip: [number, number, number]; support: [number, number, number]; muzzle: [number, number, number]; blade?: boolean }> = {
+  ak: { file: 'ak_lod1.glb', grip: [-0.3, -0.02, 0.03], support: [0.0137, 0.029, -0.049], muzzle: [0.455, 0.03, 0.01] },
+  smg: { file: 'smg_lod1.glb', grip: [-0.08, -0.02, 0.03], support: [0.105, 0.016, -0.08], muzzle: [0.25, 0.03, 0] },
+  m9: { file: 'm9_lod1.glb', grip: [-0.072, -0.018, 0.032], support: [-0.069, -0.071, -0.035], muzzle: [0.218, 0.06, 0] },
+  sniper: { file: 'sniper_lod1.glb', grip: [-0.425, 0, 0.034], support: [-0.041, -0.016, -0.064], muzzle: [0.726, 0.03, 0] },
+  knife: { file: 'knife_lod1.glb', grip: [0.0146, -0.004, 0.076], support: [0, 0, 0], muzzle: [0, 0.24, 0], blade: true },
+};
+
+let characters: CharacterAssets | null = null;
+let charactersPending: Promise<CharacterAssets | null> | null = null;
+
+/** The soldier model, its animation clips and the world guns, once loaded. */
+export function getCharacters(): CharacterAssets | null {
+  return characters;
+}
+
+export function loadCharacters(): Promise<CharacterAssets | null> {
+  if (!charactersPending) {
+    const dir = `${import.meta.env.BASE_URL}assets/characters/`;
+    const gunKeys = Object.keys(WORLD_GUNS);
+    charactersPending = Promise.all([
+      loader.loadAsync(`${dir}survivor.glb`),
+      loader.loadAsync(`${dir}moves.glb`).catch(() => null),
+      ...gunKeys.map((k) => loader.loadAsync(`${base}world/${WORLD_GUNS[k]!.file}`).catch(() => null)),
+    ]).then(
+      ([model, moves, ...gunFiles]) => {
+        const clips = new Map<string, THREE.AnimationClip>();
+        // The shared library first, so the model's own clips win where both have a name.
+        for (const c of moves?.animations ?? []) clips.set(c.name, c);
+        for (const c of model!.animations) clips.set(c.name, c);
+        const guns = new Map<string, WorldGun>();
+        gunKeys.forEach((k, i) => {
+          const g = gunFiles[i];
+          if (g) guns.set(k, { scene: g.scene, ...WORLD_GUNS[k]! });
+        });
+        characters = { model: model!, clips, guns };
+        return characters;
+      },
+      (err) => { console.warn('character assets failed to load', err); return null; },
+    );
+  }
+  return charactersPending;
+}
+
 /** Load everything the first match needs. Never rejects: a missing file only costs its model. */
 export async function preloadAssets(onProgress?: (fraction: number) => void): Promise<void> {
   const keys = Object.keys(PACKS);
   let done = 0;
-  await Promise.all(keys.map((k) => loadPack(k).then(() => onProgress?.(++done / keys.length))));
+  const total = keys.length + 1;
+  await Promise.all([
+    ...keys.map((k) => loadPack(k).then(() => onProgress?.(++done / total))),
+    loadCharacters().then(() => onProgress?.(++done / total)),
+  ]);
 }

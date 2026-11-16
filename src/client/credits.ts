@@ -35,6 +35,16 @@ export const CREDITS: Credit[] = [
     note: 'Knife, arms and animation; one long animation cut into movements.',
   },
   {
+    title: 'Military tactical suit (LowPolyGameReady)', author: 'DanlyVostok', license: 'CC BY 4.0',
+    url: 'https://sketchfab.com/3d-models/military-tactical-suit-lowpolygameready-ef698ce36b1545a78ce592dd3db4c7ed',
+    note: 'Player character. Fitted onto another skeleton, textures re-encoded, geometry compressed; tinted per team.',
+  },
+  {
+    title: 'Universal Base Characters and Universal Animation Library', author: 'Quaternius', license: 'CC0 1.0',
+    url: 'https://quaternius.com',
+    note: 'Player skeleton and movement animations.',
+  },
+  {
     title: "Snake's Authentic Gun Sounds", author: 'Snake (F8 Studios)', license: 'Free to use',
     url: 'https://f8studios.itch.io/snakes-authentic-gun-sounds',
     note: 'Gunshot, bolt, magazine and slide recordings, cut and levelled.',
