@@ -10,7 +10,7 @@ import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf,
 import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 
 /** Damped spring used for all secondary motion. */
-class Spring {
+export class Spring {
   x = 0;
   v = 0;
   constructor(private k: number, private c: number) {}
@@ -76,6 +76,7 @@ export interface SkinLive {
 const SUIT_STATE = { heat: { value: 0 }, ammo: { value: 1 } };
 
 const _v = new THREE.Vector3();
+const _fq = new THREE.Quaternion();
 const _swing = new THREE.Matrix4(), _turn = new THREE.Matrix4(), _back = new THREE.Matrix4();
 const UNIT = new THREE.Vector2(0, 1);
 
@@ -102,6 +103,39 @@ class Rig {
   /** A break-action's barrels: what holds them, how they sit closed, and the hinge they swing on. */
   private hinged: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
   private hinge: { at: THREE.Vector3; angle: number } | null = null;
+  /**
+   * Blending between movements. The clips are sampled, not played, so going from one to
+   * another (or back to the start of the same one) would jump: instead the pose is eased
+   * from where the joints were to where the new movement puts them.
+   */
+  private driven: THREE.Object3D[] = [];
+  private fromP: THREE.Vector3[] = [];
+  private fromQ: THREE.Quaternion[] = [];
+  private fade = 0;
+  private fadeFor = 0;
+  private lastClip = '';
+  private lastK = 0;
+  /** The pose last shown, and where the wrists were in it: a clip that cuts a hand from one place to another is eased too. */
+  private shownP: THREE.Vector3[] = [];
+  private shownQ: THREE.Quaternion[] = [];
+  private wrists: { bone: THREE.Object3D; was: THREE.Vector3 }[] = [];
+  private frame = 1 / 60;
+  /**
+   * Taming a firing movement drawn for a heavier shot than this game's: the whole pack is moved
+   * back against part of the gun's travel, so the hands stay exactly on the gun.
+   */
+  private pack: THREE.Object3D;
+  private packRest = new THREE.Vector3();
+  private gunRoot: THREE.Object3D | null = null;
+  private gunRest = new THREE.Vector3();
+  private tame = 0;
+  private tameTo = 0;
+  /** A pump-action's fore-end: what holds it, and how far the left arm goes back with it (the arm's own space). */
+  private pumped: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
+  private pumpTravel = 0;
+  private pumpShift = new THREE.Vector3();
+  /** How far through pumping at the end of a reload (0 = not). */
+  reloadPump = 0;
   /** Bolts and slides that no animation moves: thrown back by hand, here, with every shot. */
   private bolts: { holder: THREE.Object3D; closed: THREE.Matrix4 }[] = [];
 
@@ -113,6 +147,8 @@ class Rig {
     this.skip = new Set(look.skip ?? []);
     this.rack = !!look.rack && 'bolt' in info.clips;
     const scene = SkeletonUtils.clone(files.pack.scene);
+    this.pack = scene;
+    this.packRest.copy(scene.position);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
     holder.matrix.fromArray(info.view);
@@ -131,6 +167,30 @@ class Rig {
     const clip = files.pack.animations[0]!;
     this.length = clip.duration;
     this.mixer.clipAction(clip).play();
+    const seen = new Set<THREE.Object3D>();
+    for (const track of clip.tracks) {
+      const node = THREE.PropertyBinding.findNode(scene, THREE.PropertyBinding.parseTrackName(track.name).nodeName) as THREE.Object3D | undefined;
+      if (node && !seen.has(node)) {
+        seen.add(node);
+        this.driven.push(node);
+        this.fromP.push(new THREE.Vector3());
+        this.fromQ.push(new THREE.Quaternion());
+        this.shownP.push(node.position.clone());
+        this.shownQ.push(node.quaternion.clone());
+        if (/^[LR]_wrist/.test(node.name)) this.wrists.push({ bone: node, was: new THREE.Vector3() });
+      }
+    }
+
+    // The joint that carries the whole gun, and where it rests.
+    if (info.fireTravel !== undefined && info.clips['idle']) {
+      let node = joints.get('base') ?? null;
+      while (node && !seen.has(node)) node = node.parent;
+      if (node) {
+        this.mixer.setTime(info.clips['idle'][0] / info.fps);
+        this.gunRoot = node;
+        holder.worldToLocal(node.getWorldPosition(this.gunRest));
+      }
+    }
 
     /** Where each gun mesh sits on the gun (its own geometry to gun space) and what part it is. */
     const onGun = new Map<THREE.Mesh, { toGun: THREE.Matrix4; role: Role }>();
@@ -183,6 +243,7 @@ class Rig {
         j.add(h);
         const name = pieceOf(piece.name);
         if (swings.has(name)) this.hinged.push({ holder: h, closed: h.matrix.clone() });
+        else if (mount.pump && name === mount.pump.piece) this.pumped.push({ holder: h, closed: h.matrix.clone() });
         // (a bolt riding the gun's body, or a slide whose firing movement this weapon leaves out)
         else if (/^(bolt|slide)$/.test(name) && (on === mount.ride['base'] || this.skip.has('fire'))) this.bolts.push({ holder: h, closed: h.matrix.clone() });
       };
@@ -259,6 +320,10 @@ class Rig {
         new THREE.Matrix4().copy(this.leftArm.parent.matrixWorld).invert().multiply(scene.matrixWorld).multiply(new THREE.Matrix4().copy(packToGun).invert()),
       );
       if (look.support) this.holdShift.set(...look.support).applyMatrix3(gunToArm);
+      if (mount.pump) {
+        this.pumpTravel = mount.pump.travel;
+        this.pumpShift.set(-mount.pump.travel * seatSize, 0, 0).applyMatrix3(gunToArm);
+      }
       const packBox = new THREE.Box3();
       for (const { mesh, geo } of ownCell) {
         const pos = geo.getAttribute('position');
@@ -328,6 +393,18 @@ class Rig {
     const r = this.info.clips[clip] ?? this.info.clips['idle'] ?? [0, 0];
     k = k < 0 ? 0 : k > 1 ? 1 : k;
     const t = (r[0] + (r[1] - r[0]) * k) / this.info.fps;
+    // A new movement, or the same one begun again: ease into it from the pose now shown.
+    // (A shot's own kick is let through almost at once; a change of movement takes a tenth of a second.)
+    const again = clip === this.lastClip && k < this.lastK - 0.15;
+    if (this.lastClip && (clip !== this.lastClip || again)) {
+      for (let i = 0; i < this.driven.length; i++) {
+        this.fromP[i]!.copy(this.driven[i]!.position);
+        this.fromQ[i]!.copy(this.driven[i]!.quaternion);
+      }
+      this.fadeFor = this.fade = clip === 'fire' ? 0.03 : again ? 0.05 : 0.11;
+    }
+    this.lastClip = clip;
+    this.lastK = k;
     const arm = this.leftArm;
     if (arm) arm.position.copy(this.leftArmRest);
     this.mixer.setTime(Math.min(this.length - 1e-4, t));
@@ -336,7 +413,61 @@ class Rig {
       const u = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.02, 0.14) * (1 - THREE.MathUtils.smoothstep(k, 0.86, 0.98)) : 0;
       arm.position.addScaledVector(this.holdShift, 1 - u).addScaledVector(this.magShift, u);
     }
+    // A hand that the clip moves faster than a hand can go (they are cut from place to place
+    // where the animator's own camera could not see) is eased from where it was instead.
+    if (this.lastClip && this.fade <= 0) {
+      let cut = false;
+      for (const wrist of this.wrists) {
+        wrist.bone.updateWorldMatrix(true, false);
+        _v.setFromMatrixPosition(wrist.bone.matrixWorld);
+        if (_v.distanceTo(wrist.was) > Math.max(0.09, CUT_SPEED * this.frame)) cut = true;
+      }
+      if (cut) {
+        for (let i = 0; i < this.driven.length; i++) {
+          this.fromP[i]!.copy(this.shownP[i]!);
+          this.fromQ[i]!.copy(this.shownQ[i]!);
+        }
+        this.fadeFor = this.fade = 0.1;
+      }
+    }
+    if (this.fade > 0) {
+      const w = 1 - this.fade / this.fadeFor, ease = w * w * (3 - 2 * w);
+      for (let i = 0; i < this.driven.length; i++) {
+        const node = this.driven[i]!;
+        node.position.lerpVectors(this.fromP[i]!, node.position, ease);
+        _fq.copy(node.quaternion);
+        node.quaternion.copy(this.fromQ[i]!).slerp(_fq, ease);
+      }
+    }
+    for (let i = 0; i < this.driven.length; i++) {
+      this.shownP[i]!.copy(this.driven[i]!.position);
+      this.shownQ[i]!.copy(this.driven[i]!.quaternion);
+    }
+    if (this.gunRoot) {
+      this.tameTo = clip === 'fire' ? 1 - (this.info.fireTravel ?? 1) : 0;
+      if (this.tameTo > this.tame) this.tame = this.tameTo;
+      this.pack.position.copy(this.packRest);
+      if (this.tame > 1e-3) {
+        this.pack.parent!.worldToLocal(this.gunRoot.getWorldPosition(_v));
+        this.pack.position.addScaledVector(_v.sub(this.gunRest), -this.tame);
+      }
+    }
+    for (const wrist of this.wrists) {
+      wrist.bone.updateWorldMatrix(true, false);
+      wrist.was.setFromMatrixPosition(wrist.bone.matrixWorld);
+    }
     if (this.hinge) this.swing(0);
+  }
+  /** Let `dt` seconds of any blend between movements pass. */
+  advance(dt: number): void {
+    this.frame = dt;
+    if (this.fade > 0) this.fade = Math.max(0, this.fade - dt);
+    if (this.tame > this.tameTo) this.tame = Math.max(this.tameTo, this.tame - dt * 5);
+  }
+  /** Forget the last movement: the next pose is shown as it is (a weapon just brought out). */
+  cut(): void {
+    this.fade = 0;
+    this.lastClip = '';
   }
   /** Throw the bolt: `k` runs 0..1 through one shot (back fast, forward slower). */
   cycle(k: number): void {
@@ -344,6 +475,18 @@ class Rig {
     const back = k <= 0 || k >= 1 ? 0 : k < 0.3 ? k / 0.3 : 1 - (k - 0.3) / 0.7;
     _swing.makeTranslation(-BOLT_TRAVEL * back, 0, 0);
     for (const { holder, closed } of this.bolts) holder.matrix.copy(closed).multiply(_swing);
+  }
+  /** Whether this gun is pumped by hand between shots. */
+  get pumps(): boolean {
+    return this.pumped.length > 0;
+  }
+  /** Work the pump: `k` runs 0..1 through one stroke, back and forward again, the left hand with it. Call after posing. */
+  pump(k: number): void {
+    if (this.pumped.length === 0) return;
+    const back = k <= 0 || k >= 1 ? 0 : THREE.MathUtils.smoothstep(k, 0, 0.4) * (1 - THREE.MathUtils.smoothstep(k, 0.52, 1));
+    _swing.makeTranslation(-this.pumpTravel * back, 0, 0);
+    for (const { holder, closed } of this.pumped) holder.matrix.copy(closed).multiply(_swing);
+    if (this.leftArm) this.leftArm.position.addScaledVector(this.pumpShift, back);
   }
   /** A break-action's barrels, swung `open` (0..1) of the way down. */
   private swing(open: number): void {
@@ -360,6 +503,17 @@ class Rig {
    * Returns how far through working the action it is (0 while it is not).
    */
   poseReload(k: number): number {
+    this.reloadPump = 0;
+    if (this.pumped.length > 0 && this.has('reload')) {
+      // Loaded, then pumped once.
+      const a = this.seconds('reload'), split = a / (a + PUMP_SECONDS);
+      if (k < split) this.pose('reload', k / split);
+      else {
+        this.pose('idle', 0);
+        this.reloadPump = (k - split) / (1 - split);
+      }
+      return 0;
+    }
     if (!this.has('reload')) {
       // A break-action: both hands stay on the gun; it is broken open, emptied and shut
       // (the spring layer tips it down meanwhile).
@@ -435,6 +589,10 @@ export interface ViewState {
 const SHELLS = 8;
 /** How far a bolt or slide is thrown back by a shot (metres). */
 const BOLT_TRAVEL = 0.04;
+/** How long one stroke of a pump takes. */
+const PUMP_SECONDS = 0.42;
+/** A wrist moving faster than this (metres a second) is a cut in the animation, not a movement. */
+const CUT_SPEED = 7;
 /** How much of the spray's push the gun itself shows (the camera shows the rest: see VIEW_PUNCH in game.ts). */
 const GUN_FOLLOWS = 0.4;
 
@@ -454,9 +612,10 @@ export class Viewmodel {
 
   private swayX = new Spring(140, 18);
   private swayY = new Spring(140, 18);
-  private kickZ = new Spring(260, 22);
-  private kickPitch = new Spring(210, 18);
-  private kickRoll = new Spring(180, 16);
+  // (stiff: each shot is its own jolt, over before the next, not a slow lean)
+  private kickZ = new Spring(1400, 52);
+  private kickPitch = new Spring(1200, 48);
+  private kickRoll = new Spring(1000, 44);
   private landY = new Spring(120, 13);
   private bobPhase = 0;
   private bobAmt = 0;
@@ -474,6 +633,7 @@ export class Viewmodel {
   private shotT = -1;
   private fireDur = 0.2;
   private boltDur = 0;
+  private pumpDur = 0;
   private meleeT = -1;
   private meleeClip = 'cutA';
   private meleeI = 0;
@@ -534,9 +694,9 @@ export class Viewmodel {
 
   onShot(def: WeaponDef): void {
     const k = def.kick;
-    this.kickZ.kick(1.5 * k);
-    this.kickPitch.kick(2.4 * k);
-    this.kickRoll.kick((Math.random() - 0.5) * 5 * k);
+    this.kickZ.kick(4.4 * k);
+    this.kickPitch.kick(5.8 * k);
+    this.kickRoll.kick((Math.random() - 0.5) * 11 * k);
     this.swayX.kick((Math.random() - 0.5) * 0.2 * k);
     this.flashT = 0.045;
     this.flash.rotation.z = Math.random() * Math.PI * 2;
@@ -554,6 +714,9 @@ export class Viewmodel {
       // Automatic fire restarts the clip every shot; slow guns play it in full, then cycle the bolt.
       this.fireDur = Math.min(r.seconds('fire') || 0.2, def.auto ? Math.max(0.09, interval * 1.6) : Math.max(0.12, interval * 0.95));
       this.boltDur = r.has('bolt') ? Math.max(0.3, interval - this.fireDur - 0.05) : 0;
+      // (a pump is worked as the kick dies away, not after it)
+      if (r.pumps) this.fireDur = Math.min(this.fireDur, 0.24);
+      this.pumpDur = r.pumps ? Math.min(PUMP_SECONDS, Math.max(0.25, interval - this.fireDur - 0.06)) : 0;
     }
     if (def.kind !== 'shotgun' && def.kind !== 'sniper') this.ejectShell();
   }
@@ -594,7 +757,9 @@ export class Viewmodel {
       this.currentId = r ? st.def.id : '';
       this.fireT = this.meleeT = this.inspectT = -1;
       this.idleT = 0;
+      r?.cut();
     }
+    r?.advance(dt);
     if (r) r.root.visible = !st.scoped;
 
     // ---- authored animation: pick the movement and how far through it ----------
@@ -604,6 +769,8 @@ export class Viewmodel {
     /** How far the gun is tipped down and over for a reload that has no clip of its own (0..1). */
     let tipped = 0;
     let procInspect = 0;
+    /** How far through a stroke of the pump (0 = not). */
+    let pumping = 0;
     if (r) {
       this.idleT += dt;
       const reloading = st.reloadT > 0;
@@ -614,6 +781,7 @@ export class Viewmodel {
         this.fireT = this.meleeT = -1;
       } else if (reloading) {
         racking = r.poseReload(st.reloadT);
+        pumping = r.reloadPump;
         if (!r.has('reload')) tipped = Math.sin(Math.PI * st.reloadT) ** 0.6;
         this.fireT = -1;
       } else if (this.meleeT >= 0) {
@@ -624,7 +792,10 @@ export class Viewmodel {
         this.fireT += dt;
         if (this.fireT < this.fireDur) r.pose(r.has('fire') ? 'fire' : 'idle', r.has('fire') ? this.fireT / this.fireDur : 0);
         else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) r.pose('bolt', (this.fireT - this.fireDur) / this.boltDur);
-        else this.fireT = -1;
+        else if (this.pumpDur > 0 && this.fireT < this.fireDur + this.pumpDur) {
+          r.pose('idle', 0);
+          pumping = (this.fireT - this.fireDur) / this.pumpDur;
+        } else this.fireT = -1;
       }
       if (st.drawT <= 0 && !reloading && this.meleeT < 0 && this.fireT < 0) {
         if (this.inspectT >= 0) {
@@ -639,6 +810,7 @@ export class Viewmodel {
       }
     }
 
+    r?.pump(pumping);
     r?.cycle(this.shotT >= 0 ? this.shotT / 0.085 : 0);
     if (this.shotT >= 0) {
       this.shotT += dt;

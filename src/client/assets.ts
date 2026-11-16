@@ -30,6 +30,8 @@ export interface PackInfo {
   armsFrom?: string;
   /** meshes of the pack's own gun, hidden when another gun is mounted in its place */
   ownGun?: string[];
+  /** how much of the firing movement's travel is shown (it is drawn for a heavier kick than this game's) */
+  fireTravel?: number;
 }
 
 /** A separate gun model mounted on a pack's joints. */
@@ -48,6 +50,8 @@ export interface GunMount {
    * (`at` is the hinge in the gun's own space, `angle` how far they drop, radians)
    */
   hinge?: { pieces: string[]; at: V3; angle: number };
+  /** a pump-action: this piece is drawn back `travel` metres and returned, by the left hand, after every shot */
+  pump?: { piece: string; travel: number };
 }
 
 /** Which joint of the pistol pack each piece of a mounted gun rides on. */
@@ -67,6 +71,8 @@ export const PACKS: Record<string, PackInfo> = {
     clips: { fire: [0, 11], reload: [12, 82], fireLast: [83, 94], reloadEmpty: [95, 175], holster: [176, 187], idle: [234, 264] },
     view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1],
     hold: [0.1, -0.19, -0.09],
+    // (as drawn, each shot brings the hand 10 cm back towards the eye)
+    fireTravel: 0.4,
     frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.1514388, -0.0360554, 0.0042332, 1],
     ownGun: ['base', 'stopper', 'mag', 'hammer', 'trigger', 'slide'],
   },
@@ -120,9 +126,11 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   // (automatic guns in the pistol pack leave out its firing movement: a pistol's muzzle flip, repeated
   // thirteen times a second, throws the gun about; the spring layer carries their recoil instead)
   wasp: { pack: 'm9', world: 'smg', hold: SMG_HOLD, skip: ['fire'], mount: { file: 'smg.glb', ride: PISTOL_JOINTS, nudge: [0.018, 0.013, 0.007] } },
-  // (the long-gun pack's bolt-action cycle is not for a self-loading rifle)
-  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: [-0.116, -0.033, -0.017] } },
-  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: [-0.317, -0.038, -0.018] } },
+  // (the long-gun pack's bolt-action cycle is not for a self-loading rifle, and its firing movement is a
+  // single heavy shot's: repeated ten times a second it threw the rifle 5 cm a round. The spring layer
+  // carries an automatic's recoil.)
+  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: [-0.116, -0.033, -0.017] } },
+  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: [-0.317, -0.038, -0.018] } },
   // ---- defenders ----
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS, nudge: [0.01, 0, 0] } },
   hornet: {
@@ -132,11 +140,11 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
   },
   lumen: {
-    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt'], rack: true,
+    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true,
     // (this model has no separate trigger to measure: seated by eye)
     mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: [-0.134, -0.029, -0.017] },
   },
-  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
+  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
   // ---- both sides ----
   // (the model is larger than life: drawn at seven tenths, here and in other players' hands)
   stinger: { pack: 'm9', world: 'scorpion', skip: ['fire'], mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
@@ -151,8 +159,9 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   },
   maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94, nudge: [-0.012, 0.008, 0] } },
   breaker: {
-    pack: 'sniper', world: 'benelli', hold: LONG_HOLD, rack: true,
-    mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0] },
+    // (pumped by the left hand: the pack's bolt movement, a right hand leaving the grip for a bolt handle, is not a shotgun's)
+    pack: 'sniper', world: 'benelli', hold: LONG_HOLD, skip: ['bolt'],
+    mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0], pump: { piece: 'forend', travel: 0.075 } },
   },
   longsight: { pack: 'sniper', world: 'sniper', rack: true },
 };

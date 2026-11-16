@@ -61,6 +61,8 @@ const ray = newRayHit();
 const tr = newTrace();
 const fwd = v3();
 const punch = { pitch: 0, yaw: 0 };
+/** How fast the aim comes back after a spray (per second, exponential): most of the way in a third of a second. */
+const RECOIL_RETURN = 9;
 const pHit = { t: 0, group: 0 };
 
 /** Ray vs a vertical cylinder segment. Returns entry distance or -1. */
@@ -408,6 +410,7 @@ export class Sim {
     p.rescope = 0;
     p.fireBuffer = 0;
     p.recoilIdx = 0;
+    p.punchPitch = p.punchYaw = 0;
     p.fireSpread = 0;
     this.events.push({ type: 'draw', player: p.id, weapon: def.id });
   }
@@ -441,13 +444,17 @@ export class Sim {
     const def = w.def;
     const pressed = cmd.buttons & ~p.prevButtons;
 
-    // Recoil and spread recovery.
-    if (now - p.lastShotAt > 60 / def.rpm + 0.07 && p.recoilIdx > 0) {
-      p.recoilIdx = Math.max(0, p.recoilIdx - (3 + p.recoilIdx * 5) * TICK);
+    // Recoil and spread recovery. While a spray is held the aim sits exactly where the pattern
+    // put it; once the trigger is let go it comes straight back to where the player is
+    // looking (it does not walk back along the pattern), and the place in the pattern is
+    // forgotten a little more slowly.
+    if (now - p.lastShotAt > 60 / def.rpm + 0.05) {
+      if (p.recoilIdx > 0) p.recoilIdx = Math.max(0, p.recoilIdx - (2.5 + p.recoilIdx * 4.5) * TICK);
+      const keep = Math.exp(-RECOIL_RETURN * TICK);
+      p.punchPitch *= keep;
+      p.punchYaw *= keep;
+      if (Math.abs(p.punchPitch) < 2e-4 && Math.abs(p.punchYaw) < 2e-4) p.punchPitch = p.punchYaw = 0;
     }
-    patternAt(def, p.recoilIdx, punch);
-    p.punchPitch = punch.pitch;
-    p.punchYaw = punch.yaw;
     p.fireSpread *= Math.exp(-def.spreadDecay * TICK);
 
     if (p.drawTimer > 0) {
@@ -596,12 +603,15 @@ export class Sim {
       this.traceBullet(p, def, ox, oy, oz, dx, dy, dz, ends, kinds);
     }
 
+    // The shot pushes the aim on by the pattern's next step from wherever it now is.
+    patternAt(def, p.recoilIdx, punch);
+    const fromPitch = punch.pitch, fromYaw = punch.yaw;
     p.recoilIdx += 1;
+    patternAt(def, p.recoilIdx, punch);
+    p.punchPitch += punch.pitch - fromPitch;
+    p.punchYaw += punch.yaw - fromYaw;
     p.fireSpread = Math.min(def.spreadPerShot * 8, p.fireSpread + def.spreadPerShot);
     p.lastShotAt = now;
-    patternAt(def, p.recoilIdx, punch);
-    p.punchPitch = punch.pitch;
-    p.punchYaw = punch.yaw;
     if (def.kind === 'sniper' && p.scope > 0) {
       p.rescope = w.mag > 0 ? p.scope : 0;
       p.scope = 0;

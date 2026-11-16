@@ -10,7 +10,7 @@ import { WEAPONS } from '../sim/weapons';
 import type { Replica } from '../net/replica';
 import { buildWorld } from './world';
 import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
-import { Viewmodel } from './viewmodel';
+import { Spring, Viewmodel } from './viewmodel';
 import { setFinishRenderer } from './finish';
 import { Thumbs } from './thumbs';
 import { CharacterView } from './characters';
@@ -61,6 +61,9 @@ export class GameApp {
   private punchY = 0;
   private fov = 74;
   private fovKick = 0;
+  /** The jolt each of the player's own shots gives the view, on top of the spray's push (seen, not shot along). */
+  private jolt = new Spring(1700, 46);
+  private joltYaw = new Spring(1700, 50);
   private shake = 0;
   private roll = 0;
   private landDip = 0;
@@ -311,6 +314,8 @@ export class GameApp {
           let ox: number, oy: number, oz: number;
           if (own) {
             this.vm.onShot(def);
+            this.jolt.kick(def.kick * (def.auto ? 0.5 : 0.75));
+            this.joltYaw.kick((Math.random() - 0.5) * def.kick * 0.22);
             this.fovKick = Math.min(2.5, this.fovKick + def.kick * 0.55);
             this.audio.shot(def.kind, null, 0, 0, def.id, s.id);
             // Viewmodel muzzle -> world, compensating for the viewmodel's narrower FOV.
@@ -574,9 +579,11 @@ export class GameApp {
       yaw = this.specYaw;
       pitch = this.specPitch;
     }
-    const pk = Math.min(1, dt * 32);
+    // The view follows the spray closely, and every shot jolts it.
+    const pk = Math.min(1, dt * 55);
     this.punchP += (view.punchPitch * VIEW_PUNCH - this.punchP) * pk;
     this.punchY += (view.punchYaw * VIEW_PUNCH - this.punchY) * pk;
+    const jolt = this.jolt.step(0, dt), joltYaw = this.joltYaw.step(0, dt);
 
     this.landVel += (-140 * this.landDip - 16 * this.landVel) * dt;
     this.landDip += this.landVel * dt;
@@ -588,8 +595,8 @@ export class GameApp {
     const dead = !view.alive;
     this.camera.position.set(x, this.eyeY + (dead ? 0.45 : eye) + this.landDip * 0.06, z);
     this.camera.rotation.set(
-      pitch + this.punchP + (Math.random() - 0.5) * sh,
-      yaw + this.punchY + (Math.random() - 0.5) * sh,
+      pitch + this.punchP + jolt + (Math.random() - 0.5) * sh,
+      yaw + this.punchY + joltYaw + (Math.random() - 0.5) * sh,
       this.roll + (dead ? 0.5 : 0),
     );
 

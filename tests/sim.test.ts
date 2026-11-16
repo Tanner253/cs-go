@@ -200,7 +200,7 @@ describe('gunplay', () => {
     step({ buttons: BTN_FIRE }, 64);
     expect(me.weapons[0]!.mag).toBeLessThan(25);
     expect(me.punchPitch).toBeGreaterThan(0.08);
-    step({}, 64);
+    step({}, 96);
     expect(me.punchPitch).toBe(0);
     const p = { pitch: 0, yaw: 0 };
     patternAt(WEAPONS['hammerhead']!, 0, p);

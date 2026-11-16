@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import type { Charge, Phase, Player, SimEvent, Team, WinReason } from '../sim/types';
 import { WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 4;
+export const PROTOCOL = 5;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -84,7 +84,7 @@ export function encodePlayer(p: Player): number[] {
     r4(p.mantleT), r4(p.mantleFrom.x), r4(p.mantleFrom.y), r4(p.mantleFrom.z), r4(p.mantleTo.x), r4(p.mantleTo.y), r4(p.mantleTo.z),
     p.grappleOn ? 1 : 0, r4(p.grapplePoint.x), r4(p.grapplePoint.y), r4(p.grapplePoint.z), r4(p.grappleTime), r4(p.grappleReadyAt),
     p.active, p.lastActive, r4(p.drawTimer), r4(p.reloadTimer), r4(p.nextFireAt), r4(p.lastShotAt),
-    r4(p.recoilIdx), r4(p.fireSpread), p.scope, r4(p.useTime), p.prevButtons, p.rescope, r4(p.fireBuffer),
+    r4(p.recoilIdx), r4(p.punchPitch), r4(p.punchYaw), r4(p.fireSpread), p.scope, r4(p.useTime), p.prevButtons, p.rescope, r4(p.fireBuffer),
   ];
   for (let i = 0; i < 3; i++) {
     const w = p.weapons[i];
@@ -118,7 +118,7 @@ export function decodePlayer(p: Player, a: number[]): void {
   p.mantleT = n(); p.mantleFrom.x = n(); p.mantleFrom.y = n(); p.mantleFrom.z = n(); p.mantleTo.x = n(); p.mantleTo.y = n(); p.mantleTo.z = n();
   p.grappleOn = n() === 1; p.grapplePoint.x = n(); p.grapplePoint.y = n(); p.grapplePoint.z = n(); p.grappleTime = n(); p.grappleReadyAt = n();
   p.active = n(); p.lastActive = n(); p.drawTimer = n(); p.reloadTimer = n(); p.nextFireAt = n(); p.lastShotAt = n();
-  p.recoilIdx = n(); p.fireSpread = n(); p.scope = n() as 0 | 1 | 2; p.useTime = n(); p.prevButtons = n(); p.rescope = n() as 0 | 1 | 2; p.fireBuffer = n();
+  p.recoilIdx = n(); p.punchPitch = n(); p.punchYaw = n(); p.fireSpread = n(); p.scope = n() as 0 | 1 | 2; p.useTime = n(); p.prevButtons = n(); p.rescope = n() as 0 | 1 | 2; p.fireBuffer = n();
   for (let s = 0; s < 3; s++) {
     const wi = n(), mag = n(), reserve = n();
     if (wi < 0) {
