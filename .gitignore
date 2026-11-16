@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.vite/
+
+# Third-party repos cloned for study only (never built, run, or committed)
+_reference/

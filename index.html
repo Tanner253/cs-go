@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0e13" />
+    <title>NULLPOINT</title>
+    <link rel="stylesheet" href="/src/client/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="vignette"></div>
+      <div id="whiteout"></div>
+      <div id="scope"><div class="scope-ring"></div><div class="scope-h"></div><div class="scope-v"></div></div>
+      <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
+
+      <div id="top">
+        <div class="team atk"><span class="pips" id="pips-atk"></span><span class="score" id="score-atk">0</span></div>
+        <div class="clock"><div id="timer">1:55</div><div id="round">ROUND 1</div></div>
+        <div class="team def"><span class="score" id="score-def">0</span><span class="pips" id="pips-def"></span></div>
+      </div>
+
+      <div id="killfeed"></div>
+      <div id="center"><div id="msg"></div><div id="sub"></div></div>
+      <div id="hint"></div>
+      <div id="progress"><div id="progress-fill"></div><span id="progress-label"></span></div>
+      <div id="spectate"></div>
+
+      <div id="bl">
+        <div id="money">$800</div>
+        <div class="stat"><span class="lbl">HP</span><span id="hp">100</span></div>
+        <div class="stat"><span class="lbl">ARM</span><span id="armor">0</span></div>
+      </div>
+      <div id="bc">
+        <div id="hook"><div id="hook-fill"></div><span>HOOK</span></div>
+        <div id="carry">CHARGE</div>
+        <div id="kit">KIT</div>
+      </div>
+      <div id="br">
+        <div id="wname">Kite-9</div>
+        <div id="ammo"><span id="mag">20</span><span class="sep">/</span><span id="res">120</span></div>
+        <div id="slots"></div>
+      </div>
+      <div id="fps"></div>
+
+      <div id="buy" class="panel hidden">
+        <div class="panel-head"><span>ARMORY</span><span id="buy-money">$800</span><span class="panel-hint">B to close</span></div>
+        <div id="buy-grid"></div>
+      </div>
+      <div id="scoreboard" class="panel hidden"></div>
+    </div>
+
+    <div id="touch"></div>
+
+    <div id="menu" class="overlay">
+      <div class="menu-card">
+        <h1>NULL<span>POINT</span></h1>
+        <p class="tag">5v5 tactical breach &mdash; plant the charge, or stop it. Rooftops are in play.</p>
+        <div class="row">
+          <button class="big atk" data-team="0">PLAY ATTACK</button>
+          <button class="big def" data-team="1">PLAY DEFENCE</button>
+        </div>
+        <div class="opts">
+          <label>Bots <select id="opt-skill"><option value="0.2">Recruit</option><option value="0.5" selected>Regular</option><option value="0.8">Veteran</option><option value="1">Elite</option></select></label>
+          <label>Sensitivity <input id="opt-sens" type="range" min="0.3" max="6" step="0.05" /><output id="opt-sens-v"></output></label>
+          <label>Volume <input id="opt-vol" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+        </div>
+        <div class="keys" id="keys"></div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="menu-card small">
+        <h2>PAUSED</h2>
+        <button class="big" id="resume">RESUME</button>
+        <button class="ghost" id="quit">Quit to menu</button>
+      </div>
+    </div>
+
+    <div id="rotate">ROTATE YOUR DEVICE<br />NULLPOINT plays in landscape</div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
