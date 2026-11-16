@@ -8,7 +8,8 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
 import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
-import { WORLD_GUN_FINISH, applyFinish } from './finish';
+import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
+import { SKINS } from './skins';
 
 const TEAM_HEX = [0xff7a2e, 0x35e0ff];
 /** Body: a slight warm or cool cast. Accents (pads, cap, headset): a strong team colour. */
@@ -21,7 +22,7 @@ interface Shared {
   death: THREE.AnimationClip | null;
   /** One material set per team, shared by every character on it. */
   mats: Map<THREE.Material, THREE.Material>[];
-  gunMats: Map<THREE.Material, THREE.Material>;
+  gunMats: Map<string, THREE.Material>;
 }
 
 let shared: Shared | null = null;
@@ -72,10 +73,43 @@ function prepare(assets: CharacterAssets): Shared {
   return { assets, clips, death: pick('death', 'deathB', 'deathFront'), mats, gunMats: new Map() };
 }
 
-function gunMaterial(s: Shared, src: THREE.Material, mesh: THREE.Mesh): THREE.Material {
-  let m = s.gunMats.get(src);
-  if (!m) s.gunMats.set(src, (m = applyFinish(src, WORLD_GUN_FINISH, [mesh])));
-  return m;
+/** Which weapon each world gun model belongs to (each model is used by one weapon). */
+const WEAPON_OF_GUN: Record<string, string> = {};
+for (const [id, look] of Object.entries(WEAPON_LOOK)) WEAPON_OF_GUN[look.world] = id;
+
+/** Other players' guns are always shown cool and full. */
+const AT_REST = { heat: { value: 0 }, ammo: { value: 1 } };
+
+/** Dress one world gun (a fresh clone, not yet attached) in its weapon's skin. */
+function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
+  const skin = SKINS[WEAPON_OF_GUN[key] ?? ''];
+  obj.updateMatrixWorld(true);
+  const parts: { mesh: THREE.Mesh; role: Role }[] = [];
+  const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
+  obj.traverse((o) => {
+    // Optional attachments are stored in these files but not fitted.
+    if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name)) o.visible = false;
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = false;
+    const role = roleOf(mesh.name);
+    parts.push({ mesh, role });
+    if (!skin || !o.visible) return;
+    tagGunSpace(mesh, mesh.matrixWorld, gunBox);
+    if (role === 'cell') tagGunSpace(mesh, mesh.matrixWorld, cellBox);
+  });
+  const length = new THREE.Vector2(gunBox.min.x, gunBox.max.x);
+  const cell = cellBox.isEmpty() ? new THREE.Vector2(0, 1) : new THREE.Vector2(cellBox.min.y, cellBox.max.y);
+  for (const { mesh, role } of parts) {
+    const src = mesh.material as THREE.Material;
+    const id = `${key}|${src.uuid}|${role}`;
+    let m = s.gunMats.get(id);
+    if (!m) {
+      const wear = skin ? { skin, role, length, cell, ...AT_REST } : undefined;
+      s.gunMats.set(id, (m = applyFinish(src, WORLD_GUN_FINISH, [mesh], wear)));
+    }
+    mesh.material = m;
+  }
 }
 
 /** How each kind of weapon is carried: grip position relative to the chest, in the aim frame. */
@@ -263,15 +297,7 @@ export class CharacterView {
     let obj = this.guns.get(key);
     if (!obj) {
       obj = this.gun.scene.clone(true);
-      obj.traverse((o) => {
-        // Optional attachments are stored in these files but not fitted.
-        if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name)) o.visible = false;
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.material = gunMaterial(shared!, mesh.material as THREE.Material, mesh);
-          mesh.castShadow = false;
-        }
-      });
+      dressGun(shared, key, obj);
       this.gunHolder.add(obj);
       this.guns.set(key, obj);
     }

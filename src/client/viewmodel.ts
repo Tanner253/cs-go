@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { WeaponDef } from '../sim/weapons';
 import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
-import { ARMS_FINISH, BLADE_FINISH, applyFinish, gunFinish } from './finish';
+import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
+import { SKINS } from './skins';
 
 /** Damped spring used for all secondary motion. */
 class Spring {
@@ -41,12 +42,25 @@ function lensMaterial(src: THREE.Material): THREE.Material {
   return m;
 }
 
-/** Every weapon and every pair of arms wears the same finish (see finish.ts). */
-function finishFor(src: THREE.Material, team: number, meshes: readonly THREE.Mesh[]): THREE.Material {
-  if (/lens/i.test(src.name)) return lensMaterial(src);
-  if (/arm|glove|hand|sleeve/i.test(src.name)) return applyFinish(src, ARMS_FINISH, meshes);
-  if (/^knife$/i.test(src.name)) return applyFinish(src, BLADE_FINISH, meshes);
-  return applyFinish(src, gunFinish(team), meshes);
+// (matched whole: a rifle's "handguard" and "charging_handle" are not hands)
+const isArms = (m: THREE.Material): boolean => /^(arms?|hands?|gloves?|sleeves?)$/i.test(m.name);
+const isLens = (m: THREE.Material): boolean => /lens/i.test(m.name);
+
+/** Every pair of arms wears the same finish, and every gun its skin (see finish.ts). */
+function finishFor(src: THREE.Material, team: number, meshes: readonly THREE.Mesh[], wear?: SkinWear): THREE.Material {
+  if (isLens(src)) return lensMaterial(src);
+  if (isArms(src)) return applyFinish(src, ARMS_FINISH, meshes);
+  if (/^knife$/i.test(src.name)) return applyFinish(src, BLADE_FINISH, meshes, wear);
+  return applyFinish(src, gunFinish(team), meshes, wear);
+}
+
+/** Eye-space axes (muzzle down -z) to gun-space axes (muzzle along +x). */
+const EYE_TO_GUN = new THREE.Matrix4().set(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1);
+
+/** The state a gun's skin reacts to: heat from firing, and how full the magazine is. */
+export interface SkinLive {
+  heat: { value: number };
+  ammo: { value: number };
 }
 
 const _v = new THREE.Vector3();
@@ -92,8 +106,11 @@ class Rig {
   private mixer: THREE.AnimationMixer;
   private length: number;
 
-  /** @param team the side the weapon belongs to (-1 = both), which colours its edge light */
-  constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook, team: number) {
+  /**
+   * @param team the side the weapon belongs to (-1 = both), which tints its bare finish
+   * @param skin the paint the gun wears, if any
+   */
+  constructor(files: WeaponFiles, readonly info: PackInfo, look: WeaponLook, team: number, skin: Skin | undefined, live: SkinLive) {
     const scene = SkeletonUtils.clone(files.pack.scene);
     const holder = new THREE.Group();
     holder.matrixAutoUpdate = false;
@@ -118,6 +135,9 @@ class Rig {
     const clip = files.pack.animations[0]!;
     this.length = clip.duration;
     this.mixer.clipAction(clip).play();
+
+    /** Where each gun mesh sits on the gun (its own geometry to gun space) and what part it is. */
+    const onGun = new Map<THREE.Mesh, { toGun: THREE.Matrix4; role: Role }>();
 
     // ---- mount a separate gun on the skeleton, piece by piece ----------------------
     const mount = look.mount;
@@ -158,14 +178,20 @@ class Rig {
         h.add(piece);
         n.add(h);
       };
-      const pieces: THREE.Object3D[] = [];
-      gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o); });
+      const pieces: THREE.Mesh[] = [];
+      gun.traverse((o) => { if ((o as THREE.Mesh).isMesh) pieces.push(o as THREE.Mesh); });
       const hide = new Set(mount.hide ?? []);
       for (const piece of pieces) {
         const name = pieceOf(piece.name);
         if (hide.has(name)) continue;
         const joint = mount.ride[name] ?? mount.ride['base']!;
-        if (name === 'mag' && mount.spare) hang(piece.clone(true), mount.spare[0], mount.spare[1]);
+        piece.updateMatrix();
+        onGun.set(piece, { toGun: piece.matrix.clone(), role: roleOf(name) });
+        if (name === 'mag' && mount.spare) {
+          const spare = piece.clone(true);
+          onGun.set(spare, onGun.get(piece)!);
+          hang(spare, mount.spare[0], mount.spare[1]);
+        }
         hang(piece, joint, joint);
       }
     }
@@ -174,30 +200,56 @@ class Rig {
     let borrowedArms: THREE.Material | null = null;
     files.arms?.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
-      if (m && !Array.isArray(m) && /arm/i.test(m.name) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
+      if (m && !Array.isArray(m) && isArms(m) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
     });
 
-    const wearers = new Map<THREE.Material, THREE.Mesh[]>();
+    this.pose('idle', 0);
+    scene.updateMatrixWorld(true);
+
+    // A gun that came inside the pack: its parts are placed as the idle pose holds them.
+    const packToGun = info.frame
+      ? new THREE.Matrix4().fromArray(info.frame)
+      : new THREE.Matrix4().copy(EYE_TO_GUN).multiply(new THREE.Matrix4().fromArray(info.view));
+    const fromScene = new THREE.Matrix4().copy(scene.matrixWorld).invert();
+
     const meshes: THREE.Mesh[] = [];
+    const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       // Hands swing well outside their rest bounds during reloads.
       mesh.frustumCulled = false;
       mesh.castShadow = false;
-      let src = mesh.material as THREE.Material;
-      if (borrowedArms && /arm/i.test(src.name) && !(src as THREE.MeshStandardMaterial).map) src = borrowedArms;
-      const list = wearers.get(src);
-      if (list) list.push(mesh);
-      else wearers.set(src, [mesh]);
       meshes.push(mesh);
+      const src = mesh.material as THREE.Material;
+      if (!skin || isArms(src) || isLens(src) || mesh.geometry === EMPTY) return;
+      let place = onGun.get(mesh);
+      if (!place) {
+        place = { toGun: new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld), role: roleOf(mesh.name) };
+        onGun.set(mesh, place);
+      }
+      tagGunSpace(mesh, place.toGun, gunBox);
+      if (place.role === 'cell') tagGunSpace(mesh, place.toGun, cellBox);
     });
-    for (const [src, list] of wearers) {
-      const finished = finishFor(src, team, list);
+    const length = new THREE.Vector2(gunBox.min.x, gunBox.max.x);
+    const cell = cellBox.isEmpty() ? new THREE.Vector2(0, 1) : new THREE.Vector2(cellBox.min.y, cellBox.max.y);
+
+    // One material for each source material and each part of the gun that wears it.
+    const wearers = new Map<string, { src: THREE.Material; role: Role | null; list: THREE.Mesh[] }>();
+    for (const mesh of meshes) {
+      let src = mesh.material as THREE.Material;
+      if (borrowedArms && isArms(src) && !(src as THREE.MeshStandardMaterial).map) src = borrowedArms;
+      const role = onGun.get(mesh)?.role ?? null;
+      const key = `${src.uuid}|${role}`;
+      const w = wearers.get(key);
+      if (w) w.list.push(mesh);
+      else wearers.set(key, { src, role, list: [mesh] });
+    }
+    for (const { src, role, list } of wearers.values()) {
+      const wear = skin && role ? { skin, role, length, cell, heat: live.heat, ammo: live.ammo } : undefined;
+      const finished = finishFor(src, team, list, wear);
       for (const mesh of list) mesh.material = finished;
     }
-
-    this.pose('idle', 0);
 
     // Find the muzzle: the centroid of the vertices furthest down -z in the rest pose.
     this.root.updateMatrixWorld(true);
@@ -276,6 +328,8 @@ export interface ViewState {
   crouch: number;
   drawT: number; // 1 = just started drawing .. 0 = ready
   reloadT: number; // 0 = not reloading, else progress 0..1
+  /** How full the magazine is, 0..1. */
+  ammo: number;
   scoped: boolean;
   grappling: boolean;
   mantling: boolean;
@@ -319,6 +373,8 @@ export class Viewmodel {
 
   /** Muzzle position in viewmodel-camera space (for tracers). */
   readonly muzzleWorld = new THREE.Vector3();
+  /** What the guns' skins react to. */
+  private live: SkinLive = { heat: { value: 0 }, ammo: { value: 1 } };
 
   constructor() {
     // Lit like the level: cool sky light from above, a cool key over the left shoulder and a
@@ -361,7 +417,7 @@ export class Viewmodel {
       void loadWeapon(def.id);
       return null;
     }
-    r = new Rig(files, PACKS[look.pack]!, look, def.team);
+    r = new Rig(files, PACKS[look.pack]!, look, def.team, SKINS[def.id], this.live);
     r.root.visible = false;
     this.holder.add(r.root);
     this.rigs.set(def.id, r);
@@ -380,6 +436,8 @@ export class Viewmodel {
     this.flash.scale.set(s, s, s);
     this.inspectT = -1;
     this.fireT = 0;
+    // Each shot heats the gun; slow, heavy guns more per shot.
+    this.live.heat.value = Math.min(1, this.live.heat.value + 0.07 + 0.12 * k);
     const r = this.current;
     const interval = 60 / def.rpm;
     if (r) {
@@ -415,6 +473,9 @@ export class Viewmodel {
   }
 
   update(dt: number, st: ViewState): void {
+    FINISH_TIME.value += dt;
+    this.live.heat.value *= Math.exp(-dt * 1.9);
+    this.live.ammo.value += (st.ammo - this.live.ammo.value) * Math.min(1, dt * 12);
     const r = this.rig(st.def);
     if (this.currentId !== st.def.id) {
       if (this.current) this.current.root.visible = false;

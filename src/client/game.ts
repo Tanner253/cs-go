@@ -642,6 +642,7 @@ export class GameApp {
         crouch,
         drawT: Math.max(0, Math.min(1, view.drawTimer / def.drawTime)),
         reloadT: view.reloadTimer > 0 ? 1 - view.reloadTimer / def.reloadTime : 0,
+        ammo: def.magSize > 0 ? (view.weapons[view.active]?.mag ?? def.magSize) / def.magSize : 1,
         scoped: view.scope > 0,
         grappling: false,
         mantling: false,
