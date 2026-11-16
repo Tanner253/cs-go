@@ -42,8 +42,8 @@ Each has its own model, sound, stats and painted skin (`src/client/skins.ts`): a
 light-emitting lines that flare as the gun heats up, and a magazine that glows as an ammo
 gauge. Every gun is held by the same pair of arms: the gun model is mounted piece by piece on
 the joints of one of three animated arm packs by the same artist (`src/client/assets.ts`).
-The armory (B) lists them in columns with a picture and stat bars for each; press a column's
-number, then the item's.
+The armory (B) lists them in columns as plain line icons, with stat bars for the one in
+focus; press a column's number, then the item's.
 
 ## Cheat resistance
 

@@ -332,8 +332,9 @@ const GRADE_GLSL = /* glsl */ `
     float npAlong = clamp((vNpPos.x - npSpan.x) / max(npSpan.y - npSpan.x, 0.01), 0.0, 1.0);
     vec3 npGlow = mix(npGlowA, npGlowB, npAlong);
     // A bright band runs down the gun; firing heats every line and the muzzle end most.
-    float npBand = pow(0.5 + 0.5 * sin(vNpPos.x * 16.0 - npLive.x * 2.6), 6.0);
-    float npPulse = 0.3 + 0.7 * npBand + npLive.y * 0.6;
+    // (kept gentle: the lines are there to be read, not to light the room)
+    float npBand = pow(0.5 + 0.5 * sin(vNpPos.x * 14.0 - npLive.x * 1.3), 4.0);
+    float npPulse = 0.62 + 0.16 * npBand + npLive.y * 0.38;
     vec3 npCol;
     if (npRole > 1.5) {
       // The magazine is a cell: bars lit from the bottom up to the rounds left in it.
@@ -341,13 +342,13 @@ const GRADE_GLSL = /* glsl */ `
       float npBar = step(0.3, fract(npH * 7.0));
       float npFull = step(npH, npLive.z * 0.86 + 0.02);
       npCol = npColA * 0.6;
-      npEmit = npGlow * npBar * (npFull * (0.75 + 0.25 * npBand) + (1.0 - npFull) * 0.04);
+      npEmit = npGlow * npBar * (npFull * (0.6 + 0.1 * npBand) + (1.0 - npFull) * 0.03);
     } else {
       // (the pattern is laid out on the gun's side; depth is folded in so tops are painted too)
       vec2 npPE = npPaint(vec2(vNpPos.x, vNpPos.y + vNpPos.z * 0.7) * npScale);
       npCol = npRole > 0.5 ? mix(npColB, npColA, npPE.x * 0.35) : mix(npColA, npColB, npPE.x);
       float npTip = smoothstep(npSpan.y - 0.09, npSpan.y, vNpPos.x) * npLive.y;
-      npEmit = npGlow * (npPE.y * npPulse * (npRole > 0.5 ? 0.5 : 1.0) + npTip * 1.2);
+      npEmit = npGlow * (npPE.y * npPulse * (npRole > 0.5 ? 0.5 : 1.0) + npTip * 0.45);
     }
     // (the model's own wear and panel lines show through the paint as light and dark)
     diffuseColor.rgb = npCol * (0.5 + 0.5 * clamp(npRel, 0.3, 1.5));
@@ -365,6 +366,11 @@ const RIM_GLSL = /* glsl */ `
 }`;
 
 const ROLE_ID: Record<Role, number> = { body: 0, moving: 1, cell: 2 };
+/**
+ * How bright a skin's lines are overall. Set so they stay under the level at which the
+ * picture starts to bloom: crisp lines rather than a haze, except briefly when the gun is hot.
+ */
+const GLOW = 0.34;
 
 /**
  * A copy of `src` wearing the finish, and the skin if one is given.
@@ -401,8 +407,8 @@ export function applyFinish(src: THREE.Material, f: Finish, meshes: readonly THR
     shader.uniforms['npGrade'] = { value: new THREE.Vector3(base, f.level, f.contrast) };
     let head = 'uniform float npSat;\nuniform vec3 npTint;\nuniform vec3 npRim;\nuniform vec3 npGrade;\n';
     if (wear && skin) {
-      const glowA = wear.glow ?? new THREE.Color(skin.glow).multiplyScalar(skin.glowStrength);
-      const glowB = wear.glow ?? new THREE.Color(skin.glow2 ?? skin.glow).multiplyScalar(skin.glowStrength);
+      const glowA = wear.glow ?? new THREE.Color(skin.glow).multiplyScalar(skin.glowStrength * GLOW);
+      const glowB = wear.glow ?? new THREE.Color(skin.glow2 ?? skin.glow).multiplyScalar(skin.glowStrength * GLOW);
       shader.uniforms['npPattern'] = { value: PATTERN_ID[skin.pattern] };
       shader.uniforms['npScale'] = { value: skin.scale };
       shader.uniforms['npColA'] = { value: new THREE.Color(skin.a) };

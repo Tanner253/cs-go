@@ -4,7 +4,6 @@
 import type { Sim } from '../sim/game';
 import { ATK, DEF, type Player } from '../sim/types';
 import { GEAR, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
-import { SKINS } from './skins';
 import { eyeHeight } from '../sim/movement';
 import { onSettings } from './settings';
 
@@ -77,13 +76,11 @@ function statBars(d: WeaponDef): [label: string, value: number][] {
     ['Damage', clamp01((d.damage * d.pellets) / 120)],
     ['Fire rate', clamp01(d.rpm / 800)],
     ['Accuracy', clamp01(1 - Math.sqrt(d.spreadStand / 0.06))],
-    ['Control', clamp01(1 - (climb * 180) / Math.PI / 9)],
+    ['Recoil control', clamp01(1 - (climb * 180) / Math.PI / 9)],
     ['Armour piercing', clamp01(d.armorPen)],
-    ['Mobility', clamp01((d.maxSpeed - 4.4) / (6.35 - 4.4))],
+    ['Movement', clamp01((d.maxSpeed - 4.4) / (6.35 - 4.4))],
   ];
 }
-
-const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 
 /** Simple line drawings for the gear, which has no model. */
 const GEAR_ART: Record<string, string> = {
@@ -347,13 +344,11 @@ export class Hud {
           col.items.map((e, i) => {
             const { owned, price } = this.buyState(p, e);
             const off = !can || owned || p.money < price;
-            const glow = SKINS[e.id] ? hex(SKINS[e.id]!.glow) : '#9dff8a';
             const src = this.thumb(e.id);
             const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
-            return `<button class="buy-item${owned ? ' owned' : ''}${off ? ' off' : ''}${!owned && p.money < price ? ' poor' : ''}${e.id === this.buyFocus ? ' focus' : ''}" data-id="${e.id}" style="--glow:${glow}">` +
-              `<span class="art">${art}</span>` +
-              `<span class="n">${e.name}</span><span class="p">${owned ? 'OWNED' : '$' + price}</span>` +
-              `<span class="k">${picked ? i + 1 : ''}</span></button>`;
+            return `<button class="buy-item${owned ? ' owned' : ''}${off ? ' off' : ''}${!owned && p.money < price ? ' poor' : ''}${e.id === this.buyFocus ? ' focus' : ''}" data-id="${e.id}">` +
+              `<span class="k">${picked ? i + 1 : ''}</span><span class="art">${art}</span>` +
+              `<span class="n">${e.name}</span><span class="p">${owned ? 'Owned' : '$' + price}</span></button>`;
           }).join('') + '</div>';
       }).join('');
     }
@@ -370,25 +365,20 @@ export class Hud {
       return;
     }
     const d = WEAPONS[e.id];
-    const skin = SKINS[e.id];
     const { owned, price } = this.buyState(p, e);
     const src = this.thumb(e.id);
     const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
-    const status = owned ? '<span class="st own">Owned</span>'
+    const status = owned ? '<span class="st">Owned</span>'
       : !can ? '<span class="st">Armory closed</span>'
-        : p.money < price ? `<span class="st poor">$${price - p.money} short</span>`
-          : `<span class="st ok">Click to buy · $${price}</span>`;
+        : p.money < price ? `<span class="st poor">$${price} · $${price - p.money} short</span>`
+          : `<span class="st ok">$${price}</span>`;
     const bars = d ? statBars(d).map(([label, v]) =>
       `<div class="bar"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`).join('') : '';
-    const facts = d ? `<div class="facts">` +
-      `<span><b>${d.magSize}</b> / ${d.reserve}<small>magazine / spare</small></span>` +
-      `<span><b>${d.damage}${d.pellets > 1 ? `×${d.pellets}` : ''}</b><small>damage</small></span>` +
-      `<span><b>$${d.killReward}</b><small>per kill</small></span></div>` : '';
-    this.el.buyDetail.style.setProperty('--glow', skin ? hex(skin.glow) : '#9dff8a');
+    const facts = d ? `<div class="facts">Magazine <b>${d.magSize} / ${d.reserve}</b> · Kill award <b>$${d.killReward}</b></div>` : '';
     this.el.buyDetail.innerHTML =
       `<div class="art">${art}</div>` +
-      `<div class="title">${e.name}${skin ? `<small>“${skin.name}” finish</small>` : ''}</div>` +
-      `<div class="kind">${e.kind}</div><p>${e.blurb}</p>${bars}${facts}${status}`;
+      `<div class="title">${e.name}</div><div class="kind">${e.kind}</div>` +
+      `<p>${e.blurb}</p>${bars}${facts}${status}`;
   }
 
   private renderBoard(sim: Sim, me: Player | null): void {

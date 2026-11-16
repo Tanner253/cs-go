@@ -12,7 +12,7 @@ export const SUIT: Skin = {
 };
 /** The colour of each side's thread (attackers, defenders) and how strongly it is lit. */
 export const SIDE_GLOW = [0xff7a2e, 0x35e0ff];
-export const SUIT_GLOW = 0.9;
+export const SUIT_GLOW = 0.42;
 
 export const SKINS: Record<string, Skin> = {
   // ---- attackers ----
@@ -22,7 +22,7 @@ export const SKINS: Record<string, Skin> = {
   },
   wasp: {
     name: 'Hazard', pattern: 'chevron', scale: 26,
-    a: 0x131417, b: 0x6e5200, accent: 0x26272b, glow: 0xffa000, glowStrength: 0.8, metal: 0.45,
+    a: 0x131417, b: 0x6e5200, accent: 0x26272b, glow: 0xffa000, glowStrength: 2.2, metal: 0.45,
   },
   hammerhead: {
     name: 'Magma', pattern: 'tiger', scale: 34,
@@ -35,7 +35,7 @@ export const SKINS: Record<string, Skin> = {
   // ---- defenders ----
   tern: {
     name: 'Glacier', pattern: 'digital', scale: 95,
-    a: 0xaeb9c6, b: 0x3d5068, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 3.0, metal: 0.5,
+    a: 0x8a95a3, b: 0x33445a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 3.0, metal: 0.5,
   },
   hornet: {
     name: 'Gridline', pattern: 'circuit', scale: 70,
@@ -47,7 +47,7 @@ export const SKINS: Record<string, Skin> = {
   },
   osprey: {
     name: 'Halo', pattern: 'carbon', scale: 140,
-    a: 0xc3ccd6, b: 0x77879a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
+    a: 0x7f8a98, b: 0x505e70, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
   },
   // ---- both sides ----
   stinger: {
@@ -56,7 +56,7 @@ export const SKINS: Record<string, Skin> = {
   },
   thresher: {
     name: 'Brimstone', pattern: 'hex', scale: 48,
-    a: 0x1a1613, b: 0x4d2210, accent: 0x241a14, glow: 0xff5a1f, glowStrength: 1.7, metal: 0.35, rough: 0.55,
+    a: 0x1a1613, b: 0x4d2210, accent: 0x241a14, glow: 0xff5a1f, glowStrength: 2.4, metal: 0.35, rough: 0.55,
   },
   colossus: {
     name: 'Monolith', pattern: 'hex', scale: 44,
@@ -64,7 +64,7 @@ export const SKINS: Record<string, Skin> = {
   },
   maul: {
     name: 'Regent', pattern: 'carbon', scale: 150,
-    a: 0x8d94a1, b: 0x4f5562, accent: 0x1c1626, glow: 0xc050ff, glowStrength: 3.0, metal: 1, rough: 0.3,
+    a: 0x767d8a, b: 0x444a56, accent: 0x1c1626, glow: 0xc050ff, glowStrength: 3.0, metal: 1, rough: 0.36,
   },
   breaker: {
     name: 'Riot', pattern: 'digital', scale: 70,
@@ -76,6 +76,6 @@ export const SKINS: Record<string, Skin> = {
   },
   edge: {
     name: 'Arc', pattern: 'circuit', scale: 120,
-    a: 0x6f7a89, b: 0x3f4856, accent: 0x6f7a89, glow: 0x5fe9ff, glowStrength: 1.1, metal: 0.7, rough: 0.35,
+    a: 0x6f7a89, b: 0x3f4856, accent: 0x6f7a89, glow: 0x5fe9ff, glowStrength: 2.2, metal: 0.7, rough: 0.35,
   },
 };

@@ -1,20 +1,15 @@
-// Pictures of the guns for the armory, drawn once each from the models other players see,
-// wearing their skins. They are rendered off screen at twice the size, tone-mapped here and
-// kept as image URLs.
+// Icons of the guns for the armory: plain white line drawings, in profile, made once each
+// from the models other players see. The model is drawn off screen with its surface
+// directions as colours; the icon is the lines where its outline and its hard edges are.
 
 import * as THREE from 'three';
 import { WEAPON_LOOK, getCharacters } from './assets';
-import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
-import { SKINS } from './skins';
 
-const W = 384, H = 192, SS = 2;
-const AT_REST = { heat: { value: 0 }, ammo: { value: 1 } };
-
-/** The filmic curve the game's own final pass uses, so a picture matches the gun in hand. */
-function aces(x: number): number {
-  const v = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
+const W = 384, H = 192;
+/** Drawn this many times larger and shrunk, which smooths the lines. */
+const SS = 3;
+/** How different two neighbouring surface directions must be to count as an edge (0..765). */
+const CREASE = 96;
 
 export class Thumbs {
   private done = new Map<string, string>();
@@ -22,27 +17,19 @@ export class Thumbs {
   private scene = new THREE.Scene();
   private cam = new THREE.OrthographicCamera(-1, 1, 0.5, -0.5, 0.01, 20);
   private pivot = new THREE.Group();
-  private rim = new THREE.DirectionalLight(0xffffff, 2.2);
+  private paint = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
   private failed = false;
 
-  /** @param environment the reflection map of the level, once there is one */
-  constructor(private renderer: THREE.WebGLRenderer, private environment: () => THREE.Texture | null) {
-    this.scene.add(new THREE.HemisphereLight(0xc6d8ff, 0x1c2028, 1.3));
-    const key = new THREE.DirectionalLight(0xffffff, 2.6);
-    key.position.set(-0.5, 1, 1);
-    this.rim.position.set(0.6, 0.5, -1);
-    this.scene.add(key, this.rim, this.pivot);
-    // Seen from the side and a little from the front and above.
-    this.pivot.rotation.set(0.16, -0.42, 0, 'YXZ');
-    this.cam.position.set(0, 0, 5);
+  constructor(private renderer: THREE.WebGLRenderer) {
+    this.scene.add(this.pivot);
   }
 
-  /** The picture of a weapon, or '' while it has not been drawn yet. */
+  /** The icon of a weapon as an image URL, or '' while it has not been drawn yet. */
   get(id: string): string {
     return this.done.get(id) ?? '';
   }
 
-  /** Draw at most one more picture. Call once a frame; returns true when one was added. */
+  /** Draw at most one more icon. Call once a frame; returns true when one was added. */
   step(): boolean {
     if (this.failed) return false;
     const assets = getCharacters();
@@ -52,9 +39,9 @@ export class Thumbs {
       const gun = assets.guns.get(look.world);
       if (!gun) continue;
       try {
-        this.done.set(id, this.draw(id, gun.scene));
+        this.done.set(id, this.draw(look.world, gun.scene));
       } catch (err) {
-        console.warn('weapon pictures unavailable', err);
+        console.warn('weapon icons unavailable', err);
         this.failed = true;
         return false;
       }
@@ -63,37 +50,20 @@ export class Thumbs {
     return false;
   }
 
-  private draw(id: string, model: THREE.Object3D): string {
-    const skin = SKINS[id];
+  private draw(key: string, model: THREE.Object3D): string {
     const obj = model.clone(true);
-    obj.updateMatrixWorld(true);
-    const made: THREE.Material[] = [];
-    const parts: { mesh: THREE.Mesh; role: Role }[] = [];
-    const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
     obj.traverse((o) => {
-      if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && id !== 'osprey') o.visible = false;
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || !o.visible) return;
-      const role = roleOf(mesh.name);
-      parts.push({ mesh, role });
-      tagGunSpace(mesh, mesh.matrixWorld, gunBox);
-      if (role === 'cell') tagGunSpace(mesh, mesh.matrixWorld, cellBox);
+      // Optional attachments are stored in these files but not fitted (the 9A-91's suppressor is part of the gun).
+      if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
+      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = this.paint;
     });
-    const length = new THREE.Vector2(gunBox.min.x, gunBox.max.x);
-    const cell = cellBox.isEmpty() ? new THREE.Vector2(0, 1) : new THREE.Vector2(cellBox.min.y, cellBox.max.y);
-    for (const { mesh, role } of parts) {
-      const wear = skin ? { skin, role, length, cell, ...AT_REST } : undefined;
-      const m = applyFinish(mesh.material as THREE.Material, WORLD_GUN_FINISH, [mesh], wear);
-      made.push(m);
-      mesh.material = m;
-    }
 
-    // Stand it in the middle of the frame, as large as fits.
+    // In profile, in the middle of the frame, as large as fits.
     this.pivot.add(obj);
     this.pivot.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.pivot);
     const mid = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-    const halfW = Math.max(size.x / 2, (size.y / 2) * (W / H)) * 1.06;
+    const halfW = Math.max(size.x / 2, (size.y / 2) * (W / H)) * 1.08;
     this.cam.left = mid.x - halfW;
     this.cam.right = mid.x + halfW;
     this.cam.top = mid.y + halfW * (H / W);
@@ -101,45 +71,74 @@ export class Thumbs {
     this.cam.position.set(0, 0, box.max.z + 2);
     this.cam.far = size.z + 6;
     this.cam.updateProjectionMatrix();
-    this.rim.color.set(skin?.glow ?? 0xffffff);
-    this.scene.environment = this.environment();
-    this.scene.environmentIntensity = 0.5;
 
+    const w = W * SS, h = H * SS;
     const r = this.renderer;
-    this.target ??= new THREE.WebGLRenderTarget(W * SS, H * SS, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: true });
+    this.target ??= new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
     const before = r.getRenderTarget();
     const clear = r.getClearColor(new THREE.Color()), alpha = r.getClearAlpha();
-    const px = new Uint16Array(W * SS * H * SS * 4);
+    const px = new Uint8Array(w * h * 4);
     try {
       r.setRenderTarget(this.target);
       r.setClearColor(0x000000, 0);
       r.clear();
       r.render(this.scene, this.cam);
-      r.readRenderTargetPixels(this.target, 0, 0, W * SS, H * SS, px);
+      r.readRenderTargetPixels(this.target, 0, 0, w, h, px);
     } finally {
       r.setRenderTarget(before);
       r.setClearColor(clear, alpha);
       this.pivot.remove(obj);
-      for (const m of made) m.dispose();
     }
 
-    // Linear light to a picture: tone-map, encode, flip the right way up.
-    const big = document.createElement('canvas');
-    big.width = W * SS;
-    big.height = H * SS;
-    const g = big.getContext('2d')!;
-    const img = g.createImageData(W * SS, H * SS);
-    const half = THREE.DataUtils.fromHalfFloat;
-    for (let y = 0; y < H * SS; y++) {
-      const src = (H * SS - 1 - y) * W * SS * 4, dst = y * W * SS * 4;
-      for (let x = 0; x < W * SS * 4; x += 4) {
-        const a = half(px[src + x + 3]!);
-        if (a <= 0) continue;
-        for (let k = 0; k < 3; k++) img.data[dst + x + k] = Math.round(255 * aces(half(px[src + x + k]!) * 1.5) ** (1 / 2.2));
-        img.data[dst + x + 3] = Math.round(255 * Math.min(1, a));
+    // Where the picture goes from gun to nothing: the outline. Where the surface turns sharply: an edge.
+    const outline = new Uint8Array(w * h), edge = new Uint8Array(w * h);
+    const inside = (i: number): boolean => px[i * 4 + 3]! > 127;
+    const turn = (i: number, j: number): number =>
+      Math.abs(px[i * 4]! - px[j * 4]!) + Math.abs(px[i * 4 + 1]! - px[j * 4 + 1]!) + Math.abs(px[i * 4 + 2]! - px[j * 4 + 2]!);
+    for (let y = 0; y < h - 1; y++) {
+      for (let x = 0; x < w - 1; x++) {
+        const i = y * w + x, right = i + 1, up = i + w;
+        const a = inside(i);
+        if (a !== inside(right) || a !== inside(up)) outline[i] = 1;
+        else if (a && (turn(i, right) > CREASE || turn(i, up) > CREASE)) edge[i] = 1;
       }
     }
-    g.putImageData(img, 0, 0);
+    // Thicken to pen width, then lay it down: outline in full, inner edges fainter, a breath of fill.
+    const ink = new Uint8Array(w * h);
+    const pen = (mask: Uint8Array, reach: number, value: number): void => {
+      for (let i = 0; i < mask.length; i++) {
+        if (!mask[i]) continue;
+        const x = i % w, y = (i - x) / w;
+        for (let dy = -reach; dy <= reach; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -reach; dx <= reach; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w || dx * dx + dy * dy > reach * reach + 1) continue;
+            const j = yy * w + xx;
+            if (ink[j]! < value) ink[j] = value;
+          }
+        }
+      }
+    };
+    pen(edge, 1, 120);
+    pen(outline, 2, 255);
+    const img = new ImageData(w, h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const a = ink[i] || (inside(i) ? 22 : 0);
+        if (!a) continue;
+        // (the picture was read bottom row first)
+        const o = ((h - 1 - y) * w + x) * 4;
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+        img.data[o + 3] = a;
+      }
+    }
+    const big = document.createElement('canvas');
+    big.width = w;
+    big.height = h;
+    big.getContext('2d')!.putImageData(img, 0, 0);
     const out = document.createElement('canvas');
     out.width = W;
     out.height = H;

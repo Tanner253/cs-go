@@ -38,7 +38,7 @@ export class GameApp {
   private fx = new Effects();
   private audio = new GameAudio();
   private hud = new Hud();
-  /** Pictures of the guns for the armory, drawn one a frame once the models are in. */
+  /** Icons of the guns for the armory, drawn one a frame once the models are in. */
   private thumbs!: Thumbs;
   private input: Input;
   private gfx: Gfx;
@@ -103,7 +103,7 @@ export class GameApp {
     };
     this.input.onMenuKey = (d) => this.hud.buyDigit(d);
     this.hud.onBuy = (item) => this.input.queueBuy(item);
-    this.thumbs = new Thumbs(this.renderer, () => this.scene.environment);
+    this.thumbs = new Thumbs(this.renderer);
     this.hud.thumb = (id) => this.thumbs.get(id);
     this.canvas.addEventListener('click', () => {
       this.audio.unlock();
