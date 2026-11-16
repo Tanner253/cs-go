@@ -1,6 +1,10 @@
 // Player settings, persisted in localStorage.
 
 export type QualitySetting = 'auto' | 'high' | 'medium' | 'low';
+/** Shape of the play area. Anything but 'fill' adds black bars rather than stretching. */
+export type AspectSetting = 'fill' | '21:9' | '16:9' | '16:10' | '4:3' | '5:4';
+
+export const ASPECTS: Record<AspectSetting, number> = { fill: 0, '21:9': 21 / 9, '16:9': 16 / 9, '16:10': 16 / 10, '4:3': 4 / 3, '5:4': 5 / 4 };
 
 export interface Settings {
   name: string;
@@ -18,6 +22,10 @@ export interface Settings {
   showFps: boolean;
   /** Go fullscreen in matches. Fullscreen lets the game capture Ctrl+W and similar browser shortcuts. */
   fullscreen: boolean;
+  /** Play-area shape; on an ultrawide monitor 16:9 or 4:3 keeps the picture from spanning the whole screen. */
+  aspect: AspectSetting;
+  /** Rendered picture height in pixels (0 = native). Lower is faster; the picture is scaled up to the play area. */
+  resolution: number;
 }
 
 const DEFAULTS: Settings = {
@@ -33,6 +41,8 @@ const DEFAULTS: Settings = {
   crosshairDot: true,
   showFps: true,
   fullscreen: true,
+  aspect: 'fill',
+  resolution: 0,
 };
 
 const KEY = 'np.settings.v1';

@@ -3,7 +3,7 @@
 import type { Team } from '../sim/types';
 import type { NetClient } from './net';
 import { CREDITS } from './credits';
-import { onSettings, setSetting, settings, type QualitySetting, type Settings } from './settings';
+import { onSettings, setSetting, settings, type AspectSetting, type QualitySetting, type Settings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -179,6 +179,9 @@ export class Menu {
     range('Field of view', 'fov', 60, 90, 1, 0);
     range('Volume', 'volume', 0, 1, 0.05, 2);
     choice<'quality'>('Graphics', 'quality', [['Auto', 'auto'], ['High', 'high'], ['Medium', 'medium'], ['Low', 'low']] as [string, QualitySetting][]);
+    choice<'aspect'>('Aspect ratio', 'aspect', [['Fill', 'fill'], ['21:9', '21:9'], ['16:9', '16:9'], ['16:10', '16:10'], ['4:3', '4:3'], ['5:4', '5:4']] as [string, AspectSetting][]);
+    choice<'resolution'>('Resolution', 'resolution', [['Native', 0], ['1440p', 1440], ['1080p', 1080], ['900p', 900], ['720p', 720]]);
+    choice<'fullscreen'>('Fullscreen', 'fullscreen', [['On', true], ['Off', false]]);
     if (!full) return;
     const l = document.createElement('label');
     l.innerHTML = `<span>Crosshair</span><div class="swatches">${CROSSHAIR_COLORS.map((c) => `<button data-c="${c}" style="background:${c}"></button>`).join('')}</div>`;
@@ -190,6 +193,5 @@ export class Menu {
     choice<'crosshairDot'>('Centre dot', 'crosshairDot', [['On', true], ['Off', false]]);
     choice<'invertY'>('Invert Y', 'invertY', [['Off', false], ['On', true]]);
     choice<'showFps'>('FPS counter', 'showFps', [['On', true], ['Off', false]]);
-    choice<'fullscreen'>('Fullscreen', 'fullscreen', [['On', true], ['Off', false]]);
   }
 }

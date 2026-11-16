@@ -235,7 +235,8 @@ function fsMaterial(frag: string, uniforms: Record<string, THREE.IUniform>): THR
 
 export interface Gfx {
   render(dt: number, drawViewmodel: boolean): void;
-  resize(w: number, h: number): void;
+  /** `maxHeight` caps the rendered picture height in pixels (0 or omitted = native). */
+  resize(w: number, h: number, maxHeight?: number): void;
   setQuality(q: Quality): void;
   /** Current tier. */
   readonly quality: Quality;
@@ -268,6 +269,7 @@ export function createGfx(
 
   let q = quality;
   let width = 1, height = 1;
+  let maxRenderHeight = 0;
   let sceneRT: THREE.WebGLRenderTarget | null = null;
   const mips: THREE.WebGLRenderTarget[] = [];
   const stats = { calls: 0, triangles: 0 };
@@ -349,8 +351,9 @@ export function createGfx(
     disposeTargets();
     // Resolution cap per tier keeps frame cost bounded on 4K / high-DPR displays.
     const maxPixels = q === 'high' ? 3.8e6 : q === 'medium' ? 2.2e6 : 1.25e6;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(maxPixels / Math.max(1, width * height)));
-    renderer.setPixelRatio(Math.max(0.5, dpr));
+    let dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(maxPixels / Math.max(1, width * height)));
+    if (maxRenderHeight > 0) dpr = Math.min(dpr, maxRenderHeight / height);
+    renderer.setPixelRatio(Math.max(0.25, dpr));
     renderer.setSize(width, height, false);
     if (q === 'low') return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -378,9 +381,10 @@ export function createGfx(
   const gfx: Gfx = {
     get quality() { return q; },
     stats,
-    resize(w: number, h: number): void {
+    resize(w: number, h: number, maxHeight = 0): void {
       width = Math.max(1, w | 0);
       height = Math.max(1, h | 0);
+      maxRenderHeight = maxHeight;
       rebuild();
     },
     setQuality(next: Quality): void {

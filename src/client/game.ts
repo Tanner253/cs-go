@@ -19,7 +19,7 @@ import { Hud } from './hud';
 import { NetClient } from './net';
 import { preloadAssets } from './assets';
 import { Menu } from './menu';
-import { onSettings, settings } from './settings';
+import { ASPECTS, onSettings, settings } from './settings';
 
 /** Fraction of weapon recoil shown as camera kick; the rest only moves the bullets. */
 const VIEW_PUNCH = 0.6;
@@ -70,6 +70,8 @@ export class GameApp {
   private fps = 60;
   private endTimer = 0;
   private tmp = new THREE.Vector3();
+  private stageH = 1;
+  private stageKey = '';
 
   constructor() {
     const touch = isTouchDevice();
@@ -126,7 +128,9 @@ export class GameApp {
       this.audio.setVolume(s.volume);
       const q: Quality = s.quality === 'auto' ? (touch ? 'low' : 'high') : s.quality;
       if (this.gfx.quality !== q) this.gfx.setQuality(q);
+      if (`${s.aspect}|${s.resolution}` !== this.stageKey) this.resize();
     });
+    document.addEventListener('fullscreenchange', () => this.resize());
     addEventListener('resize', () => this.resize());
     this.resize();
 
@@ -248,8 +252,24 @@ export class GameApp {
   }
 
   private resize(): void {
-    const w = innerWidth, h = innerHeight;
-    this.gfx.resize(w, h);
+    // The play area ("stage") is the largest box of the chosen shape that fits the window;
+    // the rest is black bars. The canvas, HUD and touch controls all live inside it.
+    const W = innerWidth, H = innerHeight;
+    let w = W, h = H;
+    const aspect = ASPECTS[settings.aspect] ?? 0;
+    if (aspect > 0) {
+      if (W / H > aspect) w = Math.round(H * aspect);
+      else h = Math.round(W / aspect);
+    }
+    const st = document.documentElement.style;
+    st.setProperty('--stage-x', `${(W - w) >> 1}px`);
+    st.setProperty('--stage-y', `${(H - h) >> 1}px`);
+    st.setProperty('--stage-w', `${w}px`);
+    st.setProperty('--stage-h', `${h}px`);
+    st.setProperty('--stage-min', `${Math.min(w, h)}px`);
+    this.stageH = h;
+    this.stageKey = `${settings.aspect}|${settings.resolution}`;
+    this.gfx.resize(w, h, settings.resolution);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.vm.resize(w / h);
@@ -628,7 +648,7 @@ export class GameApp {
 
     // ---- HUD ----
     const spread = sim.spreadOf(view);
-    const gapPx = (Math.tan(spread) / Math.tan((this.camera.fov * Math.PI) / 360)) * (innerHeight / 2);
+    const gapPx = (Math.tan(spread) / Math.tan((this.camera.fov * Math.PI) / 360)) * (this.stageH / 2);
     this.hud.update(sim, view, me, gapPx, dt, this.fps, this.input.touch);
   }
 }
