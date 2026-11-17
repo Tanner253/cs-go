@@ -330,9 +330,12 @@ export class Effects {
     this.pGrav[i] = grav; this.pSize0[i] = size; this.pGrow[i] = grow; this.pAlpha0[i] = alpha; this.pDrag[i] = drag;
   }
 
-  /** Sparks, chips and a dust puff where a bullet meets the world, plus a bullet hole. */
-  impact(x: number, y: number, z: number, nx: number, ny: number, nz: number): void {
-    for (let i = 0; i < 6; i++) {
+  /**
+   * A bullet hole where a round meets the world; with `particles`, round sparks and dust too (the
+   * game draws those with the blast cards, `Blasts.hit`, once they are loaded).
+   */
+  impact(x: number, y: number, z: number, nx: number, ny: number, nz: number, particles = true): void {
+    for (let i = 0; particles && i < 6; i++) {
       const sp = 2 + Math.random() * 5;
       this.emit(
         x, y, z,
@@ -340,14 +343,14 @@ export class Effects {
         3.2, 2.2 + Math.random(), 0.9, 0.14 + Math.random() * 0.2, 14, 0.035, -0.03, 1, 1, 1.5,
       );
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; particles && i < 3; i++) {
       const sp = 1 + Math.random() * 2.5;
       this.emit(
         x, y, z, (nx + (Math.random() - 0.5)) * sp, (ny + (Math.random() - 0.5)) * sp + 1.2, (nz + (Math.random() - 0.5)) * sp,
         0.2, 0.21, 0.24, 0.35 + Math.random() * 0.3, 12, 0.03, 0, 0.9, 0, 0.5,
       );
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; particles && i < 3; i++) {
       const sp = 0.5 + Math.random() * 0.9;
       this.emit(
         x + nx * 0.05, y + ny * 0.05, z + nz * 0.05,

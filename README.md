@@ -108,8 +108,11 @@ the action, and it is raised from the hip when drawn.
 **Sound.** Every gunshot, reload, rack and bolt is a recording of a real gun (Snake's Authentic
 Gun Sounds, packs 1 and 2: see CREDITS.md), cut at the shot by `tools/build-sounds.mjs`, played
 a little faster or slower where one calibre stands in for another, faded and levelled; each
-weapon family has its own handling sounds. Footsteps and impacts are built from Kenney's CC0
-impact recordings.
+weapon family has its own handling sounds. Footsteps and impacts are Kenney's CC0 impact
+recordings, used as recorded: a round on concrete sounds a pick striking rock, on the steel
+crates a strike on plate. What a round throws off the surface is drawn with the explosion cards
+(`Blasts.hit`): spark streaks (a shower off steel, a few off concrete), a puff of the surface's
+dust and falling chips, and it leaves a hole.
 
 **Suppressors.** The Osprey, Lumen, Hornet and Breaker take one. Right click (ZOOM on touch) fits it or
 takes it off, which takes 1.7 seconds and both hands. Fitted, the gun is quiet (heard from less

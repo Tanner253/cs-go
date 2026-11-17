@@ -14,13 +14,25 @@ import type { ViewLight } from './viewmodel';
 import { LIGHTING, createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
 
 const _toEye = new THREE.Quaternion();
+
+/** What a bullet struck at this point: the level's boxes by what they are made of. */
+function surfaceAt(boxes: readonly Box[], x: number, y: number, z: number): Surface {
+  for (const b of boxes) {
+    if (b.noCollide || x < b.minX || x > b.maxX || y < b.minY || y > b.maxY || z < b.minZ || z > b.maxZ) continue;
+    // (the crates and containers are steel cargo boxes; everything else is concrete)
+    return b.mat === Mat.Crate || b.mat === Mat.Deck ? 'metal' : 'stone';
+  }
+  return 'stone';
+}
 import { Spring, Viewmodel } from './viewmodel';
 import { setFinishRenderer } from './finish';
 import { Thumbs } from './thumbs';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
 import { NadeFx } from './nade-fx';
-import { Blasts } from './blast';
+import { Blasts, type Surface } from './blast';
+import { Mat } from '../sim/map';
+import type { Box } from '../sim/world';
 import { GameAudio } from './audio';
 import { Input, isTouchDevice } from './input';
 import { Hud } from './hud';
@@ -400,8 +412,11 @@ export class GameApp {
               }
             }
             if (e.hitKinds[i] === HIT_WORLD) {
-              this.fx.impact(ex, ey, ez, e.ends[b + 3]!, e.ends[b + 4]!, e.ends[b + 5]!);
-              if (i === 0) this.audio.impact(ex, ey, ez);
+              const hx = e.ends[b + 3]!, hy = e.ends[b + 4]!, hz = e.ends[b + 5]!;
+              this.fx.impact(ex, ey, ez, hx, hy, hz, !this.blasts);
+              const surface = surfaceAt(sim.map.boxes, ex - hx * 0.02, ey - hy * 0.02, ez - hz * 0.02);
+              this.blasts?.hit(ex, ey, ez, hx, hy, hz, surface);
+              if (i === 0) this.audio.impact(ex, ey, ez, surface === 'metal');
             }
           }
           if (nearest < 1.8 && sim.time - this.crackAt > 0.07) {

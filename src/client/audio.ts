@@ -99,7 +99,8 @@ export const CUES: Record<string, Cue> = {
   step: { files: numbered('step', 5), level: -28, ref: 8, wet: 0.08, jitter: 0.07 },
   land: { files: numbered('land', 3), level: -27, ref: 7, wet: 0.08, jitter: 0.05 },
   // ---- combat feedback ----
-  impact: { files: numbered('impact', 5), level: -28, ref: 7, wet: 0.12, jitter: 0.12 },
+  'impact.stone': { files: numbered('impact_stone', 5), level: -27, ref: 7, wet: 0.12, jitter: 0.1 },
+  'impact.metal': { files: numbered('impact_metal', 5), level: -29, ref: 7, wet: 0.14, jitter: 0.1 },
   hit_body: { files: numbered('hit_body', 3), level: -29, rate: 1.25, ref: 1, wet: 0.02, jitter: 0.06 },
   hit_head: { files: numbered('hit_head', 2), level: -25, rate: 1.5, ref: 1, wet: 0.05 },
   hurt: { files: numbered('hurt', 2), level: -22, rate: 0.9, ref: 1, wet: 0.02, jitter: 0.05 },
@@ -441,9 +442,9 @@ export class GameAudio {
     src.start();
   }
 
-  /** A bullet striking the level near the listener. */
-  impact(x: number, y: number, z: number): void {
-    this.play('impact', x, y, z);
+  /** A bullet striking the level near the listener: rock struck, or steel. */
+  impact(x: number, y: number, z: number, metal = false): void {
+    this.play(metal ? 'impact.metal' : 'impact.stone', x, y, z);
   }
 
   /** Kept for API compatibility; the game has no grapple. */

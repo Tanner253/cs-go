@@ -21,6 +21,9 @@ import type { World } from '../sim/world';
 import { newRayHit } from '../sim/world';
 
 export type BlastKind = 'grenade' | 'charge';
+/** What a bullet struck, for what flies off it. */
+export type Surface = 'stone' | 'metal' | 'wood';
+const SURFACE_DUST: Record<Surface, number> = { stone: 0x8c8a86, metal: 0x4e5156, wood: 0x6e5c40 };
 
 /** The fire stills on the flame sheet (pixels of a 1024 sheet: left, top, right, bottom). */
 const STILLS: [number, number, number, number][] = [
@@ -69,7 +72,7 @@ const KIND = {
 
 /** The colour of what a blast raises off this level's floors (concrete, steel): as light sent back. */
 const DUST = 0x8c8a86, CLODS = 0x3c3b39;
-const MOST = 320;
+const MOST = 480;
 const BURN_LIFE = 22, BURN_FADE = 6;
 
 const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
@@ -490,6 +493,47 @@ export class Blasts {
       still: pick([0, 0, 1, 3, 4]), fire: true, a: 1, in: 0.08, out: 0.45, h0: rnd(0.95, 1.2), h1: 0.15, floor: y - 0.05, soft: 0.12,
     });
   }
+  /**
+   * A bullet striking the level: a flick of light, sparks thrown off it as streaks (a shower off
+   * steel, a few off stone, hardly any off wood), a small puff of the stuff it is made of rolling
+   * out from the face, and a chip or two falling.
+   */
+  hit(x: number, y: number, z: number, nx: number, ny: number, nz: number, surface: Surface): void {
+    const b = this.ground;
+    const n = new THREE.Vector3(nx, ny, nz);
+    const at = new THREE.Vector3(x, y, z).addScaledVector(n, 0.02);
+    const any = (): THREE.Vector3 => new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    const metal = surface === 'metal', wood = surface === 'wood';
+    if (!wood) {
+      this.card(b, { p: at.clone(), r0: 0.035, r1: 0.07, life: 0.04, tile: T.dot, c0: [3.2, 2.5, 1.5], c1: [2, 1, 0.3], a: 1, in: 0, out: 0.3, glow: 1, thick: 1.2 });
+    }
+    const sparks = metal ? 4 + Math.floor(Math.random() * 3) : wood ? (Math.random() < 0.3 ? 1 : 0) : 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < sparks; i++) {
+      const way = n.clone().addScaledVector(any(), 0.95).normalize();
+      this.card(b, {
+        p: at.clone(), v: way.multiplyScalar(rnd(3.5, metal ? 10 : 7)), life: rnd(0.06, metal ? 0.2 : 0.13), drag: 1.4, fall: 9.8,
+        lies: 1, long: 0.014, r0: rnd(0.012, 0.02), r1: 0.006, tile: T.streak, c0: [4, 2.6, 1], c1: [2, 0.8, 0.15], a: 1, in: 0, out: 0.5, glow: 1, thick: 2,
+      });
+    }
+    const dust = new THREE.Color(SURFACE_DUST[surface]);
+    const puffs = metal ? 1 : 2;
+    for (let i = 0; i < puffs; i++) {
+      this.card(b, {
+        p: at.clone(), v: n.clone().multiplyScalar(rnd(0.5, 1.4)).add(any().multiplyScalar(0.3)).setY(n.y * 1.2 + rnd(0.1, 0.4)),
+        life: rnd(0.45, 0.85), drag: 3, fall: -0.2, r0: 0.03, r1: rnd(0.18, metal ? 0.24 : 0.36), swell: 2.2, turn: rnd(0, 6.3), spin: rnd(-0.6, 0.6),
+        tile: pick(T.puffs), c0: [dust.r * 0.75, dust.g * 0.75, dust.b * 0.75], c1: [dust.r, dust.g, dust.b], a: metal ? 0.35 : 0.55, in: 0.02, out: 0.45, thick: 1.5, heart: 0.8, soft: 0.2,
+      });
+    }
+    if (!metal) {
+      for (let i = 0; i < 2; i++) {
+        this.card(b, {
+          p: at.clone(), v: n.clone().multiplyScalar(rnd(1.5, 3)).add(any().multiplyScalar(1.2)).setY(rnd(0.8, 2.2)), life: rnd(0.3, 0.5), drag: 0.6, fall: 9.8,
+          r0: rnd(0.018, 0.03), turn: rnd(0, 6.3), spin: rnd(-6, 6), tile: pick(T.clods), c0: [dust.r * 0.6, dust.g * 0.6, dust.b * 0.6], a: 0.9, in: 0, out: 0.4, thick: 3,
+        });
+      }
+    }
+  }
+
   /** (what a fire's flames belong to: no walls, never over) */
   private ground: Blast = { kind: 'grenade', at: new THREE.Vector3(), foot: 0, age: 0, walls: [], roofed: false, top: Infinity, room: Infinity, over: Infinity };
 

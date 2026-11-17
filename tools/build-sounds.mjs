@@ -188,11 +188,6 @@ function fadeOut(x, part = 0.3) {
   for (let i = 0; i < n; i++) x[x.length - 1 - i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / n);
   return x;
 }
-/** A click of metal on metal made of nothing but a ringing band of noise (for where no recording is layered). */
-function clack(rnd, f = 3200, tau = 0.006) {
-  return shape(filt(noise(Math.floor(SR * 0.05), rnd), 'bp', f, 3.5), 0.0003, tau);
-}
-
 // ---- gunshots and gun handling: Snake's Authentic Gun Sounds, as recorded -------------------
 //
 // Every shot, reload, rack and bolt in the game is a recording of a real gun from the two
@@ -385,7 +380,7 @@ async function kenney(pack, file) {
   return normalise(repitch(x, 1, sampleRate), 0);
 }
 const K = {};
-for (const name of ['impactMetal_light', 'impactMetal_medium', 'impactMetal_heavy', 'impactPlate_light', 'impactPlate_medium', 'impactPlate_heavy', 'impactTin_medium', 'impactGeneric_light', 'impactSoft_medium', 'footstep_concrete']) {
+for (const name of ['impactMetal_light', 'impactMetal_medium', 'impactMetal_heavy', 'impactPlate_light', 'impactPlate_medium', 'impactPlate_heavy', 'impactTin_medium', 'impactGeneric_light', 'impactSoft_medium', 'impactMining', 'footstep_concrete']) {
   K[name] = [];
   for (const k of seq(5)) K[name].push(await kenney('kenney-impact', `${name}_${k}`));
 }
@@ -402,27 +397,24 @@ for (let v = 0; v < 2; v++) {
 }
 
 // Footsteps: the recording is a soft thud with nothing above 800 Hz, which is lost under
-// gunfire and cannot be placed by ear. A heel click and a little grit give it an edge.
+// gunfire and cannot be placed by ear. A second recording, a light strike's upper part, gives
+// it the click of a heel. (Both are recordings: nothing here is made up.)
 for (let i = 0; i < 5; i++) {
-  const rnd = lcg(7000 + i * 17);
   const out = new Float32Array(Math.floor(SR * 0.2));
   mix(out, K.footstep_concrete[i], 1);
-  mix(out, filt(K.impactGeneric_light[i], 'hp', 700), 0.32, 0.002);
-  mix(out, shape(filt(filt(noise(Math.floor(SR * 0.12), rnd), 'hp', 1800), 'lp', 7000), 0.002, 0.028), 0.2, 0.004);
+  mix(out, filt(K.impactGeneric_light[i], 'hp', 700), 0.36, 0.002);
   const y = normalise(fadeOut(out, 0.3));
   writeWav(`step_${i + 1}`, y, SR);
   report(`step_${i + 1}`, y);
 }
-// A round striking the level: the thud of it, the crack of the surface, and bits falling.
+// A round striking the level, as recorded: a pick striking rock for concrete, a light strike
+// on steel plate for the cargo crates and containers. Only cut short, cleared of rumble and levelled.
 for (let i = 0; i < 5; i++) {
-  const rnd = lcg(9000 + i * 29);
-  const out = new Float32Array(Math.floor(SR * 0.32));
-  mix(out, K.impactGeneric_light[i], 0.75);
-  mix(out, shape(filt(noise(Math.floor(SR * 0.1), rnd), 'hp', 2400), 0.0004, 0.016), 0.6);
-  for (let d = 0; d < 7; d++) mix(out, clack(rnd, 2500 + rnd() * 4000, 0.002 + rnd() * 0.003), 0.06 + rnd() * 0.16, 0.03 + rnd() * 0.2);
-  const y = normalise(fadeOut(out, 0.3));
-  writeWav(`impact_${i + 1}`, y, SR);
-  report(`impact_${i + 1}`, y);
+  for (const [name, src] of [['impact_stone', K.impactMining[i]], ['impact_metal', K.impactMetal_light[i]]]) {
+    const y = normalise(fadeOut(filt(src.slice(0, Math.floor(SR * 0.35)), 'hp', 160), 0.35));
+    writeWav(`${name}_${i + 1}`, y, SR);
+    report(`${name}_${i + 1}`, y);
+  }
 }
 
 decoder.free();
