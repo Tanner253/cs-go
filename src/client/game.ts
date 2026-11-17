@@ -9,8 +9,11 @@ import { ATK, DEF, HIT_PLAYER, HIT_WORLD, SLOTS, TICK, emptyCmd, type Player, ty
 import { WHEEL_NEXT, WHEEL_PREV } from './input';
 import { SUPPRESSOR_TIME, WEAPONS } from '../sim/weapons';
 import type { Replica } from '../net/replica';
-import { buildWorld } from './world';
-import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
+import { buildWorld, type LightProbe, type LightSample } from './world';
+import type { ViewLight } from './viewmodel';
+import { LIGHTING, createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
+
+const _toEye = new THREE.Quaternion();
 import { Spring, Viewmodel } from './viewmodel';
 import { setFinishRenderer } from './finish';
 import { Thumbs } from './thumbs';
@@ -90,6 +93,13 @@ export class GameApp {
   private crackAt = -9;
   private roll = 0;
   private landDip = 0;
+  /** The light where the viewed player stands, asked of the world's bake a few times a second. */
+  private lightAt: LightProbe | null = null;
+  private lightSample: LightSample = { sun: 1, sky: 1, r: 0, g: 0, b: 0, dx: 0, dy: 1, dz: 0 };
+  private lightNext = 0;
+  private viewLight: ViewLight = {
+    sunDir: new THREE.Vector3(), sun: 1, sky: 1, spill: new THREE.Color(0, 0, 0), spillDir: new THREE.Vector3(0, 1, 0),
+  };
   private landVel = 0;
   private eyeY = 0;
   private specYaw = 0;
@@ -195,6 +205,7 @@ export class GameApp {
       preloadAssets((f) => { assets = f; show(); }),
     ]);
     this.scene.add(group);
+    this.lightAt = (group.userData['lightAt'] as LightProbe | undefined) ?? null;
     this.blasts = new Blasts(this.sim.world);
     this.nades.blasts = this.blasts;
     this.scene.add(this.blasts.group);
@@ -771,6 +782,21 @@ export class GameApp {
 
     // ---- viewmodel ----
     const showVm = view.alive;
+    if (showVm && this.lightAt) {
+      // (where the hands are: a little below the eye and ahead of it)
+      this.lightNext -= dt;
+      if (this.lightNext <= 0) {
+        this.lightNext = 0.1;
+        this.lightAt(x - Math.sin(yaw) * 0.35, this.eyeY + eye - 0.25, z - Math.cos(yaw) * 0.35, this.lightSample);
+      }
+      const L = this.lightSample, vl = this.viewLight;
+      _toEye.copy(this.camera.quaternion).invert();
+      vl.sunDir.copy(LIGHTING.sunDir).applyQuaternion(_toEye);
+      vl.spillDir.set(L.dx, L.dy, L.dz).applyQuaternion(_toEye);
+      vl.sun = L.sun;
+      vl.sky = L.sky;
+      vl.spill.setRGB(L.r, L.g, L.b);
+    }
     if (showVm) {
       this.vm.update(dt, {
         def,
@@ -778,6 +804,8 @@ export class GameApp {
         lookDX: isMe ? this.input.lookDX : 0,
         lookDY: isMe ? this.input.lookDY : 0,
         speed: Math.hypot(view.vel.x, view.vel.z),
+        strafe: view.vel.x * Math.cos(yaw) - view.vel.z * Math.sin(yaw),
+        ahead: -view.vel.x * Math.sin(yaw) - view.vel.z * Math.cos(yaw),
         maxSpeed: def.maxSpeed,
         onGround: view.onGround,
         velY: view.vel.y,
@@ -798,6 +826,7 @@ export class GameApp {
           throwT: view.throwAt >= 0 ? sim.time - view.throwAt : -1,
           str: view.throwStr,
         } : undefined,
+        light: this.lightAt ? this.viewLight : undefined,
       });
     }
     this.input.lookDX = 0;

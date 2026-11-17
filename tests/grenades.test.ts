@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
 import { BTN_ALT, BTN_FIRE, SLOT_NADE, TICK, emptyCmd, type Cmd, type Grenade, type SimEvent } from '../src/sim/types';
 import { NADE_INDEX } from '../src/sim/weapons';
-import { FUSE, PIN_TIME, SMOKE_GROW, SMOKE_LIFE, THROW_TIME } from '../src/sim/grenades';
+import { FUSE, NADE_LEAVE, PIN_TIME, SMOKE_GROW, SMOKE_LIFE, THROW_TIME } from '../src/sim/grenades';
 import { RULES_1V1 } from '../src/net/protocol';
 
 /** Two players on the open mid lane, the round live and endless. */
@@ -68,7 +68,7 @@ describe('grenades', () => {
     expect(me.pinAt).toBeGreaterThan(0);
     expect(sim.grenades.length).toBe(0);
     cmds[0].buttons = 0;
-    run(Math.ceil(PIN_TIME / TICK));
+    run(Math.ceil((PIN_TIME + NADE_LEAVE) / TICK) + 1);
     expect(sim.grenades.length).toBe(1);
     const g = sim.grenades[0]!;
     const speed = Math.hypot(g.vel.x, g.vel.y, g.vel.z);
@@ -93,7 +93,7 @@ describe('grenades', () => {
     cmds[0].buttons = BTN_ALT;
     run(Math.ceil(PIN_TIME / TICK) + 2);
     cmds[0].buttons = 0;
-    run(1);
+    run(1 + Math.ceil(NADE_LEAVE / TICK));
     const g = sim.grenades[0]!;
     expect(Math.hypot(g.vel.x, g.vel.y, g.vel.z)).toBeLessThan(6.5);
     // It comes to rest and the smoke goes up where it lies.

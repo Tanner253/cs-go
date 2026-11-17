@@ -114,9 +114,10 @@ smokes once they lie still, fire where it first lands. A flashbang blinds everyo
 up to five seconds looking straight at it, about one with it behind you; the white thins and leaves
 the frozen picture of the moment it went off. Smoke hides players from the server's sight test and
 from the bots as well as from the eye; standing in it greys the view (your own gun stays clear).
-In first person the grenade is held in our own arms, posed by `src/client/nade-view.ts`: the left
-hand draws the pin out by its ring, the arm winds up, comes over and lets go, and the lever flies
-off. Bots buy grenades and throw them (`src/sim/bot-nades.ts`): each throw is first flown in the
+In first person the throw is an authored one, DJMaesen's "Arms throwing" (`src/client/nade-view.ts`),
+in the same gloves as the pistols and snipers: the press winds the arm up over the shoulder and
+flicks the pin away, letting go brings it over and forward, the grenade leaves the hand where the
+hand is fastest, and the lever flies off. Bots buy grenades and throw them (`src/sim/bot-nades.ts`): each throw is first flown in the
 bot's head against the real level, so it banks off walls and lobs over cover only where that
 works: smokes and a flash on a site they are taking, HE and fire at enemies known to be behind
 cover, fire on the charge when defenders close on it; they turn away from their own flashbangs.

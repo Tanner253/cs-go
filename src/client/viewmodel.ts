@@ -7,8 +7,8 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { WeaponDef } from '../sim/weapons';
 import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, nadeMaterial, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
 import { NadeRig, type NadeViewState } from './nade-view';
-import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
-import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
+import { ARMS_TINT, BLADE_FINISH, FINISH_TIME, applyFinish, armsFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
+import { SKINS } from './skins';
 import { FLASH_KINDS, flashTexture } from './effects';
 import { WornArms } from './worn-arms';
 import {
@@ -56,7 +56,7 @@ const isLens = (m: THREE.Material): boolean => /lens/i.test(m.name);
 /** Every pair of arms wears the same finish, and every gun its skin (see finish.ts). */
 function finishFor(src: THREE.Material, team: number, meshes: readonly THREE.Mesh[], wear?: SkinWear): THREE.Material {
   if (isLens(src)) return lensMaterial(src);
-  if (isArms(src)) return applyFinish(src, ARMS_FINISH, meshes, wear);
+  if (isArms(src)) return applyFinish(src, ARMS_FINISH, meshes);
   if (/^knife$/i.test(src.name)) return applyFinish(src, BLADE_FINISH, meshes, wear);
   return applyFinish(src, gunFinish(team), meshes, wear);
 }
@@ -68,11 +68,10 @@ const EYE_TO_GUN = new THREE.Matrix4().set(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 
 export interface SkinLive {
   heat: { value: number };
   ammo: { value: number };
-  /** The light of the thread in the player's sleeves: their side's colour. */
-  suitGlow: THREE.Color;
 }
-/** The sleeves do not heat up or count rounds. */
-const SUIT_STATE = { heat: { value: 0 }, ammo: { value: 1 } };
+/** The dye of the player's sleeves and gloves: their side's (see ARMS_TINT). */
+const ARMS_DYE = new THREE.Vector3(1, 1, 1);
+const ARMS_FINISH = armsFinish(ARMS_DYE);
 
 const _v = new THREE.Vector3();
 const _fq = new THREE.Quaternion();
@@ -81,7 +80,6 @@ const _box = new THREE.Box3();
 const STILL = [0, 0, 0, 0, 0, 0, 0] as const;
 const _carried = new THREE.Vector3();
 const _turned = new THREE.Euler();
-const UNIT = new THREE.Vector2(0, 1);
 
 const EMPTY = new THREE.BufferGeometry();
 const pieceOf = (name: string): string => name.replace(/_\d+$/, '');
@@ -635,9 +633,7 @@ class Rig {
       else wearers.set(key, { src, role, list: [mesh] });
     }
     for (const { src, role, list } of wearers.values()) {
-      const wear: SkinWear | undefined = isArms(src)
-        ? { skin: SUIT, role: 'body', length: UNIT, cell: UNIT, ...SUIT_STATE, glow: live.suitGlow }
-        : skin && role ? { skin, role, length, cell, heat: live.heat, ammo: live.ammo } : undefined;
+      const wear: SkinWear | undefined = !isArms(src) && skin && role ? { skin, role, length, cell, heat: live.heat, ammo: live.ammo } : undefined;
       const finished = finishFor(src, team, list, wear);
       for (const mesh of list) mesh.material = finished;
     }
@@ -1011,6 +1007,9 @@ export interface ViewState {
   lookDX: number;
   lookDY: number;
   speed: number;
+  /** Velocity across the view (to the right) and along it (ahead), m/s. */
+  strafe: number;
+  ahead: number;
   maxSpeed: number;
   onGround: boolean;
   velY: number;
@@ -1030,6 +1029,19 @@ export interface ViewState {
   mantling: boolean;
   /** A grenade in hand: where it is in a throw. */
   nade?: NadeViewState;
+  /** The light where the player stands (directions in eye space: x right, y up, -z ahead). */
+  light?: ViewLight;
+}
+
+export interface ViewLight {
+  /** Towards the sun, and how much of it reaches the hands (0 in shadow .. 1). */
+  sunDir: THREE.Vector3;
+  sun: number;
+  /** How open the sky is overhead (0 under a roof .. 1). */
+  sky: number;
+  /** The coloured light of nearby strips (linear, as baked) and where it mostly comes from. */
+  spill: THREE.Color;
+  spillDir: THREE.Vector3;
 }
 
 const SHELLS = 8;
@@ -1053,6 +1065,12 @@ const PUMP_SECONDS = 0.42;
 const CUT_SPEED = 7;
 /** How much of the spray's push the gun itself shows (the camera shows the rest: see VIEW_PUNCH in game.ts). */
 const GUN_FOLLOWS = 0.4;
+/** The moon on the hands when nothing shadows them. */
+const SUN_ON_HANDS = 1.6;
+/** Light-strip spill (as baked) to light on the hands, and the most it may be. */
+const SPILL_GAIN = 6;
+const SPILL_MAX = 1.4;
+const _spill = new THREE.Color();
 
 export class Viewmodel {
   readonly scene = new THREE.Scene();
@@ -1080,6 +1098,9 @@ export class Viewmodel {
   private kickPitch = new Spring(1200, 48);
   private kickRoll = new Spring(1000, 44);
   private landY = new Spring(120, 13);
+  // (soft: the body's weight, felt as the gun leaning into a strafe and lagging a change of pace)
+  private leanS = new Spring(55, 11);
+  private surgeS = new Spring(45, 9);
   private bobPhase = 0;
   private bobAmt = 0;
   /** The part of the recoil the camera does not show, which the gun shows instead. */
@@ -1119,17 +1140,29 @@ export class Viewmodel {
   /** Muzzle position in viewmodel-camera space (for tracers). */
   readonly muzzleWorld = new THREE.Vector3();
   /** What the guns' skins react to. */
-  private live: SkinLive = { heat: { value: 0 }, ammo: { value: 1 }, suitGlow: new THREE.Color() };
+  private live: SkinLive = { heat: { value: 0 }, ammo: { value: 1 } };
+
+  /**
+   * Lit by the place the player stands in, as the level is: sky light from above (less under a
+   * roof), the moon from where it really is in the sky and only when it is not shadowed, and the
+   * colour of the nearest light strips from their side. A soft key over the left shoulder and a
+   * dim warm kick from the right keep the shapes readable in the darkest corner.
+   */
+  private hemi = new THREE.HemisphereLight(0xa9c1ee, 0x1c2028, 1.0);
+  private key = new THREE.DirectionalLight(0xdbe7ff, 0.75);
+  private kick = new THREE.DirectionalLight(0xffc9a0, 0.3);
+  private sunLight = new THREE.DirectionalLight(0xcfe0ff, 0);
+  private spillLight = new THREE.DirectionalLight(0xffffff, 0);
+  /** The light as last eased towards: sun, sky, spill strength. */
+  private lit = { sun: 0.6, sky: 0.6, spill: 0, ready: false };
+  private spillCol = new THREE.Color();
 
   constructor() {
-    // Lit like the level: cool sky light from above, a cool key over the left shoulder and a
-    // dim warm kick from the right so shapes keep some separation.
-    this.scene.add(new THREE.HemisphereLight(0xa9c1ee, 0x1c2028, 1.0));
-    const key = new THREE.DirectionalLight(0xdbe7ff, 1.8);
-    key.position.set(-0.6, 1, 0.5);
-    const kick = new THREE.DirectionalLight(0xffc9a0, 0.4);
-    kick.position.set(1, 0.2, 0.4);
-    this.scene.add(key, kick);
+    this.key.position.set(-0.6, 1, 0.5);
+    this.kick.position.set(1, 0.2, 0.4);
+    this.sunLight.position.set(-0.4, 0.7, -0.5);
+    this.spillLight.position.set(0.5, 0.5, -0.5);
+    this.scene.add(this.hemi, this.key, this.kick, this.sunLight, this.spillLight);
     this.scene.add(this.holder);
 
     for (let i = 0; i < FLASH_KINDS; i++) {
@@ -1183,12 +1216,10 @@ export class Viewmodel {
       void loadWeapon(def.id);
       return null;
     }
-    n = new NadeRig(files, (arms, toGun, nade) => {
-      for (const m of arms) tagGunSpace(m, toGun(m));
-      const src = arms[0]?.material as THREE.Material | undefined;
+    n = new NadeRig(def.id, files, (arms, nade, borrowed) => {
+      const src = borrowed ?? arms[0]?.material as THREE.Material | undefined;
       if (src) {
-        const wear: SkinWear = { skin: SUIT, role: 'body', length: UNIT, cell: UNIT, ...SUIT_STATE, glow: this.live.suitGlow };
-        const finished = finishFor(src, team, arms, wear);
+        const finished = finishFor(src, team, arms);
         for (const m of arms) m.material = finished;
       }
       for (const m of nade) m.material = nadeMaterial(m.material as THREE.Material, def.id);
@@ -1275,11 +1306,35 @@ export class Viewmodel {
     s.spin.set(14 + Math.random() * 16, 6 + Math.random() * 10, (Math.random() - 0.5) * 8);
   }
 
+  /** Light the hands by the place the player stands in, easing between places so a doorway does not pop. */
+  private relight(dt: number, l: ViewLight | undefined): void {
+    if (!l) return;
+    const k = this.lit.ready ? 1 - Math.exp(-dt * 6) : 1;
+    this.lit.ready = true;
+    this.lit.sun += (l.sun - this.lit.sun) * k;
+    this.lit.sky += (l.sky - this.lit.sky) * k;
+    const top = Math.max(l.spill.r, l.spill.g, l.spill.b);
+    const strength = Math.min(SPILL_MAX, (0.2126 * l.spill.r + 0.7152 * l.spill.g + 0.0722 * l.spill.b) * SPILL_GAIN);
+    this.lit.spill += (strength - this.lit.spill) * k;
+    if (top > 1e-4) this.spillCol.lerp(_spill.copy(l.spill).multiplyScalar(1 / top), k);
+    this.hemi.intensity = 0.42 + 0.6 * this.lit.sky;
+    // (what metal and paint reflect: a generic lit room, so kept low, and lower under a roof)
+    this.scene.environmentIntensity = 0.26 + 0.16 * this.lit.sky;
+    // (the directions turn with the view at once: they are fixed in the world, not eased)
+    this.sunLight.position.copy(l.sunDir);
+    this.sunLight.intensity = SUN_ON_HANDS * this.lit.sun;
+    this.spillLight.position.copy(l.spillDir);
+    this.spillLight.color.copy(this.spillCol);
+    this.spillLight.intensity = this.lit.spill;
+  }
+
   update(dt: number, st: ViewState): void {
     FINISH_TIME.value += dt;
+    this.relight(dt, st.light);
     this.live.heat.value *= Math.exp(-dt * 1.9);
     this.live.ammo.value += (st.ammo - this.live.ammo.value) * Math.min(1, dt * 12);
-    this.live.suitGlow.set(SIDE_GLOW[st.team] ?? 0x9fc4ff).multiplyScalar(SUIT_GLOW);
+    const dye = ARMS_TINT[st.team] ?? [0.86, 0.88, 0.92];
+    ARMS_DYE.set(dye[0], dye[1], dye[2]);
     const nade = st.def.kind === 'grenade' ? this.nadeRig(st.def, st.team) : null;
     for (const [id, n] of this.nades) n.root.visible = n === nade && id === st.def.id && !st.scoped;
     const r = st.def.kind === 'grenade' ? null : this.rig(st.def);
@@ -1413,6 +1468,10 @@ export class Viewmodel {
     // Sustained fire presses the gun back into the shoulder and down a little.
     const press = st.def.auto ? this.live.heat.value : 0;
 
+    // Moving: the gun leans into a strafe and drifts against it, and sits back a little while
+    // running forward; the springs overshoot, so starting and stopping are felt.
+    const lean = this.leanS.step(THREE.MathUtils.clamp(st.strafe / Math.max(1, st.maxSpeed), -1, 1), dt);
+    const surge = this.surgeS.step(THREE.MathUtils.clamp(st.ahead / Math.max(1, st.maxSpeed), -1, 1), dt);
     const breath = Math.sin(this.idleT * 1.5) * 0.0012 * (1 - this.bobAmt);
     // While the action is worked the hand comes back past the eye: ease the gun away and down
     // for that moment, so a glove does not fill the corner of the view.
@@ -1425,14 +1484,14 @@ export class Viewmodel {
     const twist = fitting > 0.3 && fitting < 0.7 ? Math.sin(fitting * 70) * 0.012 : 0;
     const h = this.holder;
     h.position.set(
-      sx * 0.3 + bobX + fs * FIT_POSE[0] + c[0]! + _carried.x,
-      sy * 0.3 + bobY + breath + land * 0.35 - air - press * 0.004 - this.clearing * 0.05 + st.crouch * 0.006 + fs * FIT_POSE[1] + c[1]! + _carried.y,
-      kz * 0.3 + press * 0.012 - this.clearing * 0.17 + fs * FIT_POSE[2] + c[2]! + _carried.z,
+      sx * 0.3 + bobX - lean * 0.007 + fs * FIT_POSE[0] + c[0]! + _carried.x,
+      sy * 0.3 + bobY + breath + land * 0.35 - air - press * 0.004 - this.clearing * 0.05 + st.crouch * 0.006 - Math.abs(surge) * 0.003 + fs * FIT_POSE[1] + c[1]! + _carried.y,
+      kz * 0.3 + press * 0.012 - this.clearing * 0.17 + surge * 0.009 + fs * FIT_POSE[2] + c[2]! + _carried.z,
     );
     h.rotation.set(
-      kp * 0.22 + this.climb + sy * 0.8 + air * 2 + fs * FIT_POSE[3] + c[3]!,
-      sx * 1.0 + this.drift + bobX * 1.5 + fs * FIT_POSE[4] + c[4]!,
-      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 + fs * FIT_POSE[5] + twist + c[5]!,
+      kp * 0.22 + this.climb + sy * 0.8 + air * 2 - surge * 0.012 + fs * FIT_POSE[3] + c[3]!,
+      sx * 1.0 + this.drift + bobX * 1.5 + lean * 0.01 + fs * FIT_POSE[4] + c[4]!,
+      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - lean * 0.045 + fs * FIT_POSE[5] + twist + c[5]!,
       'YXZ',
     );
 

@@ -5,15 +5,6 @@
 
 import type { Skin } from './finish';
 
-/** The suit on the player's own arms: a dark weave with a thread of their side's colour. */
-export const SUIT: Skin = {
-  name: 'Suit', pattern: 'carbon', scale: 120,
-  a: 0x252a32, b: 0x14171c, accent: 0x14171c, glow: 0xffffff, glowStrength: 1, metal: 0, rough: 0.8,
-};
-/** The colour of each side's thread (attackers, defenders) and how strongly it is lit. */
-export const SIDE_GLOW = [0xff7a2e, 0x35e0ff];
-export const SUIT_GLOW = 0.42;
-
 export const SKINS: Record<string, Skin> = {
   // ---- attackers ----
   kite: {
@@ -39,11 +30,11 @@ export const SKINS: Record<string, Skin> = {
   // ---- defenders ----
   tern: {
     name: 'Glacier', pattern: 'digital', scale: 95,
-    a: 0x8a95a3, b: 0x33445a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 3.0, metal: 0.5,
+    a: 0x8a95a3, b: 0x33445a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 3.0, metal: 0.3,
   },
   wrens: {
     name: 'Frostbite', pattern: 'hex', scale: 40,
-    a: 0x7d8a99, b: 0x24364d, accent: 0x162030, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
+    a: 0x7d8a99, b: 0x24364d, accent: 0x162030, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.3,
   },
   hornet: {
     name: 'Gridline', pattern: 'circuit', scale: 70,
@@ -55,7 +46,7 @@ export const SKINS: Record<string, Skin> = {
   },
   osprey: {
     name: 'Halo', pattern: 'carbon', scale: 140,
-    a: 0x7f8a98, b: 0x505e70, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
+    a: 0x7f8a98, b: 0x505e70, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.3,
   },
   // ---- both sides ----
   stinger: {

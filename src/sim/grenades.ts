@@ -20,6 +20,8 @@ export const FUSE = 1.6;
 export const PIN_TIME = 0.3;
 /** From release until the hand is back and the next grenade or gun comes up. */
 export const THROW_TIME = 0.45;
+/** From the start of a throw to the grenade leaving the hand. */
+export const NADE_LEAVE = 0.07;
 
 /** Smoke: grows for SMOKE_GROW, stands, and thins away over its last SMOKE_FADE seconds. */
 export const SMOKE_LIFE = 18;

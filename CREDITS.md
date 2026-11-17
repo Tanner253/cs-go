@@ -59,6 +59,9 @@ Every gun and the arms are repainted in game (`src/client/finish.ts`, `skins.ts`
 
 ## Grenades and explosions
 
+- This work is based on "Arms throwing" (https://sketchfab.com/3d-models/arms-throwing-1f9a5c717aae4d0f9b77232b7da4b875) by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+  Files: `public/assets/weapons/throw_fp.glb`. Changes made: converted from its FBX to glTF (`tools/convert-fbx.mjs`), its own textures left out (the arms wear those of the same maker's sniper pack, re-graded); a grenade is put in the right hand, the throw is held at the top of its back-swing while the pin is out, and the grenade leaves the hand where the hand moves fastest.
+
 - This work is based on "Frag Granade" (https://sketchfab.com/3d-models/frag-granade-e715224c90e34b949939adaca382cd0e) by MB_Cre8 (https://sketchfab.com/MB_Cre81) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/frag_grenade.glb`, `frag_grenade_lod1.glb`. Changes made (by the ZONA project): scaled to life size, stood on the ground about its own middle, textures re-encoded as WebP, geometry compressed. In the game its pin and ring are drawn out by the left hand and its lever flies off as it is thrown.
 - "Smoke grenade", made for ZONA with Higgsfield (Tripo text-to-3D) on the owner's account. Used for the smoke, the flashbang and the incendiary, each in its own colour.

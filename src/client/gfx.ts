@@ -257,7 +257,7 @@ export function createGfx(
   camera.far = 900;
   camera.updateProjectionMatrix();
   vmScene.environment = scene.environment;
-  vmScene.environmentIntensity = 0.75;
+  vmScene.environmentIntensity = 0.4;
 
   const tri = new THREE.Mesh(new THREE.BufferGeometry(), undefined);
   tri.geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));

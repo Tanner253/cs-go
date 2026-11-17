@@ -218,6 +218,14 @@ export const PACKS: Record<string, PackInfo> = {
     hold: [0, -0.16, -0.34],
     armsFrom: 'sniper',
   },
+  // A throw (DJMaesen's "Arms throwing"): the grenades' arms, in the gloves and sleeves of the sniper pack.
+  throw: {
+    file: 'throw_fp.glb', fps: 60,
+    clips: { throw: [0, 40] },
+    view: [-0.01, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, -0.01, 0, 0, 0, 0, 1],
+    hold: [0.02, -0.07, -0.52],
+    armsFrom: 'sniper',
+  },
   sniper: {
     file: 'sniper_fp.glb', fps: 30,
     clips: { fire: [0, 10], bolt: [10, 48], reload: [49, 97], inspect: [98, 147], idle: [148, 180], melee: [180, 200] },
@@ -331,11 +339,11 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   },
   longsight: { pack: 'sniper', world: 'sniper', rack: true },
   // ---- grenades: held in our own arms (the submachine-gun pack's), thrown by nade-view.ts ----
-  frag: { pack: 'smg', world: 'frag', mount: { file: 'frag_grenade.glb', ride: {} } },
-  flash: { pack: 'smg', world: 'flash', mount: { file: 'smoke_grenade.glb', ride: {} } },
-  smoke: { pack: 'smg', world: 'smoke', mount: { file: 'smoke_grenade.glb', ride: {} } },
-  molotov: { pack: 'smg', world: 'molotov', mount: { file: 'alcohol_bottle.glb', ride: {} } },
-  incendiary: { pack: 'smg', world: 'incendiary', mount: { file: 'smoke_grenade.glb', ride: {} } },
+  frag: { pack: 'throw', world: 'frag', mount: { file: 'frag_grenade.glb', ride: {} } },
+  flash: { pack: 'throw', world: 'flash', mount: { file: 'smoke_grenade.glb', ride: {} } },
+  smoke: { pack: 'throw', world: 'smoke', mount: { file: 'smoke_grenade.glb', ride: {} } },
+  molotov: { pack: 'throw', world: 'molotov', mount: { file: 'alcohol_bottle.glb', ride: {} } },
+  incendiary: { pack: 'throw', world: 'incendiary', mount: { file: 'smoke_grenade.glb', ride: {} } },
 };
 
 /**

@@ -580,6 +580,14 @@ interface PointLight {
 
 const LIGHT_RANGE = 9;
 
+/** The light reaching a point: sun (0..1 unshadowed), open sky above (0..1), and the coloured spill of the light strips with the way it mostly comes from. */
+export interface LightSample {
+  sun: number; sky: number;
+  r: number; g: number; b: number;
+  dx: number; dy: number; dz: number;
+}
+export type LightProbe = (x: number, y: number, z: number, out: LightSample) => LightSample;
+
 /** Cosine-ish hemisphere sample set around +Z (weights sum to 1). */
 const HEMI: number[] = (() => {
   const out: number[] = [];
@@ -1149,6 +1157,52 @@ export async function buildWorld(
       group.add(decalMesh(lp, luv, lix, lm));
     });
   }
+
+  // ---- the light at a point ----------------------------------------------------------------------
+  // What the bake knows, asked of a point in the air: used to light what is not baked, the
+  // weapon in the player's hands, by the place they stand in.
+  // (rays stop just under the unseen lid over the whole arena, which only keeps players in)
+  let lid = Infinity;
+  for (const b of map.boxes) if (b.hidden && b.maxX - b.minX > 30 && b.maxZ - b.minZ > 30) lid = Math.min(lid, b.minY);
+  const lightAt: LightProbe = (px, py, pz, out) => {
+    const up = Math.max(0.5, Math.min(140, lid - 0.05 - py));
+    let open = 0;
+    const ts = up / sun.y;
+    for (let k = 0; k < 3; k++) {
+      const o = (k - 1) * 0.18;
+      if (!occ.blocked(px + o, py, pz - o, px + o + sun.x * ts, py + sun.y * ts, pz - o + sun.z * ts)) open += 1 / 3;
+    }
+    let sky = 0;
+    for (let k = 0; k < 4; k++) {
+      const jx = k & 1 ? 0.38 : -0.38, jz = k & 2 ? 0.38 : -0.38;
+      if (!occ.blocked(px, py, pz, px + jx * up, py + up, pz + jz * up)) sky += 0.25;
+    }
+    let lr = 0, lg = 0, lb = 0, dx = 0, dy = 0, dz = 0;
+    const cx = Math.floor((px - wmin[0]) / LC), cz = Math.floor((pz - wmin[2]) / LC);
+    for (let gz = cz - 1; gz <= cz + 1; gz++) {
+      if (gz < 0 || gz >= lgh) continue;
+      for (let gx = cx - 1; gx <= cx + 1; gx++) {
+        if (gx < 0 || gx >= lgw) continue;
+        for (const li of lightCells[gz * lgw + gx]!) {
+          const L = lights[li]!;
+          const ex = L.x - px, ey = L.y - py, ez = L.z - pz;
+          const d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 > LIGHT_RANGE * LIGHT_RANGE) continue;
+          const win = 1 - d2 / (LIGHT_RANGE * LIGHT_RANGE);
+          const e = (win * win) / (d2 + 0.7);
+          if (e < 0.002 || occ.blocked(px, py, pz, L.x, L.y, L.z)) continue;
+          lr += L.r * e; lg += L.g * e; lb += L.b * e;
+          const w = (L.r + L.g + L.b) * e / Math.sqrt(d2 + 1e-6);
+          dx += ex * w; dy += ey * w; dz += ez * w;
+        }
+      }
+    }
+    const dl = Math.hypot(dx, dy, dz) || 1;
+    out.sun = open; out.sky = sky; out.r = lr; out.g = lg; out.b = lb;
+    out.dx = dx / dl; out.dy = dy / dl; out.dz = dz / dl;
+    return out;
+  };
+  group.userData['lightAt'] = lightAt;
 
   // ---- quality switching -----------------------------------------------------------------------
   group.userData['onQuality'] = (q: Quality): void => {

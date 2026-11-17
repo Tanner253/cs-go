@@ -29,6 +29,8 @@ export interface Finish {
   roughMin: number;
   roughMax: number;
   env: number;
+  /** A tint that can change while worn (kept by reference, in place of `tint`). */
+  tintLive?: THREE.Vector3;
 }
 
 export type Pattern = 'hex' | 'digital' | 'tiger' | 'circuit' | 'carbon' | 'chevron';
@@ -49,9 +51,17 @@ export interface Skin {
   glow: number;
   glow2?: number;
   glowStrength: number;
+  /** The paint (a gun coating is not metal: kept low unless the design is a polished one). */
   metal?: number;
   rough?: number;
+  /** How worn the paint is, 0 new .. 1 battle-scarred (default WEAR). */
+  wear?: number;
 }
+
+/** Paint that says nothing of itself: a matt coating, worn through on the edges. */
+const PAINT_METAL = 0.18;
+const PAINT_ROUGH = 0.62;
+const WEAR = 0.7;
 
 /** Which part of the gun a mesh is: it decides how the skin treats it. */
 export type Role = 'body' | 'moving' | 'cell';
@@ -91,13 +101,19 @@ export function gunFinish(team: number): Finish {
   };
 }
 /**
- * Sleeves and gloves, identical whichever weapon is held. (No contrast: the arm models'
- * own textures differ, so none of their light and dark is kept; the suit's weave is painted
- * on as a skin and the folds come from the models' relief.)
+ * Sleeves and gloves, the same whichever weapon is held: each pack's own cloth and leather
+ * (its weave, seams, folds and wear, and its relief) brought to one dark level and dyed in the
+ * player's side's colour (`tint`, which follows the side). Most of the light and dark of the
+ * texture is kept, so the cloth reads as cloth; a pack's camouflage is kept only faintly.
  */
-export const ARMS_FINISH: Finish = {
-  sat: 0, tint: [0.74, 0.8, 0.92], level: 0.018, contrast: 0, rim: SHEEN, rimStrength: 0.03, metal: 0, roughMin: 0.7, roughMax: 1, env: 0.5,
-};
+export function armsFinish(tint: THREE.Vector3): Finish {
+  return {
+    sat: 0.1, tint: [1, 1, 1], tintLive: tint, level: 0.012, contrast: 0.8,
+    rim: SHEEN, rimStrength: 0.012, metal: 0, roughMin: 0.72, roughMax: 1, env: 0.35,
+  };
+}
+/** The dye of each side's sleeves and gloves (multiplies a neutral grade): attackers a warm olive-brown, defenders a slate navy. */
+export const ARMS_TINT: [number, number, number][] = [[1.0, 0.76, 0.5], [0.5, 0.68, 1.0]];
 /** Bright worn steel for the blade. */
 export const BLADE_FINISH: Finish = {
   sat: 0.1, tint: [0.9, 0.95, 1.0], level: 0.16, contrast: 0.8, rim: SHEEN, rimStrength: 0.05, metal: 0.55, roughMin: 0.3, roughMax: 0.5, env: 1.4,
@@ -264,8 +280,10 @@ uniform vec3 npGlowB;
 uniform vec4 npSpan;   // x: breech, y: muzzle, z: magazine bottom, w: magazine top
 uniform vec3 npLive;   // x: time, y: heat, z: rounds left (0..1)
 uniform float npRole;  // 0 body, 1 moving part, 2 magazine
+uniform float npWearAmt;
 varying vec3 vNpPos;
 vec3 npEmit;
+float npRelG;
 
 float npHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float npHexDist(vec2 p) { p = abs(p); return max(dot(p, vec2(0.5, 0.8660254)), p.x); }
@@ -329,6 +347,7 @@ const GRADE_GLSL = /* glsl */ `
   // as light and dark, but no texture ends up much brighter or darker than another.
   float npRel = min(pow(npL / npGrade.x, npGrade.z), 2.2);
   #ifdef NP_SKIN
+    npRelG = npRel;
     float npAlong = clamp((vNpPos.x - npSpan.x) / max(npSpan.y - npSpan.x, 0.01), 0.0, 1.0);
     vec3 npGlow = mix(npGlowA, npGlowB, npAlong);
     // A bright band runs down the gun; firing heats every line and the muzzle end most.
@@ -351,7 +370,7 @@ const GRADE_GLSL = /* glsl */ `
       npEmit = npGlow * (npPE.y * npPulse * (npRole > 0.5 ? 0.5 : 1.0) + npTip * 0.45);
     }
     // (the model's own wear and panel lines show through the paint as light and dark)
-    diffuseColor.rgb = npCol * (0.5 + 0.5 * clamp(npRel, 0.3, 1.5));
+    diffuseColor.rgb = npCol * clamp(npRel, 0.35, 1.6);
   #else
     diffuseColor.rgb = mix(vec3(npL), diffuseColor.rgb, npSat) * (npGrade.y * npRel / npL) * npTint;
   #endif
@@ -361,7 +380,20 @@ const RIM_GLSL = /* glsl */ `
 { float npF = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 4.0);
   totalEmissiveRadiance += npRim * npF;
   #ifdef NP_SKIN
-    totalEmissiveRadiance += npEmit;
+    // Wear: the paint is rubbed through to the steel on the model's edges (where its normal map
+    // bends hardest, which is where the maker bevelled it) and where its own texture shows
+    // bright wear; little on a magazine, which is swapped out. Worn spots carry no lit line.
+    #ifdef USE_NORMALMAP_TANGENTSPACE
+      float npEdge = smoothstep(0.24, 0.6, length(mapN.xy));
+    #else
+      float npEdge = 0.0;
+    #endif
+    float npWorn = max(npEdge, smoothstep(1.3, 1.95, npRelG));
+    npWorn = smoothstep(0.35, 0.85, npWorn * npWearAmt * 1.6) * (npRole > 1.5 ? 0.35 : 1.0);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.44, 0.47) * clamp(npRelG, 0.6, 1.3), npWorn);
+    metalnessFactor = mix(metalnessFactor, 1.0, npWorn);
+    roughnessFactor = mix(roughnessFactor, 0.3, npWorn);
+    totalEmissiveRadiance += npEmit * (1.0 - npWorn);
   #endif
 }`;
 
@@ -384,8 +416,8 @@ export function applyFinish(src: THREE.Material, f: Finish, meshes: readonly THR
   const own = Math.max(0.004, 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b);
   const base = Math.max(0.002, m.map ? usedLuminance(m.map, meshes) * own : own);
   const skin = wear?.skin;
-  m.metalness = Math.min(m.metalness, skin?.metal ?? f.metal);
-  m.roughness = skin?.rough ?? Math.min(f.roughMax, Math.max(m.roughness, f.roughMin));
+  m.metalness = skin ? skin.metal ?? PAINT_METAL : Math.min(m.metalness, f.metal);
+  m.roughness = skin ? skin.rough ?? PAINT_ROUGH : Math.min(f.roughMax, Math.max(m.roughness, f.roughMin));
   m.envMapIntensity = f.env;
   if (m.emissiveMap) m.emissiveIntensity = 0.2;
   if (m.transparent) {
@@ -393,7 +425,7 @@ export function applyFinish(src: THREE.Material, f: Finish, meshes: readonly THR
     m.alphaTest = Math.max(m.alphaTest, 0.02);
   }
   const rim = new THREE.Color(f.rim).multiplyScalar(f.rimStrength);
-  const tint = new THREE.Vector3(f.tint[0], f.tint[1], f.tint[2]);
+  const tint = f.tintLive ?? new THREE.Vector3(f.tint[0], f.tint[1], f.tint[2]);
   // (kept by reference: the live values are refreshed just before each draw)
   const live = new THREE.Vector3();
   if (wear) {
@@ -418,6 +450,7 @@ export function applyFinish(src: THREE.Material, f: Finish, meshes: readonly THR
       shader.uniforms['npSpan'] = { value: new THREE.Vector4(wear.length.x, wear.length.y, wear.cell.x, wear.cell.y) };
       shader.uniforms['npLive'] = { value: live };
       shader.uniforms['npRole'] = { value: ROLE_ID[wear.role] };
+      shader.uniforms['npWearAmt'] = { value: skin.wear ?? WEAR };
       head = '#define NP_SKIN\n' + head + SKIN_GLSL;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nattribute vec3 npPos;\nvarying vec3 vNpPos;')

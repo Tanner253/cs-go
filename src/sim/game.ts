@@ -11,7 +11,7 @@ import {
   type WeaponDef,
 } from './weapons';
 import {
-  FIRE_FUSE, FIRE_GROW, FIRE_LIFE, FIRE_R, FUSE, PIN_TIME, SMOKE_LIFE, SMOKE_RH, THROW_TIME, flyNade, inSmoke, throwFrom,
+  FIRE_FUSE, FIRE_GROW, FIRE_LIFE, FIRE_R, FUSE, NADE_LEAVE, PIN_TIME, SMOKE_LIFE, SMOKE_RH, THROW_TIME, flyNade, inSmoke, throwFrom,
 } from './grenades';
 import { Bot, assignRoles } from './bot';
 import {
@@ -129,6 +129,8 @@ export class Sim {
   /** Grenades thrown this round that are still flying, lying, smoking or burning. */
   grenades: Grenade[] = [];
   private nadeId = 0;
+  /** Thrown, but not yet out of the hand (server only): player id to the kind thrown. */
+  private leaving = new Map<number, number>();
   /** Events produced since the consumer last cleared them. */
   events: SimEvent[] = [];
 
@@ -258,6 +260,7 @@ export class Sim {
     this.planted = false;
     this.intel[0].site = this.intel[1].site = -1;
     this.grenades.length = 0;
+    this.leaving.clear();
 
     const used: [number, number] = [0, 0];
     const offset = this.rng.int(7);
@@ -617,6 +620,7 @@ export class Sim {
   private updateNade(p: Player, w: WeaponState, cmd: Cmd, pressed: number, canAct: boolean): void {
     const now = this.time;
     if (p.throwAt >= 0) {
+      this.launchNade(p);
       if (now < p.throwAt + THROW_TIME) return;
       p.throwAt = -1;
       const same = p.nades[p.nadeSel]! > 0;
@@ -657,6 +661,14 @@ export class Sim {
     p.throwAt = this.time;
     this.events.push({ type: 'throw', player: p.id, weapon: w.def.id, strength: p.throwStr });
     if (this.predicting) return;
+    this.leaving.set(p.id, i);
+  }
+
+  /** The grenade leaves the hand NADE_LEAVE after the throw begins, as the arm comes over (and as the hand is drawn letting go). */
+  private launchNade(p: Player): void {
+    const i = this.leaving.get(p.id);
+    if (i === undefined || this.time < p.throwAt + NADE_LEAVE) return;
+    this.leaving.delete(p.id);
     const g = this.spawnNade(p, i);
     throwFrom(p, this.eyeY(p), p.throwStr, this.world, g.pos, g.vel);
   }
@@ -1082,6 +1094,14 @@ export class Sim {
       const i = NADE_INDEX.get(v.weapons[3].def.id)!;
       v.nades[i] = Math.max(0, v.nades[i]! - 1);
       const g = this.spawnNade(v, i);
+      g.pos.x = v.pos.x; g.pos.y = v.pos.y + 1.2; g.pos.z = v.pos.z;
+      g.vel.x = v.vel.x * 0.5; g.vel.y = 1; g.vel.z = v.vel.z * 0.5;
+    }
+    // (or, killed in the middle of a throw, it falls from the hand)
+    const leaving = this.leaving.get(v.id);
+    if (leaving !== undefined && !this.predicting) {
+      this.leaving.delete(v.id);
+      const g = this.spawnNade(v, leaving);
       g.pos.x = v.pos.x; g.pos.y = v.pos.y + 1.2; g.pos.z = v.pos.z;
       g.vel.x = v.vel.x * 0.5; g.vel.y = 1; g.vel.z = v.vel.z * 0.5;
     }

@@ -70,6 +70,11 @@ export const CREDITS: Credit[] = [
   { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Attacker sniper (Colossus). Set in rigid pieces, held in the .50 sniper pack.' },
   { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun (cut down to a sawn-off) and its own animations (draw, fire, reload), worn by the arms of the SMG pack.' },
   {
+    title: 'Arms throwing', author: 'DJMaesen', license: 'CC BY 4.0',
+    url: 'https://sketchfab.com/3d-models/arms-throwing-1f9a5c717aae4d0f9b77232b7da4b875',
+    note: 'The first-person throw of every grenade: its arms and animation, in the gloves and sleeves of the sniper pack. Converted to glTF.',
+  },
+  {
     title: 'Frag Granade', author: 'MB_Cre8', license: 'CC BY 4.0',
     url: 'https://sketchfab.com/3d-models/frag-granade-e715224c90e34b949939adaca382cd0e',
     note: 'The HE grenade. Its pin and ring are drawn out by the left hand and its lever flies off as it is thrown.',
