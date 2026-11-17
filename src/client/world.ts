@@ -166,13 +166,13 @@ function layers(w: number, h: number, base: string, height: number, rough: numbe
   return [{ a, h: hg, r }, ac, hc, rc];
 }
 
-/** Wall trim sheet: 2.2 m wide, 4.4 m tall. Kick plate, panel courses, accent line, top band. */
+/** Wall trim sheet: 2.2 m wide, 5.5 m tall (the height of the buildings). Kick plate, panel courses, accent line, top band. */
 function wallSheet(aniso: number): TexSet {
-  const W = 512, H = 1024;
+  const W = 512, H = 1280;
   const [L, ac, hc, rc] = layers(W, H, '#c4c8cc', 128, 150);
   const rnd = lcg(11);
-  // Panel courses (four 1.1 m rows), staggered vertical seams.
-  for (let row = 0; row < 4; row++) {
+  // Panel courses (five 1.1 m rows), staggered vertical seams.
+  for (let row = 0; row < 5; row++) {
     const y = row * 256;
     for (let col = 0; col < 2; col++) {
       const x = col * 256 + (row % 2 ? 128 : 0);
@@ -192,7 +192,7 @@ function wallSheet(aniso: number): TexSet {
     // Horizontal seam.
     rect3(L, 0, y, W, 3, '#5d636b', 70, 215);
   }
-  for (let row = 0; row < 4; row++) {
+  for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 2; col++) {
       const x = (col * 256 + (row % 2 ? 128 : 0)) % W;
       rect3(L, x, row * 256, 3, 256, '#5d636b', 70, 215);
@@ -811,8 +811,8 @@ export async function buildWorld(
   const builders: Builder[] = [];
   for (let i = 0; i < Surf.COUNT; i++) builders.push(new Builder());
   const tile: UvFn = (x, y, z, o) => { o[0] = x * 0.5; o[1] = z * 0.5; };
-  const sheetX: UvFn = (_x, y, z, o) => { o[0] = z / 2.2; o[1] = y / 4.4; };
-  const sheetZ: UvFn = (x, y, _z, o) => { o[0] = x / 2.2; o[1] = y / 4.4; };
+  const sheetX: UvFn = (_x, y, z, o) => { o[0] = z / 2.2; o[1] = y / 5.5; };
+  const sheetZ: UvFn = (x, y, _z, o) => { o[0] = x / 2.2; o[1] = y / 5.5; };
   const tileX: UvFn = (_x, y, z, o) => { o[0] = z * 0.5; o[1] = y * 0.5; };
   const tileZ: UvFn = (x, y, _z, o) => { o[0] = x * 0.5; o[1] = y * 0.5; };
 

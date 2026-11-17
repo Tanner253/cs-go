@@ -105,6 +105,7 @@ export class GameApp {
     this.input.onToggleBuy = () => this.toggleBuy();
     this.input.onScoreboard = (show) => { if (this.mode !== 'menu') this.hud.setBoardOpen(show); };
     this.input.onInspect = () => { if (this.mode !== 'menu') this.vm.onInspect(); };
+    this.vm.onFoley = (sound, def) => this.audio.foley(sound, def.kind);
     this.input.onEscape = () => {
       if (this.mode === 'menu') return;
       if (this.hud.buyOpen) this.toggleBuy();
@@ -430,9 +431,13 @@ export class GameApp {
           if (p === view) this.landVel -= Math.min(2.2, e.speed * 0.16);
           break;
         }
-        case 'reload':
-          if (sim.players[e.player] === view) this.audio.reload(WEAPONS[e.weapon]!.kind, WEAPONS[e.weapon]!.reloadTime, e.weapon);
+        case 'reload': {
+          // (your own reload is heard moment by moment, from the viewmodel: see `onFoley`)
+          const p = sim.players[e.player]!;
+          const w = WEAPONS[e.weapon]!;
+          if (p !== view) this.audio.reloadHeard(p.pos.x, p.pos.y + 1.2, p.pos.z, w.kind, w.reloadTime);
           break;
+        }
         case 'dry':
           if (sim.players[e.player] === view) this.audio.dry();
           break;

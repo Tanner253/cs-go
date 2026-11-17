@@ -142,6 +142,28 @@ describe('movement', () => {
 });
 
 describe('map', () => {
+  it('has headroom for a jump everywhere: nothing overhead is within reach of a jumping player', () => {
+    const { sim, me, step } = soloSim();
+    // How high a standing jump takes the top of the head.
+    me.pos.x = 0; me.pos.z = 30; me.pos.y = 0.002;
+    step({}, 8);
+    let top = 0;
+    step({ buttons: BTN_JUMP });
+    for (let i = 0; i < 80; i++) { step({}); top = Math.max(top, me.pos.y + 1.83); }
+    expect(top).toBeGreaterThan(3.1);
+    for (const b of sim.map.boxes) {
+      if (b.noCollide || b.minY < 1) continue;
+      expect(b.minY, `box under ${b.minY} m at ${b.minX},${b.minZ}`).toBeGreaterThan(top + 0.5);
+    }
+    // And under the lowest roof, a jump comes down without having touched it.
+    me.pos.x = 11; me.pos.z = 8; me.pos.y = 0.002;
+    step({}, 8);
+    step({ buttons: BTN_JUMP });
+    let peak = 0;
+    for (let i = 0; i < 80; i++) { step({}); peak = Math.max(peak, me.pos.y); }
+    expect(peak).toBeCloseTo(top - 1.83, 1);
+  });
+
   it('neither spawn can see the other', () => {
     const sim = new Sim({ humanTeam: null });
     const [atk, def] = sim.map.spawns;

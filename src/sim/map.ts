@@ -74,9 +74,16 @@ export function buildMap(): MapDef {
   /** Non-colliding emissive strip. */
   const glow = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, mat: Mat) => box(x1, y1, z1, x2, y2, z2, mat, true);
 
-  const WALL_H = 8;
-  const BLOCK_H = 4.4;
-  const TALL_H = 6.5;
+  // A standing player is 1.83 m tall and jumps 1.45 m: nothing overhead is lower than CLEAR, so
+  // a jump never ends against a ceiling, and no wall that is meant to block a view can be
+  // seen over from the top of one (the eye reaches 3.1 m).
+  // (Wall heights are whole courses of the 1.1 m wall panels.)
+  const WALL_H = 11;
+  const BLOCK_H = 5.5;
+  const TALL_H = 7.7;
+  const CLEAR = 4.0;
+  /** Free-standing walls with a way through them. */
+  const DOOR_H = 5.0;
 
   // ---- ground and perimeter -------------------------------------------------
   box(-33, -1, -37, 33, 0, 37, Mat.Floor);
@@ -99,33 +106,33 @@ export function buildMap(): MapDef {
   // ---- east building (between mid and A-long), with a covered connector -----
   solid(5, -8, 18, 6, BLOCK_H, Mat.Block);
   solid(5, 10, 18, 22, BLOCK_H, Mat.Block);
-  box(5, 3.1, 6, 18, BLOCK_H, 10, Mat.Roof); // connector roof
+  box(5, CLEAR, 6, 18, BLOCK_H, 10, Mat.Roof); // connector roof
 
   // ---- west building (between mid and B tunnels), connector further south ---
   solid(-18, -8, -5, 10, BLOCK_H, Mat.Block);
   solid(-18, 14, -5, 22, BLOCK_H, Mat.Block);
-  box(-18, 3.1, 10, -5, BLOCK_H, 14, Mat.Roof);
+  box(-18, CLEAR, 10, -5, BLOCK_H, 14, Mat.Roof);
 
   // ---- walls between mid and the sites, with one opening each ("short") -----
   solid(5, -24, 14, -18, BLOCK_H, Mat.Block);
   solid(5, -14, 14, -8, BLOCK_H, Mat.Block);
-  box(5, 3.1, -18, 14, BLOCK_H, -14, Mat.Roof);
+  box(5, CLEAR, -18, 14, BLOCK_H, -14, Mat.Roof);
   solid(-14, -24, -5, -15, BLOCK_H, Mat.Block);
   solid(-14, -11, -5, -8, BLOCK_H, Mat.Block);
-  box(-14, 3.1, -15, -5, BLOCK_H, -11, Mat.Roof);
+  box(-14, CLEAR, -15, -5, BLOCK_H, -11, Mat.Roof);
 
   // ---- mid doors (north end of mid) -----------------------------------------
-  solid(-5, -25, -1.6, -24, 4.2);
-  solid(1.6, -25, 5, -24, 4.2);
-  box(-1.6, 3, -25, 1.6, 4.2, -24, Mat.Wall);
+  solid(-5, -25, -1.6, -24, DOOR_H);
+  solid(1.6, -25, 5, -24, DOOR_H);
+  box(-1.6, CLEAR, -25, 1.6, DOOR_H, -24, Mat.Wall);
 
   // ---- site entry walls ------------------------------------------------------
   // A-long opens on the east side of the lane; B tunnels open on the inner side.
-  solid(18, -9, 25, -8, 4.2);
-  solid(-30, -9, -23, -8, 4.2);
+  solid(18, -9, 25, -8, DOOR_H);
+  solid(-30, -9, -23, -8, DOOR_H);
 
   // ---- B tunnels roof (a darker, enclosed stretch of the west lane) ---------
-  box(-30, 3.4, 0, -18, 3.9, 14, Mat.Roof);
+  box(-30, CLEAR + 0.2, 0, -18, CLEAR + 0.7, 14, Mat.Roof);
 
   // ---- raised decks with steps (exercise step-up; give sites some height) ---
   // Site A back deck.
@@ -140,9 +147,9 @@ export function buildMap(): MapDef {
   // ---- mid: break the long sightlines ------------------------------------------
   // A solid core splits mid into two lanes; a baffle in front of the doors and a
   // shield wall at the attackers' end mean neither spawn can see the other.
-  solid(-2.2, 7, 2.2, 11, 3.4, Mat.Block);
-  solid(-2.4, -21, 2.4, -20.2, 3.0);
-  solid(-3, 23.4, 3, 24.2, 2.6);
+  solid(-2.2, 7, 2.2, 11, 4.4, Mat.Block);
+  solid(-2.4, -21, 2.4, -20.2, 3.6);
+  solid(-3, 23.4, 3, 24.2, 3.4);
   // Head-height cover on the open lanes.
   crate(27.2, 8.4, 2.4, 2.0, 2.2, Mat.Deck);
   crate(-21, 20, 2.4, 2.0, 2.2, Mat.Deck);
@@ -210,11 +217,11 @@ export function buildMap(): MapDef {
   glow(-12, 2.6, 35.9, 12, 2.8, 36, Mat.GlowNeutral);
   glow(-10, 2.6, -36, 10, 2.8, -35.9, Mat.GlowNeutral);
   // Ceiling strips inside the roofed sections.
-  glow(8, 3.05, 7.9, 15, 3.1, 8.1, Mat.GlowNeutral);
-  glow(-15, 3.05, 11.9, -8, 3.1, 12.1, Mat.GlowNeutral);
-  glow(-24.1, 3.35, 1, -23.9, 3.4, 13, Mat.GlowB);
-  glow(8, 3.05, -16.1, 12, 3.1, -15.9, Mat.GlowA);
-  glow(-12, 3.05, -13.1, -8, 3.1, -12.9, Mat.GlowB);
+  glow(8, CLEAR - 0.05, 7.9, 15, CLEAR, 8.1, Mat.GlowNeutral);
+  glow(-15, CLEAR - 0.05, 11.9, -8, CLEAR, 12.1, Mat.GlowNeutral);
+  glow(-24.1, CLEAR + 0.15, 1, -23.9, CLEAR + 0.2, 13, Mat.GlowB);
+  glow(8, CLEAR - 0.05, -16.1, 12, CLEAR, -15.9, Mat.GlowA);
+  glow(-12, CLEAR - 0.05, -13.1, -8, CLEAR, -12.9, Mat.GlowB);
 
   const siteA: SiteDef = {
     name: 'A',

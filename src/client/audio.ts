@@ -10,6 +10,7 @@
 // (see CREDITS.md).
 
 import type { WeaponKind } from '../sim/weapons';
+import type { Foley } from './moves';
 
 interface Listener {
   x: number;
@@ -32,37 +33,48 @@ interface Cue {
   wet?: number;
 }
 
-const takes = (name: string, n: number): string[] => Array.from({ length: n }, (_, i) => (i ? `${name}_${i + 1}` : name));
 const numbered = (name: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${name}_${i + 1}`);
 /** Recordings that ship as MP3 rather than WAV. */
-const isMp3 = (file: string): boolean => /^(reload_|knife_|cloth_)/.test(file);
+const isMp3 = (file: string): boolean => /^(knife_|cloth_)/.test(file);
 
 const SHOT = { ref: 20, wet: 0.18, jitter: 0.02 };
 const QUIET = { ref: 8, wet: 0.1, jitter: 0.02 };
+/** The sounds of handling a gun: close, dry, each a little different every time. */
+const HANDLE = { ref: 2.5, wet: 0.04, jitter: 0.04 };
 
 export const CUES: Record<string, Cue> = {
-  // ---- gunshots: one recording set per weapon ----
-  'shot.kite': { files: takes('shot_pistol9', 2), level: -17.5, ...SHOT },
-  'shot.tern': { files: takes('shot_pistol45', 2), level: -17, ...SHOT },
-  'shot.maul': { files: takes('shot_heavy', 3), level: -15.5, rate: 0.88, ...SHOT },
-  'shot.wasp': { files: takes('shot_smg_a', 3), level: -17.5, ...SHOT },
-  'shot.hornet': { files: takes('shot_smg_b', 3), level: -17.5, ...SHOT },
-  'shot.hammerhead': { files: takes('shot_ak', 3), level: -16, ...SHOT },
-  'shot.lumen': { files: takes('shot_ar', 2), level: -16.5, ...SHOT },
-  'shot.breaker': { files: takes('shot_shotgun', 2), level: -14.5, ...SHOT },
-  'shot.longsight': { files: takes('shot_bolt', 2), level: -14, rate: 0.94, ...SHOT, wet: 0.28 },
-  'shot.stinger': { files: takes('shot_pistol380', 2), level: -18, rate: 1.06, ...SHOT },
-  'shot.mako': { files: takes('shot_carbine', 2), level: -16, ...SHOT },
-  'shot.osprey': { files: takes('shot_carbine', 2), level: -16.5, rate: 0.92, ...SHOT },
-  'shot.thresher': { files: takes('shot_shotgun_b', 2), level: -14, rate: 0.92, ...SHOT },
-  'shot.colossus': { files: takes('shot_magnum', 2), level: -13, rate: 0.86, ...SHOT, wet: 0.3 },
-  // ---- suppressed: one recording, pitched to the gun; it carries less than half as far ----
-  'shot.osprey.quiet': { files: takes('shot_blackout', 2), level: -19, rate: 0.96, ...QUIET },
-  'shot.lumen.quiet': { files: takes('shot_blackout', 2), level: -19, rate: 1.06, ...QUIET },
-  'shot.hornet.quiet': { files: takes('shot_blackout', 2), level: -20, rate: 1.2, ...QUIET },
-  // ---- weapon handling ----
-  'reload.pistol': { files: ['reload_pistol'], level: -30, ref: 2, wet: 0.04 },
-  'reload.rifle': { files: ['reload_rifle'], level: -29, ref: 2, wet: 0.04 },
+  // ---- gunshots: three designed takes per weapon (tools/build-sounds.mjs) ----
+  'shot.kite': { files: numbered('shot_kite', 3), level: -17, ...SHOT },
+  'shot.tern': { files: numbered('shot_tern', 3), level: -16.5, ...SHOT },
+  'shot.maul': { files: numbered('shot_maul', 3), level: -14.5, ...SHOT, wet: 0.24 },
+  'shot.stinger': { files: numbered('shot_stinger', 3), level: -17.5, ...SHOT },
+  'shot.wasp': { files: numbered('shot_wasp', 3), level: -17, ...SHOT },
+  'shot.hornet': { files: numbered('shot_hornet', 3), level: -17, ...SHOT },
+  'shot.hammerhead': { files: numbered('shot_hammerhead', 3), level: -15, ...SHOT },
+  'shot.mako': { files: numbered('shot_mako', 3), level: -15.5, ...SHOT },
+  'shot.lumen': { files: numbered('shot_lumen', 3), level: -15.5, ...SHOT },
+  'shot.osprey': { files: numbered('shot_osprey', 3), level: -15.5, ...SHOT },
+  'shot.breaker': { files: numbered('shot_breaker', 3), level: -13.5, ...SHOT, wet: 0.24 },
+  'shot.thresher': { files: numbered('shot_thresher', 3), level: -13, ...SHOT, wet: 0.26 },
+  'shot.longsight': { files: numbered('shot_longsight', 3), level: -13, ...SHOT, wet: 0.3 },
+  'shot.colossus': { files: numbered('shot_colossus', 3), level: -12.5, ...SHOT, wet: 0.32 },
+  // ---- suppressed: it carries less than half as far ----
+  'shot.osprey.quiet': { files: numbered('shot_osprey_q', 2), level: -20, ...QUIET },
+  'shot.lumen.quiet': { files: numbered('shot_lumen_q', 2), level: -20, ...QUIET },
+  'shot.hornet.quiet': { files: numbered('shot_hornet_q', 2), level: -20.5, ...QUIET },
+  // ---- weapon handling: each moment of a reload is its own sound, played as the hands get there ----
+  'fol.magout.pistol': { files: numbered('fol_magout_pistol', 2), level: -27, ...HANDLE },
+  'fol.magin.pistol': { files: numbered('fol_magin_pistol', 2), level: -24.5, ...HANDLE },
+  'fol.magout.rifle': { files: numbered('fol_magout_rifle', 2), level: -26, ...HANDLE },
+  'fol.magin.rifle': { files: numbered('fol_magin_rifle', 2), level: -23.5, ...HANDLE },
+  'fol.boltback': { files: numbered('fol_boltback', 2), level: -25, ...HANDLE },
+  'fol.boltfwd': { files: numbered('fol_boltfwd', 2), level: -23, ...HANDLE },
+  'fol.tap': { files: numbered('fol_tap', 2), level: -26, ...HANDLE },
+  'fol.shell': { files: numbered('fol_shell', 2), level: -25, ...HANDLE },
+  'fol.open': { files: numbered('fol_open', 2), level: -24.5, ...HANDLE },
+  'fol.close': { files: numbered('fol_close', 2), level: -22.5, ...HANDLE },
+  'fol.pump': { files: numbered('fol_pump', 2), level: -23.5, ...HANDLE },
+  'fol.catch': { files: numbered('fol_catch', 2), level: -29, ...HANDLE },
   bolt: { files: numbered('click_plate', 2), level: -30, rate: 0.8, ref: 2, wet: 0.04, jitter: 0.04 },
   draw: { files: numbered('cloth', 2), level: -34, ref: 2, wet: 0.03, jitter: 0.06 },
   draw_metal: { files: numbered('click_metal', 3), level: -36, ref: 2, wet: 0.03, jitter: 0.08 },
@@ -72,10 +84,10 @@ export const CUES: Record<string, Cue> = {
   'knife.hit': { files: numbered('knife_flesh', 2), level: -24, ref: 4, wet: 0.05, jitter: 0.05 },
   'knife.draw': { files: ['knife_draw'], level: -32, ref: 2, wet: 0.03 },
   // ---- movement ----
-  step: { files: numbered('step', 5), level: -30, ref: 7, wet: 0.08, jitter: 0.07 },
+  step: { files: numbered('step', 5), level: -28, ref: 8, wet: 0.08, jitter: 0.07 },
   land: { files: numbered('land', 3), level: -27, ref: 7, wet: 0.08, jitter: 0.05 },
   // ---- combat feedback ----
-  impact: { files: numbered('impact', 4), level: -31, ref: 6, wet: 0.12, jitter: 0.15 },
+  impact: { files: numbered('impact', 5), level: -28, ref: 7, wet: 0.12, jitter: 0.12 },
   hit_body: { files: numbered('hit_body', 3), level: -29, rate: 1.25, ref: 1, wet: 0.02, jitter: 0.06 },
   hit_head: { files: numbered('hit_head', 2), level: -25, rate: 1.5, ref: 1, wet: 0.05 },
   hurt: { files: numbered('hurt', 2), level: -22, rate: 0.9, ref: 1, wet: 0.02, jitter: 0.05 },
@@ -92,12 +104,6 @@ export const CUES: Record<string, Cue> = {
   'ui.win': { files: ['ui_maximize_006'], level: -28, ref: 1, wet: 0.12 },
   'ui.lose': { files: ['ui_minimize_006'], level: -28, ref: 1, wet: 0.12 },
   'ui.scope': { files: ['ui_switch_002'], level: -36, ref: 1, wet: 0 },
-};
-
-/** Which reload recording each weapon uses. It is stretched to the weapon's reload time. */
-const RELOAD_CUE: Record<string, string> = {
-  kite: 'reload.pistol', tern: 'reload.pistol', maul: 'reload.pistol', wasp: 'reload.pistol', hornet: 'reload.pistol',
-  hammerhead: 'reload.rifle', lumen: 'reload.rifle', breaker: 'reload.rifle', longsight: 'reload.rifle',
 };
 
 interface Sample {
@@ -294,11 +300,29 @@ export class GameAudio {
     }
     const v = this.play(quiet && CUES[`shot.${id}.quiet`] ? `shot.${id}.quiet` : `shot.${id}`, x, y, z, x === null ? 1 : 1.15);
     if (v) this.lastShot.set(shooter, v);
-    // Your own bolt or pump being worked.
-    if (x === null && (kind === 'sniper' || kind === 'shotgun')) {
-      this.play('bolt', null, 0, 0, 1, 0.4);
-      this.play('bolt', null, 0, 0, 0.9, 0.62);
+  }
+
+  /**
+   * One moment of handling your own gun (a magazine seating, a bolt let go): played by the
+   * viewmodel as the hands reach it, so the sound and the picture cannot drift apart.
+   */
+  foley(sound: Foley, kind: WeaponKind): void {
+    if (sound === 'cloth') { this.play('draw', null, 0, 0, 0.8); return; }
+    const small = kind === 'pistol' || kind === 'smg';
+    const cue = sound === 'magout' || sound === 'magin' ? `fol.${sound}.${small ? 'pistol' : 'rifle'}` : `fol.${sound}`;
+    // (a pistol's slide is a lighter thing than a rifle's bolt)
+    this.play(cue, null, 0, 0, small && (sound === 'boltback' || sound === 'boltfwd') ? 0.8 : 1);
+  }
+
+  /** Someone else reloading nearby: the magazine out, and the new one in. */
+  reloadHeard(x: number, y: number, z: number, kind: WeaponKind, duration: number): void {
+    const small = kind === 'pistol' || kind === 'smg';
+    if (kind === 'shotgun') {
+      for (let i = 0; i < 3; i++) this.play('fol.shell', x, y, z, 1.6, duration * (0.15 + i * 0.2));
+      return;
     }
+    this.play(`fol.magout.${small ? 'pistol' : 'rifle'}`, x, y, z, 1.6, duration * 0.2);
+    this.play(`fol.magin.${small ? 'pistol' : 'rifle'}`, x, y, z, 1.6, duration * 0.45);
   }
 
   step(x: number | null, y = 0, z = 0): void {
@@ -311,12 +335,6 @@ export class GameAudio {
 
   /** Jumping makes no sound of its own; the landing does. */
   jump(_x: number | null, _y = 0, _z = 0): void {}
-
-  /** The reload recording for this weapon, stretched to its reload time. */
-  reload(_kind: WeaponKind, duration: number, id = ''): void {
-    const cue = RELOAD_CUE[id];
-    if (cue) this.play(cue, null, 0, 0, 1, duration * 0.08, duration * 0.84);
-  }
 
   draw(id = ''): void {
     if (id === 'edge') {

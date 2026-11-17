@@ -37,6 +37,9 @@ export interface PackInfo {
    * (the gun's own space: along the barrel, up, to the right; metres)
    */
   canGrip?: V3;
+  /** the same against the handle of an action it is working, and against a loading port it is feeding */
+  rackGrip?: V3;
+  loadGrip?: V3;
 }
 
 /** A separate gun model mounted on a pack's joints. */
@@ -98,6 +101,8 @@ export const PACKS: Record<string, PackInfo> = {
     view: [-0.01, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, -0.01, 0, 0, 0, 0, 1],
     hold: [0.14, -0.22, -0.36],
     canGrip: [-0.07, -0.045, -0.02],
+    rackGrip: [-0.05, -0.07, 0],
+    loadGrip: [-0.05, -0.07, 0],
     frame: [0, 0, -0.01, 0, 0, 0.01, 0, 0, 0.01, 0, 0, 0, -0.3425852, -0.0541586, -0.014514, 1],
     ownGun: ['base', 'scope', 'glass', 'boltrear', 'bolt', 'cheekrest', 'trigger', 'clip', 'bullet', 'silencer', 'mag'],
   },
@@ -111,8 +116,19 @@ export interface WeaponLook {
   hold?: V3;
   /** movements of the pack this weapon does not use */
   skip?: string[];
-  /** the reload ends by working the action: the magazine change is followed by the pack's bolt movement */
+  /**
+   * the reload ends by working the action: on the pack's own rifle with the pack's bolt movement,
+   * on a mounted one by the left hand (see `rack` in viewmodel.ts)
+   */
   rack?: boolean;
+  /**
+   * where the left hand works the action (the gun's own space), if not at the gun's own bolt,
+   * and how far it draws it back (metres; 0 = a release that is only tapped)
+   */
+  rackAt?: V3;
+  rackPull?: number;
+  /** where shells are pushed into a tube magazine (the gun's own space) */
+  loadAt?: V3;
   /**
    * where the left hand holds this gun, relative to where it holds the pack's own
    * (the gun's own space: x towards the muzzle, y up, z to the right; metres)
@@ -150,7 +166,8 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
   },
   lumen: {
-    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true,
+    // (its bolt is let go by a release on the left of the receiver: tapped, not drawn)
+    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, rackPull: 0,
     // (this model has no separate trigger to measure: seated by eye)
     mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['foregrip', 'light', 'sight'], nudge: [-0.134, -0.029, -0.017] },
   },
@@ -172,6 +189,7 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     // (pumped by the left hand: the pack's bolt movement, a right hand leaving the grip for a bolt handle, is not a shotgun's)
     pack: 'sniper', world: 'benelli', hold: LONG_HOLD, skip: ['bolt'],
     mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0], pump: { piece: 'forend', travel: 0.075 } },
+    loadAt: [-0.27, 0.0, 0],
   },
   longsight: { pack: 'sniper', world: 'sniper', rack: true },
 };

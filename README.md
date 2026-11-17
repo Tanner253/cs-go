@@ -44,6 +44,18 @@ gauge. Every gun is held by the same pair of arms: the gun model is mounted piec
 the joints of one of three animated arm packs by the same artist (`src/client/assets.ts`).
 The guns are shot over their own sights: nothing is fitted to a gun that did not come with it.
 
+**Handling.** The arm packs' clips move the hands; `src/client/moves.ts` carries the gun where
+the eye can follow it and says when each moment is heard. A rifle is rolled on its side for the
+magazine change and its action is then worked by the left hand; the pump shotgun is fed shell
+by shell and pumped; the break-action is turned side on and broken open; an empty pistol has
+its slide let go. Every gun and the knife can be looked over (F). Each moment of a reload is
+its own sound, played as the hands reach it.
+
+**Sound.** `tools/build-sounds.mjs` builds every sound from CC0 sources. A gunshot is designed
+in layers from two recordings of one real gun (crack, body, a low thump, the muzzle blast, the
+range's echo, the action), balanced by energy, soft-clipped and levelled; reload and handling
+sounds, footsteps and impacts are layered from recorded impacts.
+
 **Suppressors.** The Osprey, Lumen and Hornet take one. Right click (ZOOM on touch) fits it or
 takes it off, which takes 1.7 seconds and both hands. Fitted, the gun is quiet (heard from less
 than half as far, by players and bots alike), shows no tracer and almost no flash, and climbs

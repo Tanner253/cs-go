@@ -147,6 +147,10 @@ function fmt(tag: string, m: Metrics): string {
 }
 
 describe('bots: 5v5 matches', () => {
+  // Rounds decided by the charge or the clock, over all three matches. (One match is too few
+  // rounds to judge this by: measured over 24 matches the share is steady at about a sixth, but
+  // any one match can land on a single such round, and which does changes with any change to the map.)
+  let decidedByObjective = 0, roundsPlayed = 0;
   for (const [skill, seed] of [[0.2, 11], [0.5, 22], [0.9, 33]] as const) {
     it(`plays a full, varied match at skill ${skill}`, () => {
       const m = runMatch({ seed, skill });
@@ -155,7 +159,9 @@ describe('bots: 5v5 matches', () => {
       // A healthy mix of outcomes: the objective is actually played.
       expect(m.plants).toBeGreaterThanOrEqual(Math.ceil(m.rounds * 0.2));
       const objective = (m.reasons['detonation'] ?? 0) + (m.reasons['disarm'] ?? 0) + (m.reasons['time'] ?? 0);
-      expect(objective).toBeGreaterThanOrEqual(Math.ceil(m.rounds * 0.08));
+      expect(objective).toBeGreaterThanOrEqual(1);
+      decidedByObjective += objective;
+      roundsPlayed += m.rounds;
       expect(Object.keys(m.reasons).length).toBeGreaterThanOrEqual(2);
       // Sane pacing.
       expect(m.avgRoundSec).toBeGreaterThan(25);
@@ -172,6 +178,10 @@ describe('bots: 5v5 matches', () => {
       expect(m.usPerTick).toBeLessThan(300);
     }, 180000);
   }
+  it('decides a fair share of rounds by the objective, over those matches', () => {
+    expect(roundsPlayed).toBeGreaterThan(30);
+    expect(decidedByObjective).toBeGreaterThanOrEqual(Math.ceil(roundsPlayed * 0.08));
+  });
 });
 
 describe('bots: skill and team size', () => {

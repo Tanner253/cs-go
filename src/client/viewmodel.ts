@@ -9,6 +9,10 @@ import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFi
 import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
 import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 import { FLASH_KINDS, flashTexture } from './effects';
+import {
+  BOLT_RELOAD, BREAK_RELOAD, INSPECT_KNIFE, INSPECT_PISTOL, INSPECT_RIFLE, PISTOL_RELOAD, PISTOL_RELOAD_EMPTY, PUMP_LOADING, PUMP_RELOAD,
+  PUMP_SHELLS, RIFLE_CLIP_ENDS, RIFLE_RACK, RIFLE_RELOAD, RIFLE_RELOAD_TAP, carryAt, type Foley, type Move,
+} from './moves';
 
 /** Damped spring used for all secondary motion. */
 export class Spring {
@@ -72,6 +76,8 @@ const _v = new THREE.Vector3();
 const _fq = new THREE.Quaternion();
 const _swing = new THREE.Matrix4(), _turn = new THREE.Matrix4(), _back = new THREE.Matrix4();
 const _box = new THREE.Box3();
+const _carried = new THREE.Vector3();
+const _turned = new THREE.Euler();
 const UNIT = new THREE.Vector2(0, 1);
 
 const EMPTY = new THREE.BufferGeometry();
@@ -114,6 +120,13 @@ class Rig {
   /** The pose last shown, and where the wrists were in it: a clip that cuts a hand from one place to another is eased too. */
   private shownP: THREE.Vector3[] = [];
   private shownQ: THREE.Quaternion[] = [];
+  /**
+   * The clip's own pose as last sampled. The mixer writes a joint only when its value has
+   * changed, so a movement held at one moment would otherwise leave the eased pose in place
+   * and the blend would never arrive: the joints are put back to this before each sample.
+   */
+  private aimP: THREE.Vector3[] = [];
+  private aimQ: THREE.Quaternion[] = [];
   private wrists: { bone: THREE.Object3D; was: THREE.Vector3 }[] = [];
   private frame = 1 / 60;
   /**
@@ -149,6 +162,34 @@ class Rig {
   private canAway = new THREE.Vector3();
   /** The suppressor is on the muzzle. */
   quiet = false;
+  /** The right wrist at rest, in `root` space: what the gun is turned about when a movement carries it. */
+  readonly pivot = new THREE.Vector3(0.12, -0.16, -0.28);
+  /** How this gun is loaded, which decides the movements it is shown with (see moves.ts). */
+  readonly style: 'rifle' | 'bolt' | 'pistol' | 'pump' | 'break' | 'blade';
+  /** The left arm is moved by the clips themselves (so it is not put back to its rest place before each pose). */
+  private armDriven = false;
+  /** Where the left arm goes to take the hand off the gun and out of view (the arm's own space). */
+  private awayShift = new THREE.Vector3();
+  /**
+   * The action worked by the left hand at the end of a reload: how far the arm goes to reach the
+   * handle and to draw it back (the arm's own space), and how far the bolt travels (the gun's own).
+   */
+  private handRack = false;
+  private rackShift = new THREE.Vector3();
+  private rackDraw = new THREE.Vector3();
+  private rackPull = 0;
+  /** A tube magazine fed by hand: the arm at the loading port and down at the pouch, the shell it brings, and where the port is. */
+  private loadShift = new THREE.Vector3();
+  private fetchShift = new THREE.Vector3();
+  private pushShift = new THREE.Vector3();
+  private round: THREE.Mesh | null = null;
+  private loadAt = new THREE.Vector3();
+  /** A break-action's breech, where the hand changes the shells. */
+  private breechShift = new THREE.Vector3();
+  /** How far through each part of a reload (0 = not in it): working the action, feeding shells, at the open breech. */
+  reloadRack = 0;
+  reloadLoad = 0;
+  reloadBreech = 0;
 
   /**
    * @param team the side the weapon belongs to (-1 = both), which tints its bare finish
@@ -159,6 +200,9 @@ class Rig {
     suppressor?: { fitted: boolean },
   ) {
     this.skip = new Set(look.skip ?? []);
+    const mounted = look.mount;
+    this.style = look.pack === 'knife' ? 'blade' : mounted?.pump ? 'pump' : mounted?.hinge ? 'break' : look.pack === 'm9' ? 'pistol' : mounted ? 'rifle' : 'bolt';
+    this.handRack = this.style === 'rifle' && !!look.rack;
     this.rack = !!look.rack && 'bolt' in info.clips;
     const scene = SkeletonUtils.clone(files.pack.scene);
     this.pack = scene;
@@ -191,6 +235,8 @@ class Rig {
         this.fromQ.push(new THREE.Quaternion());
         this.shownP.push(node.position.clone());
         this.shownQ.push(node.quaternion.clone());
+        this.aimP.push(node.position.clone());
+        this.aimQ.push(node.quaternion.clone());
         if (/^[LR]_wrist/.test(node.name)) this.wrists.push({ bone: node, was: new THREE.Vector3() });
       }
     }
@@ -218,6 +264,8 @@ class Rig {
     /** The suppressor's meshes, and the room they take up on the gun (the model's own space). */
     const canMeshes = new Set<THREE.Mesh>();
     const canBox = new THREE.Box3();
+    /** The room the gun's own bolt takes up (the model's own space). */
+    const boltBox = new THREE.Box3();
     /** How the mounted gun was seated: its size and where it was moved (gun space). */
     let seatSize = 1;
     const seatMove = new THREE.Vector3();
@@ -279,7 +327,20 @@ class Rig {
           canMeshes.add(piece);
           piece.geometry.computeBoundingBox();
           canBox.union(_box.copy(piece.geometry.boundingBox!).applyMatrix4(piece.matrix));
+        } else if (/^(bolt|slide)$/.test(name)) {
+          piece.geometry.computeBoundingBox();
+          boltBox.union(_box.copy(piece.geometry.boundingBox!).applyMatrix4(piece.matrix));
         }
+      }
+      if (mount.pump && look.loadAt) {
+        // The shell the hand brings to the loading port (lying along the barrel).
+        this.round = new THREE.Mesh(ROUND_GEO, ROUND_MAT);
+        this.round.name = 'round';
+        this.round.userData['prop'] = true;
+        this.round.frustumCulled = false;
+        this.round.visible = false;
+        this.loadAt.set(...look.loadAt);
+        hang(this.round, mount.ride['base']!);
       }
       if (!canBox.isEmpty()) {
         canBox.getCenter(this.canAt);
@@ -308,7 +369,7 @@ class Rig {
     const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
+      if (!mesh.isMesh || mesh.userData['prop']) return;
       // Hands swing well outside their rest bounds during reloads.
       mesh.frustumCulled = false;
       mesh.castShadow = false;
@@ -337,26 +398,52 @@ class Rig {
     // are somewhere else, so the whole left arm is shifted: onto the fore-end while it holds
     // the gun, and onto the magazine while it changes it (the shoulder end is out of view).
     this.leftArm = [...joints.values()].find((j) => /^L_arm/.test(j.name)) ?? null;
-    if (this.leftArm?.parent && mount) {
+    const wrist = [...joints.values()].find((j) => /^L_wrist/.test(j.name));
+    if (this.leftArm?.parent && wrist) {
       this.leftArmRest.copy(this.leftArm.position);
+      this.armDriven = seen.has(this.leftArm);
       const gunToArm = new THREE.Matrix3().setFromMatrix4(
         new THREE.Matrix4().copy(this.leftArm.parent.matrixWorld).invert().multiply(scene.matrixWorld).multiply(new THREE.Matrix4().copy(packToGun).invert()),
       );
+      /** Where the left wrist is while the hand holds the gun (gun space, as seated). */
+      const hand = wrist.getWorldPosition(new THREE.Vector3()).applyMatrix4(new THREE.Matrix4().copy(packToGun).multiply(fromScene));
+      if (look.support) hand.add(_v.set(...look.support));
+      /** A point of the model, as the gun is seated. */
+      const seated = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z).multiplyScalar(seatSize).add(seatMove);
+      /** How far the arm goes to put the wrist `grip` from a point of the gun (the arm's own space). */
+      const reach = (at: THREE.Vector3, grip: readonly number[] | undefined, out: THREE.Vector3): THREE.Vector3 =>
+        out.set(at.x - hand.x + (grip?.[0] ?? 0), at.y - hand.y + (grip?.[1] ?? 0), at.z - hand.z + (grip?.[2] ?? 0)).applyMatrix3(gunToArm);
+      this.awayShift.set(-0.08, -0.36, -0.04).applyMatrix3(gunToArm);
       if (look.support) this.holdShift.set(...look.support).applyMatrix3(gunToArm);
-      if (mount.pump) {
+      if (mount?.pump) {
         this.pumpTravel = mount.pump.travel;
         this.pumpShift.set(-mount.pump.travel * seatSize, 0, 0).applyMatrix3(gunToArm);
       }
+      if (this.round) {
+        reach(seated(this.loadAt.x, this.loadAt.y, this.loadAt.z), info.loadGrip, this.loadShift);
+        this.fetchShift.set(-0.05, -0.3, -0.03).applyMatrix3(gunToArm).add(this.loadShift);
+        this.pushShift.set(0.035, 0.012, 0).applyMatrix3(gunToArm);
+      }
+      if (mount?.hinge) {
+        const at = mount.hinge.at;
+        reach(seated(at[0] - 0.05, at[1] + 0.035, at[2]), info.loadGrip, this.breechShift);
+      }
+      if (this.handRack) {
+        // The handle of the action: where the weapon says, else on the right-hand face of the
+        // gun's own bolt, else above the magazine (on the left for a release that is tapped).
+        const at = look.rackAt ? seated(...look.rackAt)
+          : !boltBox.isEmpty() ? seated((boltBox.min.x + boltBox.max.x) / 2, (boltBox.min.y + boltBox.max.y) / 2, boltBox.max.z)
+          : !cellBox.isEmpty() ? seated((cellBox.min.x + cellBox.max.x) / 2, cellBox.max.y + 0.04, look.rackPull === 0 ? cellBox.min.z : cellBox.max.z)
+          : null;
+        if (at) {
+          reach(at, info.rackGrip, this.rackShift);
+          this.rackPull = look.rackPull ?? 0.055;
+          this.rackDraw.set(-this.rackPull * seatSize, 0, 0).applyMatrix3(gunToArm);
+        } else this.handRack = false;
+      }
       if (this.cans.length > 0) {
         // The hand holds the gun by the fore-end; the suppressor is further along the same line.
-        const wrist = [...joints.values()].find((j) => /^L_wrist/.test(j.name));
-        if (wrist) {
-          const hand = wrist.getWorldPosition(new THREE.Vector3()).applyMatrix4(new THREE.Matrix4().copy(packToGun).multiply(fromScene));
-          if (look.support) hand.add(_v.set(...look.support));
-          const can = this.canAt.clone().multiplyScalar(seatSize).add(seatMove);
-          const grip = info.canGrip ?? [0, 0, 0];
-          this.canShift.set(can.x - hand.x + grip[0], can.y - hand.y + grip[1], can.z - hand.z + grip[2]).applyMatrix3(gunToArm);
-        }
+        reach(seated(this.canAt.x, this.canAt.y, this.canAt.z), info.canGrip, this.canShift);
         this.canDraw.set(this.canOut * seatSize, 0, 0).applyMatrix3(gunToArm);
         this.canAway.set(-0.1, -0.3, -0.05).applyMatrix3(gunToArm);
       }
@@ -367,12 +454,13 @@ class Rig {
         const toGun = new THREE.Matrix4().copy(packToGun).multiply(fromScene).multiply(mesh.matrixWorld);
         for (let i = 0; i < pos.count; i += 4) packBox.expandByPoint(_v.fromBufferAttribute(pos, i).applyMatrix4(toGun));
       }
-      if (!packBox.isEmpty() && !cellBox.isEmpty()) {
+      if (mount && !packBox.isEmpty() && !cellBox.isEmpty()) {
         const mine = cellBox.getCenter(new THREE.Vector3()).multiplyScalar(seatSize).add(seatMove);
         this.magShift.copy(mine).sub(packBox.getCenter(_v)).applyMatrix3(gunToArm);
       }
     } else {
       this.leftArm = null;
+      this.handRack = false;
     }
 
     // One material for each source material and each part of the gun that wears it.
@@ -421,6 +509,8 @@ class Rig {
       return c > 0;
     };
     tip(pts, this.muzzle);
+    const grip = [...joints.values()].find((j) => /^R_wrist/.test(j.name));
+    if (grip) this.root.worldToLocal(grip.getWorldPosition(this.pivot));
     this.bare.copy(this.muzzle);
     if (!tip(canPts, this.capped)) this.capped.copy(this.bare);
     this.fit(0, !!suppressor?.fitted);
@@ -459,8 +549,16 @@ class Rig {
     this.lastClip = clip;
     this.lastK = k;
     const arm = this.leftArm;
-    if (arm) arm.position.copy(this.leftArmRest);
+    for (let i = 0; i < this.driven.length; i++) {
+      this.driven[i]!.position.copy(this.aimP[i]!);
+      this.driven[i]!.quaternion.copy(this.aimQ[i]!);
+    }
+    if (arm && !this.armDriven) arm.position.copy(this.leftArmRest);
     this.mixer.setTime(Math.min(this.length - 1e-4, t));
+    for (let i = 0; i < this.driven.length; i++) {
+      this.aimP[i]!.copy(this.driven[i]!.position);
+      this.aimQ[i]!.copy(this.driven[i]!.quaternion);
+    }
     if (arm) {
       // On the fore-end, except in the middle of a reload, when the hand is on the magazine.
       const u = clip === 'reload' ? THREE.MathUtils.smoothstep(k, 0.02, 0.14) * (1 - THREE.MathUtils.smoothstep(k, 0.86, 0.98)) : 0;
@@ -590,44 +688,119 @@ class Rig {
     for (const { holder, closed } of this.hinged) holder.matrix.copy(closed).multiply(_swing);
   }
   /**
-   * Stand `k` of the way through a reload that lasts `seconds`. Guns that end by working the
-   * action play the magazine change and then the bolt, each at the speed it was animated at.
-   * Returns how far through working the action it is (0 while it is not).
+   * Stand `k` of the way through a reload (`empty`: begun with nothing in the gun). Sets how far
+   * through each hand-worked part it is; returns how far through the pack's own bolt stroke
+   * (0 while it is not in one).
    */
-  poseReload(k: number): number {
-    this.reloadPump = 0;
-    if (this.pumped.length > 0 && this.has('reload')) {
-      // Loaded, then pumped once.
-      const a = this.seconds('reload'), split = a / (a + PUMP_SECONDS);
-      if (k < split) this.pose('reload', k / split);
-      else {
+  poseReload(k: number, empty: boolean): number {
+    this.reloadPump = this.reloadRack = this.reloadLoad = this.reloadBreech = 0;
+    const step = THREE.MathUtils.smoothstep;
+    switch (this.style) {
+      case 'pump':
+        // Fed shell by shell, then pumped once.
         this.pose('idle', 0);
-        this.reloadPump = (k - split) / (1 - split);
+        if (k < PUMP_LOADING) this.reloadLoad = Math.max(1e-4, k / PUMP_LOADING);
+        else this.reloadPump = Math.min(1, Math.max(0, (k - PUMP_LOADING - 0.04) / 0.14));
+        return 0;
+      case 'break':
+        // Both hands stay on the gun as it is broken open; the left then changes the shells.
+        this.pose('idle', 0);
+        this.swing(step(k, 0.1, 0.2) * (1 - step(k, 0.8, 0.87)));
+        this.reloadBreech = k;
+        return 0;
+      case 'rifle':
+        if (!this.handRack) { this.pose('reload', k); return 0; }
+        // The pack's magazine change at about the speed it was drawn, then the left hand works the action.
+        if (k < RIFLE_CLIP_ENDS) this.pose('reload', k / RIFLE_CLIP_ENDS);
+        else this.pose('idle', 0);
+        this.reloadRack = Math.min(1, Math.max(0, (k - RIFLE_RACK[0]) / (RIFLE_RACK[1] - RIFLE_RACK[0])));
+        return 0;
+      case 'bolt': {
+        if (!this.rack) { this.pose('reload', k); return 0; }
+        // The pack's own rifle: its magazine change, then its bolt stroke, each at the speed it was drawn.
+        const a = this.seconds('reload'), b = this.seconds('bolt');
+        const split = a / (a + b);
+        if (k < split) { this.pose('reload', k / split); return 0; }
+        const through = (k - split) / (1 - split);
+        this.pose('bolt', through);
+        return through;
       }
-      return 0;
+      default:
+        this.pose(empty && this.has('reloadEmpty') ? 'reloadEmpty' : 'reload', k);
+        return 0;
     }
-    if (!this.has('reload')) {
-      // A break-action: both hands stay on the gun; it is broken open, emptied and shut
-      // (the spring layer tips it down meanwhile).
-      this.pose('idle', 0);
-      this.swing(THREE.MathUtils.smoothstep(k, 0.08, 0.22) * (1 - THREE.MathUtils.smoothstep(k, 0.78, 0.9)));
-      return 0;
+  }
+  /** The movement the gun is carried through while it is reloaded. */
+  reloadMove(empty: boolean): Move {
+    switch (this.style) {
+      case 'pump': return PUMP_RELOAD;
+      case 'break': return BREAK_RELOAD;
+      case 'rifle': return this.rackPull > 0 ? RIFLE_RELOAD : RIFLE_RELOAD_TAP;
+      case 'bolt': return BOLT_RELOAD;
+      default: return empty && this.has('reloadEmpty') ? PISTOL_RELOAD_EMPTY : PISTOL_RELOAD;
     }
-    if (!this.rack) {
-      this.pose('reload', k);
-      return 0;
+  }
+  /** The movement it is looked over with (null: the pack's own clip is used). */
+  get inspectMove(): Move | null {
+    if (this.style === 'bolt' && this.has('inspect')) return null;
+    return this.style === 'blade' ? INSPECT_KNIFE : this.style === 'pistol' ? INSPECT_PISTOL : INSPECT_RIFLE;
+  }
+  /**
+   * The left hand's part in a reload, and how far it has let go of the gun altogether (`off`).
+   * Call after posing, and after `cycle`.
+   */
+  hands(off: number): void {
+    const arm = this.leftArm;
+    const step = THREE.MathUtils.smoothstep;
+    if (this.round) this.round.visible = false;
+    if (!arm) return;
+    if (off > 0) arm.position.addScaledVector(this.awayShift, off);
+
+    // ---- working the action ----
+    const k = this.reloadRack;
+    if (this.handRack && k > 0 && k < 1) {
+      const drawn = this.rackPull > 0;
+      // (a release that is only tapped: in quickly and straight off again)
+      const at = drawn ? step(k, 0, 0.3) * (1 - step(k, 0.7, 1)) : step(k, 0.1, 0.46) * (1 - step(k, 0.54, 0.85));
+      const pull = drawn ? step(k, 0.33, 0.5) * (1 - step(k, 0.565, 0.61)) : 0;
+      arm.position.addScaledVector(this.rackShift, at).addScaledVector(this.rackDraw, at * pull);
+      if (pull > 0) {
+        _swing.makeTranslation(-this.rackPull * pull, 0, 0);
+        for (const { holder, closed } of this.bolts) holder.matrix.copy(closed).multiply(_swing);
+      }
     }
-    const a = this.seconds('reload'), b = this.info.clips['bolt'] ? (this.info.clips['bolt'][1] - this.info.clips['bolt'][0]) / this.info.fps : 0;
-    const split = a / (a + b);
-    if (k < split) {
-      this.pose('reload', k / split);
-      return 0;
+
+    // ---- feeding a tube magazine ----
+    const u = this.reloadLoad;
+    if (this.round && u > 0 && u < 1) {
+      // Each shell: up from the pouch to the port, pushed home, and down for the next.
+      const ph = (u * PUMP_SHELLS) % 1;
+      const up = step(ph, 0.04, 0.44), push = step(ph, 0.5, 0.68), down = step(ph, 0.74, 1);
+      const port = up * (1 - down);
+      const busy = step(u, 0, 0.05) * (1 - step(u, 0.95, 1));
+      arm.position
+        .addScaledVector(this.loadShift, port * busy)
+        .addScaledVector(this.fetchShift, (1 - port) * busy)
+        .addScaledVector(this.pushShift, push * (1 - down) * busy);
+      // (seen from the moment the hand has it at the port until it is home)
+      this.round.visible = up > 0.8 && push < 0.97;
+      this.round.position.set(this.loadAt.x + 0.045 * push, this.loadAt.y - 0.1 * (1 - up), this.loadAt.z);
     }
-    const through = (k - split) / (1 - split);
-    this.pose('bolt', through);
-    return through;
+
+    // ---- at an open breech ----
+    const b = this.reloadBreech;
+    if (b > 0 && b < 1 && this.hinge) {
+      // To the breech as it opens, a dip for the second shell, and back as it shuts.
+      const at = step(b, 0.24, 0.36) * (1 - step(b, 0.66, 0.78));
+      const dip = step(b, 0.44, 0.5) * (1 - step(b, 0.52, 0.58));
+      arm.position.addScaledVector(this.breechShift, at * (1 - 0.5 * dip)).addScaledVector(this.awayShift, at * dip * 0.35);
+    }
   }
 }
+
+/** A shotgun shell, lying along the barrel. */
+const ROUND_GEO = new THREE.CylinderGeometry(0.0095, 0.0095, 0.058, 10).rotateZ(Math.PI / 2);
+const ROUND_MAT = new THREE.MeshStandardMaterial({ color: 0x8a2a22, roughness: 0.55, metalness: 0.1 });
 
 export interface ViewState {
   def: WeaponDef;
@@ -706,8 +879,18 @@ export class Viewmodel {
   private bobAmt = 0;
   /** The part of the recoil the camera does not show, which the gun shows instead. */
   private clearing = 0;
-  private tipping = 0;
   private fitShown = 0;
+  /** Where the movement in progress (a reload, an inspection) carries the gun, eased. */
+  private carry = [0, 0, 0, 0, 0, 0, 0];
+  private carryTo = [0, 0, 0, 0, 0, 0, 0];
+  private move: Move | null = null;
+  private moveK = 0;
+  private wasReloading = false;
+  private workedK = 0;
+  /** The reload in progress was begun with the gun empty. */
+  private reloadEmpty = false;
+  /** Called at each moment of a movement that is heard (a magazine seating, a bolt let go). */
+  onFoley: ((sound: Foley, def: WeaponDef) => void) | null = null;
   private climb = 0;
   private drift = 0;
   private wasGround = true;
@@ -803,6 +986,7 @@ export class Viewmodel {
     this.inspectT = -1;
     this.fireT = 0;
     this.shotT = 0;
+    this.workedK = 0;
     // Each shot heats the gun; slow, heavy guns more per shot.
     this.live.heat.value = Math.min(1, this.live.heat.value + 0.07 + 0.12 * k);
     const interval = 60 / def.rpm;
@@ -831,6 +1015,14 @@ export class Viewmodel {
   /** Play the weapon inspect animation (cosmetic). */
   onInspect(): void {
     if (this.fireT < 0 && this.meleeT < 0) this.inspectT = 0;
+  }
+
+  /** The action being worked after a shot: heard as it comes back (`open`) and as it goes home. */
+  private worked(k: number, back: number, home: number, open: Foley, def: WeaponDef): void {
+    if (k < this.workedK) this.workedK = 0;
+    if (this.workedK < back && k >= back) this.onFoley?.(open, def);
+    if (this.workedK < home && k >= home) this.onFoley?.('boltfwd', def);
+    this.workedK = k;
   }
 
   private ejectShell(): void {
@@ -871,9 +1063,8 @@ export class Viewmodel {
     let procDraw = 0;
     /** How far through working the action at the end of a reload (0 = not). */
     let racking = 0;
-    /** How far the gun is tipped down and over for a reload that has no clip of its own (0..1). */
-    let tipped = 0;
-    let procInspect = 0;
+    /** The movement the gun is being carried through, and how far through it. */
+    let move: Move | null = null, moveK = 0;
     /** How far through a stroke of the pump (0 = not). */
     let pumping = 0;
     /** How far through fitting or taking off the suppressor (0 = not). */
@@ -881,6 +1072,8 @@ export class Viewmodel {
     if (r) {
       this.idleT += dt;
       const reloading = st.reloadT > 0;
+      if (reloading && !this.wasReloading) this.reloadEmpty = st.ammo <= 0;
+      this.wasReloading = reloading;
       if (reloading || st.drawT > 0 || fitting > 0) this.inspectT = -1;
       if (fitting > 0) this.fireT = this.meleeT = -1;
       if (st.drawT > 0) {
@@ -888,9 +1081,10 @@ export class Viewmodel {
         else { r.pose('idle', 0); procDraw = st.drawT; }
         this.fireT = this.meleeT = -1;
       } else if (reloading) {
-        racking = r.poseReload(st.reloadT);
+        racking = r.poseReload(st.reloadT, this.reloadEmpty);
         pumping = r.reloadPump;
-        if (!r.has('reload')) tipped = Math.sin(Math.PI * st.reloadT) ** 0.6;
+        move = r.reloadMove(this.reloadEmpty);
+        moveK = st.reloadT;
         this.fireT = -1;
       } else if (this.meleeT >= 0) {
         this.meleeT += dt / 0.4;
@@ -902,29 +1096,53 @@ export class Viewmodel {
         else if (this.boltDur > 0 && this.fireT < this.fireDur + this.boltDur) {
           const through = (this.fireT - this.fireDur) / this.boltDur;
           r.pose('bolt', through);
+          this.worked(through, 0.3, 0.68, 'boltback', st.def);
           if (this.caseIn && through > 0.42) { this.caseIn = false; this.ejectShell(); }
         } else if (this.pumpDur > 0 && this.fireT < this.fireDur + this.pumpDur) {
           r.pose('idle', 0);
           pumping = (this.fireT - this.fireDur) / this.pumpDur;
+          this.worked(pumping, 0.18, 0.6, 'pump', st.def);
           if (this.caseIn && pumping > 0.36) { this.caseIn = false; this.ejectShell(); }
         } else this.fireT = -1;
       }
       if (st.drawT <= 0 && !reloading && this.meleeT < 0 && this.fireT < 0) {
         if (this.inspectT >= 0) {
-          const dur = r.has('inspect') ? Math.min(4.5, r.seconds('inspect')) : 2.2;
-          this.inspectT += dt / dur;
+          const look = r.inspectMove;
+          this.inspectT += dt / (look?.seconds ?? Math.min(4.5, r.seconds('inspect')));
           if (this.inspectT >= 1) this.inspectT = -1;
-          else if (r.has('inspect')) r.pose('inspect', this.inspectT);
-          else { r.pose('idle', 0); procInspect = Math.sin(this.inspectT * Math.PI); }
+          else if (look) { r.pose('idle', 0); move = look; moveK = this.inspectT; }
+          else r.pose('inspect', this.inspectT);
         }
         // The packs' own idle loops rock visibly; hold the rest pose and breathe procedurally.
         if (this.inspectT < 0) r.pose('idle', 0);
       }
     }
 
+    // ---- the movement the gun is carried through, and what is heard and felt in it ----
+    if (move !== this.move || moveK < this.moveK) { this.move = move; this.moveK = 0; }
+    if (move) {
+      carryAt(move, moveK, this.carryTo);
+      for (const [at, sound, jolt] of move.cues) {
+        if (at <= this.moveK || at > moveK) continue;
+        this.onFoley?.(sound, st.def);
+        if (jolt > 0) { this.kickPitch.kick(jolt * 2.4); this.landY.kick(-jolt * 0.45); this.kickRoll.kick((Math.random() - 0.5) * jolt * 3); }
+      }
+      this.moveK = moveK;
+    } else this.carryTo.fill(0);
+    const ease = Math.min(1, dt * 24);
+    for (let i = 0; i < 7; i++) this.carry[i]! += (this.carryTo[i]! - this.carry[i]!) * ease;
+    const c = this.carry;
+    // The gun is turned about the hand that holds it, not about the eye: the turn's own shift is taken out.
+    _carried.set(0, 0, 0);
+    if (r && (c[3] !== 0 || c[4] !== 0 || c[5] !== 0)) {
+      _fq.setFromEuler(_turned.set(c[3]!, c[4]!, c[5]!, 'YXZ'));
+      _carried.copy(r.pivot).sub(_v.copy(r.pivot).applyQuaternion(_fq));
+    }
+
     r?.pump(pumping);
     r?.fit(fitting, st.quiet);
     r?.cycle(this.shotT >= 0 ? this.shotT / 0.085 : 0);
+    r?.hands(c[6]!);
     if (this.shotT >= 0) {
       this.shotT += dt;
       if (this.shotT > 0.085) this.shotT = -1;
@@ -966,17 +1184,16 @@ export class Viewmodel {
     this.fitShown += (across - this.fitShown) * Math.min(1, dt * 16);
     const fs = this.fitShown;
     const twist = fitting > 0.3 && fitting < 0.7 ? Math.sin(fitting * 70) * 0.012 : 0;
-    this.tipping += (tipped - this.tipping) * Math.min(1, dt * 12);
     const h = this.holder;
     h.position.set(
-      sx * 0.3 + bobX + drawE * 0.06 + procInspect * -0.05 + fs * FIT_POSE[0],
-      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.22 - this.clearing * 0.05 - this.tipping * 0.03 + st.crouch * 0.006 + procInspect * 0.03 + fs * FIT_POSE[1],
-      kz * 0.3 + drawE * 0.05 - this.clearing * 0.17 + fs * FIT_POSE[2],
+      sx * 0.3 + bobX + drawE * 0.06 + fs * FIT_POSE[0] + c[0]! + _carried.x,
+      sy * 0.3 + bobY + breath + land * 0.35 - air - drawE * 0.22 - this.clearing * 0.05 + st.crouch * 0.006 + fs * FIT_POSE[1] + c[1]! + _carried.y,
+      kz * 0.3 + drawE * 0.05 - this.clearing * 0.17 + fs * FIT_POSE[2] + c[2]! + _carried.z,
     );
     h.rotation.set(
-      kp * 0.22 + this.climb + sy * 0.8 - drawE * 0.75 - this.tipping * 0.22 + air * 2 + procInspect * 0.25 + fs * FIT_POSE[3],
-      sx * 1.0 + this.drift + bobX * 1.5 - drawE * 0.3 + procInspect * 0.9 + fs * FIT_POSE[4],
-      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - drawE * 0.45 + this.tipping * 0.4 + procInspect * 0.6 + fs * FIT_POSE[5] + twist,
+      kp * 0.22 + this.climb + sy * 0.8 - drawE * 0.75 + air * 2 + fs * FIT_POSE[3] + c[3]!,
+      sx * 1.0 + this.drift + bobX * 1.5 - drawE * 0.3 + fs * FIT_POSE[4] + c[4]!,
+      kr * 0.16 - sx * 1.2 + st.crouch * 0.04 - drawE * 0.45 + fs * FIT_POSE[5] + twist + c[5]!,
       'YXZ',
     );
 
