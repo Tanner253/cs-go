@@ -28,6 +28,22 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
   starts when two players are in one. First to 7 rounds, sides swap after 6.
 - **Practice** — the full round loop offline against bots, 1v1 up to 5v5.
 
+## The level
+
+"Relay" (`src/sim/map.ts`): attackers spawn south, defenders north, three lanes between them.
+A long runs down the east side and narrows to one doorway half way (the long doors); B tunnels
+run down the west side under a roof and turn through an S-bend, so there is no straight line
+through them; mid is split by a core, with connectors through the buildings either side and a
+"short" opening into each site. A is an open site under a raised platform the defenders hold,
+three steps up; B is fought round a pillar in its middle. Boxes stand singly and stacked, and
+the 1.4 m ones are climbed with a crouch-jump.
+
+The radar (`src/client/radar.ts`) is centred on you and turns with you, over an overview painted
+from the level itself: the walkable floor (raised floors lighter), walls, cover, covered
+stretches and the two sites. Teammates show with the way they face; an enemy shows while you
+can see them, and a fading ring where they were last seen. When you die, a card shows who
+killed you, with what, and the damage you and each enemy traded that round.
+
 ## Movement
 
 Counter-Strike's own numbers (`src/sim/movement.ts`): ground and air acceleration, friction and

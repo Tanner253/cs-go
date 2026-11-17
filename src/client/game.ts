@@ -439,6 +439,7 @@ export class GameApp {
             const side = (e.x - v.pos.x) * Math.cos(v.yaw) - (e.z - v.pos.z) * Math.sin(v.yaw);
             this.chars[v.id]?.hurt(side >= 0 ? 1 : -1, e.damage / 50, e.head);
           }
+          this.hud.logHit(a, v, e.damage, me);
           if (a && a === me) {
             this.audio.hit(e.head);
             this.hud.hitMarker(v.hp <= 0 || !v.alive, e.head);
@@ -451,6 +452,7 @@ export class GameApp {
           this.hud.kill(killer, v, e.weapon, e.head, e.wallbang, me);
           if (killer === me && me) this.hud.hitMarker(true, e.head);
           if (v === me) {
+            this.hud.died(sim, killer, e.weapon, e.head);
             this.deathAt = sim.time;
             if (this.hud.buyOpen) { this.hud.setBuyOpen(false); this.input.requestLock(); }
           }
@@ -558,6 +560,7 @@ export class GameApp {
           for (const c of this.chars) c.hideCorpse();
           if (me) { this.input.yaw = sim.map.spawnYaw[me.team]; this.input.pitch = 0; }
           this.deathAt = -99;
+          this.hud.roundReset();
           this.hud.setBoardOpen(false);
           this.hud.message(`ROUND ${e.round}`, me ? (me.team === ATK ? 'ATTACK — plant the charge' : 'DEFEND — hold both sites') : '', 3);
           break;

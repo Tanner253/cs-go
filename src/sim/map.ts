@@ -126,6 +126,15 @@ export function buildMap(): MapDef {
   solid(1.6, -25, 5, -24, DOOR_H);
   box(-1.6, CLEAR, -25, 1.6, DOOR_H, -24, Mat.Wall);
 
+  // ---- A long doors: the lane narrows to one doorway half way down -----------
+  solid(18, 13, 22.8, 14, DOOR_H);
+  solid(25.6, 13, 30, 14, DOOR_H);
+  box(22.8, CLEAR, 13, 25.6, DOOR_H, 14, Mat.Wall);
+
+  // ---- B tunnels bend: two baffles turn the tunnel into an S, no straight line through it --
+  solid(-30, 6, -24.5, 7.2, CLEAR + 0.2, Mat.Block);
+  solid(-22, 1.5, -18, 2.7, CLEAR + 0.2, Mat.Block);
+
   // ---- site entry walls ------------------------------------------------------
   // A-long opens on the east side of the lane; B tunnels open on the inner side.
   solid(18, -9, 25, -8, DOOR_H);
@@ -135,9 +144,10 @@ export function buildMap(): MapDef {
   box(-30, CLEAR + 0.2, 0, -18, CLEAR + 0.7, 14, Mat.Roof);
 
   // ---- raised decks with steps (exercise step-up; give sites some height) ---
-  // Site A back deck.
-  box(25, 0, -24, 30, 0.8, -17, Mat.Deck);
-  box(24.2, 0, -24, 25, 0.4, -17, Mat.Deck);
+  // Site A platform: the defenders' high ground over the site, up three steps.
+  box(25, 0, -24, 30, 1.2, -17, Mat.Deck);
+  box(24.2, 0, -24, 25, 0.8, -17, Mat.Deck);
+  box(23.4, 0, -24, 24.2, 0.4, -17, Mat.Deck);
   // Site B back deck.
   box(-30, 0, -24, -25, 0.8, -18, Mat.Deck);
   box(-25, 0, -24, -24.2, 0.4, -18, Mat.Deck);
@@ -161,14 +171,17 @@ export function buildMap(): MapDef {
   crate(20, -16, 2.4, 2.4, 2.2);
   crate(22.6, -16.4, 1.4, 1.4, 1.1);
   crate(17, -11.5, 2, 1.4, 1.4);
+  box(16.4, 1.4, -12, 17.6, 2.5, -11, Mat.Crate); // stacked
   crate(27, -12, 1.6, 1.6, 1.2);
   crate(15.5, -21.5, 1.6, 1.6, 1.4);
   // Site B
-  crate(-21, -16, 2.4, 2.4, 2.2);
+  // (B's middle is a pillar, floor to roof height: a site fought round, not over)
+  solid(-21.8, -16.8, -20.2, -15.2, BLOCK_H, Mat.Block);
   crate(-18.6, -14, 1.4, 1.4, 1.1);
   crate(-27, -12.5, 1.6, 2, 1.4);
   crate(-16.5, -21, 1.6, 1.6, 1.3);
   crate(-22, -22, 2.2, 1.2, 1.0);
+  box(-22.6, 1.0, -22.5, -21.4, 2.1, -21.5, Mat.Crate); // stacked: a crouch-jump up from the box below
   // A-long
   crate(28.4, 16, 1.8, 2.6, 2.2);
   crate(19.4, 4, 1.6, 1.6, 1.3);
@@ -228,7 +241,7 @@ export function buildMap(): MapDef {
     zone: zoneA,
     center: P(19.5, -16.5),
     holds: [
-      { pos: P(27.5, -20.5, 0.8), look: P(27.5, -8) },
+      { pos: P(27.5, -20.5, 1.2), look: P(27.5, -8) },
       { pos: P(16.2, -19.6), look: P(12, -16) },
       { pos: P(21.6, -18.2), look: P(27, -8) },
     ],
@@ -265,7 +278,7 @@ export function buildMap(): MapDef {
       { site: 0, name: 'A connector', points: [P(3.9, 20), P(3.6, 8), P(16, 8), P(26, 0), P(27.5, -6)] },
       { site: 1, name: 'B tunnels', points: [P(-24, 24), P(-24, 8), P(-20.5, -6)] },
       { site: 1, name: 'B short', points: [P(-3.9, 20), P(-3.6, 9), P(-1.5, -10), P(-11, -13)] },
-      { site: 1, name: 'B connector', points: [P(-3.9, 20), P(-3.6, 12), P(-16, 12), P(-22, 2), P(-20.5, -6)] },
+      { site: 1, name: 'B connector', points: [P(-3.9, 20), P(-3.6, 12), P(-16, 12), P(-25.5, 3.5), P(-20.5, -6)] },
     ],
     midHolds: [
       { pos: P(3.5, -19.4), look: P(3.6, 4) },

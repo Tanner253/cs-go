@@ -6,6 +6,7 @@ import { ATK, DEF, type Player } from '../sim/types';
 import { GEAR, NADES, NADE_CARRY, NADE_INDEX, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
 import { eyeHeight } from '../sim/movement';
 import { onSettings } from './settings';
+import { Radar } from './radar';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -120,11 +121,7 @@ export class Hud {
   private hit = 0;
   private dmg = 0;
   private dmgYaw = 0;
-  private radar = $<HTMLCanvasElement>('radar');
-  private radarCtx = this.radar.getContext('2d')!;
-  private radarBg: HTMLCanvasElement | null = null;
-  private radarTick = 0;
-  private seen: boolean[] = [];
+  private radar = new Radar($<HTMLCanvasElement>('radar'));
   /** Extra text for the corner readout (ping etc.). */
   netText = '';
   private now = 0;
@@ -198,80 +195,45 @@ export class Hud {
     this.dmgYaw = worldYaw;
   }
 
-  private drawRadar(sim: Sim, view: Player, me: Player | null): void {
-    const S = this.radar.width;
-    const k = S / 74;
-    const X = (x: number): number => (x + 33) * (S / 66);
-    const Z = (z: number): number => (z + 37) * k;
-    if (!this.radarBg) {
-      const bg = document.createElement('canvas');
-      bg.width = bg.height = S;
-      const g = bg.getContext('2d')!;
-      g.fillStyle = 'rgba(70,82,98,0.55)';
-      g.fillRect(X(-30), Z(-36), X(30) - X(-30), Z(36) - Z(-36));
-      g.fillStyle = 'rgba(8,11,16,0.95)';
-      for (const b of sim.map.boxes) {
-        if (b.noCollide || b.hidden || b.maxY < 2.4 || b.minY > 0.5) continue;
-        g.fillRect(X(b.minX), Z(b.minZ), X(b.maxX) - X(b.minX), Z(b.maxZ) - Z(b.minZ));
-      }
-      g.fillStyle = 'rgba(8,11,16,0.55)';
-      for (const b of sim.map.boxes) {
-        if (b.noCollide || b.hidden || b.maxY >= 2.4 || b.maxY < 0.9 || b.minY > 0.5) continue;
-        g.fillRect(X(b.minX), Z(b.minZ), X(b.maxX) - X(b.minX), Z(b.maxZ) - Z(b.minZ));
-      }
-      g.font = '700 18px Rajdhani, sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      sim.map.sites.forEach((site) => {
-        const z = site.zone;
-        g.strokeStyle = g.fillStyle = 'rgba(255,255,255,0.75)';
-        g.lineWidth = 1;
-        g.strokeRect(X(z.minX), Z(z.minZ), X(z.maxX) - X(z.minX), Z(z.maxZ) - Z(z.minZ));
-        g.fillText(site.name, X(site.center.x), Z(site.center.z));
-      });
-      this.radarBg = bg;
-    }
-    const g = this.radarCtx;
-    g.clearRect(0, 0, S, S);
-    g.drawImage(this.radarBg, 0, 0);
-    const pov = me ?? view;
-    const ey = view.pos.y + eyeHeight(view);
-    for (const p of sim.players) {
-      if (!p.alive) continue;
-      const friendly = p.team === pov.team;
-      if (!friendly) {
-        // Enemies only appear while the player being watched can actually see them.
-        const vis = view.alive && sim.world.lineOfSight(view.pos.x, ey, view.pos.z, p.pos.x, p.pos.y + 1.2, p.pos.z);
-        this.seen[p.id] = vis;
-        if (!vis) continue;
-      }
-      const x = X(p.pos.x), z = Z(p.pos.z);
-      if (p === view) {
-        g.save();
-        g.translate(x, z);
-        g.rotate(-p.yaw);
-        g.fillStyle = '#fff';
-        g.beginPath();
-        g.moveTo(0, -6); g.lineTo(4.5, 5); g.lineTo(0, 2.5); g.lineTo(-4.5, 5);
-        g.closePath();
-        g.fill();
-        g.restore();
-      } else {
-        g.fillStyle = friendly ? (p.team === ATK ? '#ff7a2e' : '#35e0ff') : '#ff3b2e';
-        g.beginPath();
-        g.arc(x, z, friendly ? 3.2 : 3.8, 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-    const c = sim.charge;
-    if (c.state === 'planted' || (c.state === 'dropped' && pov.team === ATK)) {
-      g.fillStyle = Math.floor(sim.time * 3) % 2 ? '#ff3b2e' : '#fff';
-      const x = X(c.pos.x), z = Z(c.pos.z);
-      g.beginPath();
-      g.moveTo(x, z - 5); g.lineTo(x + 5, z); g.lineTo(x, z + 5); g.lineTo(x - 5, z);
-      g.closePath();
-      g.fill();
-    }
+  // ---- the damage report: what passed between the player and each enemy this round ----
+  private dmgLog = new Map<number, { given: number; hitsGiven: number; taken: number; hitsTaken: number }>();
+  private deathCard = $('deathcard');
+
+  /** A round starts: the report is cleared and put away. */
+  roundReset(): void {
+    this.dmgLog.clear();
+    this.deathCard.classList.remove('on');
+  }
+
+  /** Note a hit that the local player gave or took. */
+  logHit(attacker: Player | null, victim: Player, damage: number, me: Player | null): void {
+    if (!me || !attacker || attacker.team === victim.team) return;
+    const other = attacker === me ? victim : victim === me ? attacker : null;
+    if (!other) return;
+    let r = this.dmgLog.get(other.id);
+    if (!r) this.dmgLog.set(other.id, (r = { given: 0, hitsGiven: 0, taken: 0, hitsTaken: 0 }));
+    if (attacker === me) { r.given += damage; r.hitsGiven++; } else { r.taken += damage; r.hitsTaken++; }
+  }
+
+  /** The local player died: who did it, with what, and what passed between them and each enemy. */
+  died(sim: Sim, killer: Player | null, weapon: string, head: boolean): void {
+    const w = WEAPONS[weapon]?.name ?? (weapon === 'world' ? 'a fall' : weapon);
+    const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+    const rows = [...this.dmgLog.entries()]
+      .sort((a, b) => (b[1].given + b[1].taken) - (a[1].given + a[1].taken))
+      .map(([id, r]) => {
+        const p = sim.players[id];
+        if (!p) return '';
+        const hits = (n: number): string => (n === 1 ? '1 hit' : `${n} hits`);
+        return `<tr${p === killer ? ' class="killer"' : ''}><td class="t${p.team}">${esc(p.name)}</td>` +
+          `<td>${r.given ? `<b>${r.given}</b> in ${hits(r.hitsGiven)}` : '<i>—</i>'}</td>` +
+          `<td>${r.taken ? `<b>${r.taken}</b> in ${hits(r.hitsTaken)}` : '<i>—</i>'}</td></tr>`;
+      }).join('');
+    this.deathCard.innerHTML =
+      `<div class="dc-head">${killer ? `KILLED BY <b class="t${killer.team}">${esc(killer.name)}</b>` : 'YOU DIED'}` +
+      `<span>${esc(w)}${head ? ' · headshot' : ''}</span></div>` +
+      (rows ? `<table><tr><th></th><th>DEALT</th><th>TAKEN</th></tr>${rows}</table>` : '');
+    this.deathCard.classList.add('on');
   }
 
   damageFlash(amount: number): void {
@@ -550,7 +512,7 @@ export class Hud {
       const rel = view.yaw - this.dmgYaw;
       e.dmg.style.transform = `rotate(${(rel * 180 / Math.PI).toFixed(1)}deg)`;
     }
-    if (++this.radarTick % 4 === 0) this.drawRadar(sim, view, me);
+    this.radar.draw(sim, view, me, this.now);
     text(e.fps, k.fps, (fps > 0 ? `${fps.toFixed(0)} fps` : '') + (this.netText ? ` · ${this.netText}` : ''));
 
     if (this.buyOpen && me) this.renderBuy(sim, me);

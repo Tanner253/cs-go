@@ -240,8 +240,11 @@ describe('map', () => {
     step({ buttons: BTN_JUMP });
     for (let i = 0; i < 80; i++) { step({}); top = Math.max(top, me.pos.y + 1.83); }
     expect(top).toBeGreaterThan(3.1);
+    // (a box standing on another, a stacked crate, is not overhead of anywhere)
+    const resting = (b: (typeof sim.map.boxes)[number]): boolean => sim.map.boxes.some((o) => o !== b && !o.noCollide &&
+      Math.abs(o.maxY - b.minY) < 1e-6 && o.minX <= b.minX && o.maxX >= b.maxX && o.minZ <= b.minZ && o.maxZ >= b.maxZ);
     for (const b of sim.map.boxes) {
-      if (b.noCollide || b.minY < 1) continue;
+      if (b.noCollide || b.minY < 1 || resting(b)) continue;
       expect(b.minY, `box under ${b.minY} m at ${b.minX},${b.minZ}`).toBeGreaterThan(top + 0.5);
     }
     // And under the lowest roof, a jump comes down without having touched it.
@@ -443,9 +446,9 @@ describe('suppressors', () => {
     me.money = 16000;
     expect(sim.tryBuy(me, id)).toBe(true);
     sim.phase = 'live';
-    // (down the long west lane: thirty metres of clear, level ground)
-    me.pos.x = -26; me.pos.z = 24; me.pos.y = 0.002;
-    enemy.pos.x = -26; enemy.pos.z = 24 - far; enemy.pos.y = 0.002;
+    // (down the long east lane, through the middle of the A long doors: clear, level ground)
+    me.pos.x = 24.2; me.pos.z = 24; me.pos.y = 0.002;
+    enemy.pos.x = 24.2; enemy.pos.z = 24 - far; enemy.pos.y = 0.002;
     step({ yaw: 0, pitch: 0 }, 64);
     t.seen.length = 0;
     return { ...t, enemy, gun: me.weapons[0]! };
