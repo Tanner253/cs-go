@@ -287,7 +287,7 @@ function sendSnapshots(l: Lobby): void {
     }
     const events = l.events.filter((e) => {
       // What someone bought, drew, reloaded or scoped is theirs to know (and a spectator's).
-      if (e.type === 'buy' || e.type === 'draw' || e.type === 'reload' || e.type === 'dry' || e.type === 'scope') {
+      if (e.type === 'buy' || e.type === 'draw' || e.type === 'reload' || e.type === 'dry' || e.type === 'scope' || e.type === 'fit') {
         return e.player === me.id || !me.alive || sim.players[e.player]!.team === me.team;
       }
       if (e.type !== 'step' && e.type !== 'jump' && e.type !== 'land') return true;

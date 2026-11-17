@@ -19,31 +19,61 @@ const _s = new THREE.Vector3();
 const _z = new THREE.Vector3(0, 0, 1);
 const _size = new THREE.Vector2();
 
-function flashTexture(): THREE.CanvasTexture {
+/**
+ * A muzzle flash seen end-on: a hot core with a few uneven tongues of burning gas, soft at the
+ * edges. Each `seed` is a different burst, so repeated shots do not look stamped.
+ */
+export function flashTexture(seed = 1): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(64, 64, 2, 64, 64, 62);
-  grad.addColorStop(0, 'rgba(255,255,245,1)');
-  grad.addColorStop(0.22, 'rgba(255,220,140,0.95)');
-  grad.addColorStop(0.55, 'rgba(255,140,50,0.35)');
+  let s = (seed * 2654435761) >>> 0;
+  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  g.globalCompositeOperation = 'lighter';
+  let grad = g.createRadialGradient(64, 64, 0, 64, 64, 60);
+  grad.addColorStop(0, 'rgba(255,186,104,0.42)');
+  grad.addColorStop(0.5, 'rgba(255,128,48,0.13)');
   grad.addColorStop(1, 'rgba(255,90,0,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
-  g.globalCompositeOperation = 'lighter';
-  g.strokeStyle = 'rgba(255,235,180,0.85)';
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.2;
-    g.lineWidth = i % 2 ? 3 : 6;
+  g.filter = 'blur(1.6px)';
+  const n = 4 + Math.floor(rnd() * 3);
+  const a0 = rnd() * 6.283;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (i / n) * 6.283 + (rnd() - 0.5) * 0.7;
+    const len = 26 + rnd() * 32, wid = 6 + rnd() * 8;
+    g.save();
+    g.translate(64, 64);
+    g.rotate(a);
+    const tongue = g.createLinearGradient(0, 0, len, 0);
+    tongue.addColorStop(0, 'rgba(255,240,205,0.9)');
+    tongue.addColorStop(0.45, 'rgba(255,188,98,0.55)');
+    tongue.addColorStop(1, 'rgba(255,110,30,0)');
+    g.fillStyle = tongue;
     g.beginPath();
-    g.moveTo(64, 64);
-    g.lineTo(64 + Math.cos(a) * (i % 2 ? 44 : 62), 64 + Math.sin(a) * (i % 2 ? 44 : 62));
-    g.stroke();
+    g.moveTo(0, -wid * 0.5);
+    g.quadraticCurveTo(len * 0.45, -wid, len, 0);
+    g.quadraticCurveTo(len * 0.45, wid, 0, wid * 0.5);
+    g.closePath();
+    g.fill();
+    g.restore();
   }
+  g.filter = 'none';
+  grad = g.createRadialGradient(64, 64, 0, 64, 64, 19);
+  grad.addColorStop(0, 'rgba(255,255,246,1)');
+  grad.addColorStop(0.5, 'rgba(255,226,160,0.65)');
+  grad.addColorStop(1, 'rgba(255,170,80,0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(64, 64, 19, 0, 7);
+  g.fill();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/** How many different bursts are drawn. */
+export const FLASH_KINDS = 4;
 
 function holeTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -186,11 +216,15 @@ export class Effects {
     this.group.add(this.decals);
 
     // ---- muzzle flashes (third person) and their light on the level ----
-    const fMat = new THREE.MeshBasicMaterial({ map: flashTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
-    fMat.color.multiplyScalar(2.2);
+    const fMats: THREE.MeshBasicMaterial[] = [];
+    for (let i = 0; i < FLASH_KINDS; i++) {
+      const fMat = new THREE.MeshBasicMaterial({ map: flashTexture(i + 1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
+      fMat.color.multiplyScalar(2.2);
+      fMats.push(fMat);
+    }
     const fGeo = new THREE.PlaneGeometry(1, 1);
     for (let i = 0; i < MAX_FLASHES; i++) {
-      const mesh = new THREE.Mesh(fGeo, fMat);
+      const mesh = new THREE.Mesh(fGeo, fMats[i % FLASH_KINDS]!);
       mesh.visible = false;
       mesh.frustumCulled = false;
       mesh.renderOrder = 6;
@@ -276,8 +310,6 @@ export class Effects {
   }
 
   tracer(ax: number, ay: number, az: number, bx: number, by: number, bz: number): void {
-    // Every shot lights its surroundings from the muzzle.
-    this.flashLight(ax, ay, az);
     const dx = bx - ax, dy = by - ay, dz = bz - az;
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (len < 2.5) return;

@@ -409,7 +409,7 @@ export class Bot {
   private noise(e: Player): number {
     const sim = this.sim, now = sim.time;
     const def = sim.activeDef(e);
-    if (now - e.lastShotAt < 0.35) return def.kind === 'knife' ? 5 : 50;
+    if (now - e.lastShotAt < 0.35) return def.kind === 'knife' ? 5 : e.weapons[e.active]?.quiet ? 20 : 50;
     if (this.eAir[e.id] && e.onGround && this.eFall[e.id]! > 6) return 15;
     if (e.useTime > 0) return 11;
     if (e.reloadTimer > 0) return 9;

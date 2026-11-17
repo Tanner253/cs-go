@@ -8,6 +8,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
 import { eyeHeight } from '../sim/movement';
+import { WEAPONS } from '../sim/weapons';
 import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
 import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
 import { SKINS } from './skins';
@@ -87,25 +88,27 @@ const AT_REST = { heat: { value: 0 }, ammo: { value: 1 } };
 /** Dress one world gun (a fresh clone, not yet attached) in its weapon's skin. */
 function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
   const skin = SKINS[WEAPON_OF_GUN[key] ?? ''];
+  const comes = WEAPONS[WEAPON_OF_GUN[key] ?? '']?.suppressor?.fitted === true;
+  const cans: THREE.Object3D[] = [];
+  obj.userData['cans'] = cans;
+  const left = new Set(s.assets.guns.get(key)?.hide ?? []);
   obj.updateMatrixWorld(true);
   const parts: { mesh: THREE.Mesh; role: Role }[] = [];
   const gunBox = new THREE.Box3(), cellBox = new THREE.Box3();
   obj.traverse((o) => {
     // Optional attachments are stored in these files but not fitted.
-    // (the 9A-91's suppressor is part of the gun)
-    if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
+    if (/^(foregrip|light)(_\d+)?$/.test(o.name) || left.has(o.name.replace(/_\d+$/, ''))) o.visible = false;
+    // (a suppressor is shown when the weapon has one on: see `quiet`)
+    const can = /^silencer(_\d+)?$/.test(o.name);
+    if (can) cans.push(o);
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
-    // (the lit mark in a sight's window is for the eye behind it)
-    if (/crosshair/i.test((mesh.material as THREE.Material).name)) {
-      mesh.visible = false;
-      return;
-    }
     mesh.castShadow = false;
     const role = roleOf(mesh.name);
     parts.push({ mesh, role });
     if (!skin || !o.visible) return;
-    tagGunSpace(mesh, mesh.matrixWorld, gunBox);
+    // (the paint is laid out round the gun as it comes)
+    tagGunSpace(mesh, mesh.matrixWorld, can && !comes ? undefined : gunBox);
     if (role === 'cell') tagGunSpace(mesh, mesh.matrixWorld, cellBox);
   });
   const length = new THREE.Vector2(gunBox.min.x, gunBox.max.x);
@@ -615,6 +618,8 @@ export class CharacterView {
     const def = p.weapons[p.active]?.def;
     this.setGun(def ? (WEAPON_LOOK[def.id]?.world ?? 'ak') : 'ak');
     const gun = this.gun;
+    const quiet = p.weapons[p.active]?.quiet === true;
+    for (const can of (this.guns.get(this.gunKey)?.userData['cans'] as THREE.Object3D[] | undefined) ?? []) can.visible = quiet;
     this.kick *= Math.exp(-dt * 16);
     if (gun && this.chest) {
       const obj = this.guns.get(this.gunKey)!;

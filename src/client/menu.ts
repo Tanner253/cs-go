@@ -60,9 +60,9 @@ export class Menu {
     this.buildSettings($('pause-settings'), false);
 
     const keys: [string, string][] = touch
-      ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim)'], ['ZOOM', 'scope'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold)'], ['SWAP', 'next weapon'], ['BUY', 'armory'], ['II', 'pause']]
+      ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim)'], ['ZOOM', 'scope / suppressor'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold)'], ['SWAP', 'next weapon'], ['BUY', 'armory'], ['II', 'pause']]
       : [
-          ['W A S D', 'move'], ['Mouse', 'aim'], ['Left click', 'fire'], ['Right click', 'scope'], ['Space', 'jump'],
+          ['W A S D', 'move'], ['Mouse', 'aim'], ['Left click', 'fire'], ['Right click', 'scope / suppressor'], ['Space', 'jump'],
           ['C / Ctrl', 'crouch'], ['Shift', 'walk (silent)'], ['R', 'reload'], ['E', 'plant / disarm (hold)'], ['F', 'inspect weapon'],
           ['B', 'armory'], ['1 2 3', 'primary / sidearm / knife'], ['Q', 'last weapon'], ['Wheel', 'cycle weapons'], ['Tab', 'scoreboard'], ['Esc', 'pause'],
         ];

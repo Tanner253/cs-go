@@ -3,6 +3,7 @@
 // directions as colours; the icon is the lines where its outline and its hard edges are.
 
 import * as THREE from 'three';
+import { WEAPONS } from '../sim/weapons';
 import { WEAPON_LOOK, getCharacters } from './assets';
 
 const W = 384, H = 192;
@@ -39,7 +40,7 @@ export class Thumbs {
       const gun = assets.guns.get(look.world);
       if (!gun) continue;
       try {
-        this.done.set(id, this.draw(look.world, gun.scene));
+        this.done.set(id, this.draw(gun.scene, gun.hide ?? [], WEAPONS[id]?.suppressor?.fitted === true));
       } catch (err) {
         console.warn('weapon icons unavailable', err);
         this.failed = true;
@@ -50,15 +51,20 @@ export class Thumbs {
     return false;
   }
 
-  private draw(key: string, model: THREE.Object3D): string {
+  /**
+   * @param hide pieces of the model that are not fitted
+   * @param comes the gun comes with its suppressor on
+   */
+  private draw(model: THREE.Object3D, hide: string[], comes: boolean): string {
+    const left = new Set(hide);
     const obj = model.clone(true);
     obj.traverse((o) => {
-      // Optional attachments are stored in these files but not fitted (the 9A-91's suppressor is part of the gun).
-      if (/^(silencer|foregrip|light)(_\d+)?$/.test(o.name) && key !== 'a91') o.visible = false;
+      // Optional attachments are stored in these files but not fitted; a suppressor is drawn on the gun that comes with one.
+      const piece = o.name.replace(/_\d+$/, '');
+      if (/^(foregrip|light)$/.test(piece) || left.has(piece) || (piece === 'silencer' && !comes)) o.visible = false;
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      if (/crosshair/i.test((mesh.material as THREE.Material).name)) mesh.visible = false;
-      else mesh.material = this.paint;
+      mesh.material = this.paint;
     });
 
     // In profile, in the middle of the frame, as large as fits.

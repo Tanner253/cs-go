@@ -41,6 +41,8 @@ export interface WeaponState {
   def: WeaponDef;
   mag: number;
   reserve: number;
+  /** A suppressor is on the muzzle. */
+  quiet: boolean;
 }
 
 export const HULL_HALF = 0.4;
@@ -98,6 +100,8 @@ export interface Player {
   lastActive: number;
   drawTimer: number;
   reloadTimer: number;
+  /** Seconds left of fitting or taking off the suppressor (0 = not). */
+  fitTimer: number;
   nextFireAt: number;
   lastShotAt: number;
   recoilIdx: number;
@@ -130,7 +134,7 @@ export type Phase = 'freeze' | 'live' | 'planted' | 'end' | 'over';
 export type WinReason = 'elimination' | 'time' | 'detonation' | 'disarm';
 
 export type SimEvent =
-  | { type: 'shot'; player: number; weapon: string; ox: number; oy: number; oz: number; ends: number[]; hitKinds: number[] }
+  | { type: 'shot'; player: number; weapon: string; ox: number; oy: number; oz: number; ends: number[]; hitKinds: number[]; quiet?: boolean }
   | { type: 'hit'; victim: number; attacker: number; damage: number; head: boolean; x: number; y: number; z: number }
   | { type: 'kill'; victim: number; killer: number; weapon: string; head: boolean; wallbang: boolean }
   | { type: 'step'; player: number; x: number; y: number; z: number }
@@ -144,6 +148,7 @@ export type SimEvent =
   | { type: 'dry'; player: number }
   | { type: 'draw'; player: number; weapon: string }
   | { type: 'scope'; player: number; level: number }
+  | { type: 'fit'; player: number; weapon: string; on: boolean }
   | { type: 'buy'; player: number; item: string; ok: boolean }
   | { type: 'knife'; player: number; hit: boolean }
   | { type: 'planted'; player: number; site: number; x: number; y: number; z: number }

@@ -6,7 +6,7 @@ import { World, newRayHit, newTrace } from './world';
 import { buildMap, inZone, type MapDef } from './map';
 import { Nav } from './nav';
 import { GRAVITY, endGrapple, eyeHeight, hullHeight, movePlayer } from './movement';
-import { DEFAULT_PISTOL, GEAR, WEAPONS, patternAt, type WeaponDef } from './weapons';
+import { DEFAULT_PISTOL, GEAR, SUPPRESSED_RANGE, SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt, type WeaponDef } from './weapons';
 import { Bot, assignRoles } from './bot';
 import {
   ATK, BTN_ALT, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, TICK,
@@ -192,7 +192,7 @@ export class Sim {
       mantleT: -1, mantleFrom: v3(), mantleTo: v3(),
       grappleOn: false, grapplePoint: v3(), grappleTime: 0, grappleReadyAt: 0,
       weapons: [null, null, null], active: 1, lastActive: 2,
-      drawTimer: 0, reloadTimer: 0, nextFireAt: 0, lastShotAt: -99, recoilIdx: 0,
+      drawTimer: 0, reloadTimer: 0, fitTimer: 0, nextFireAt: 0, lastShotAt: -99, recoilIdx: 0,
       punchPitch: 0, punchYaw: 0, fireSpread: 0, scope: 0, rescope: 0, fireBuffer: 0, useTime: 0, prevButtons: 0, spawnIndex: 0,
     };
     this.players.push(p);
@@ -225,7 +225,7 @@ export class Sim {
 
   private makeWeapon(id: string): WeaponState {
     const def = WEAPONS[id]!;
-    return { def, mag: def.magSize, reserve: def.reserve };
+    return { def, mag: def.magSize, reserve: def.reserve, quiet: !!def.suppressor?.fitted };
   }
 
   private resetLoadout(p: Player): void {
@@ -273,6 +273,7 @@ export class Sim {
       p.rescope = 0;
       p.fireBuffer = 0;
       p.reloadTimer = 0;
+      p.fitTimer = 0;
       p.recoilIdx = 0;
       p.punchPitch = p.punchYaw = 0;
       p.fireSpread = 0;
@@ -406,6 +407,7 @@ export class Sim {
     const def = p.weapons[slot]!.def;
     p.drawTimer = def.drawTime;
     p.reloadTimer = 0;
+    p.fitTimer = 0;
     p.scope = 0;
     p.rescope = 0;
     p.fireBuffer = 0;
@@ -468,8 +470,20 @@ export class Sim {
       w.mag += need;
       w.reserve -= need;
     }
+    // Fitting or taking off the suppressor: the hands are busy until it is done.
+    if (p.fitTimer > 0) {
+      p.fitTimer -= TICK;
+      if (p.fitTimer > 0) return;
+      p.fitTimer = 0;
+      w.quiet = !w.quiet;
+    }
     if (!canAct) return;
 
+    if (def.suppressor && pressed & BTN_ALT && now >= p.nextFireAt) {
+      p.fitTimer = SUPPRESSOR_TIME;
+      this.events.push({ type: 'fit', player: p.id, weapon: def.id, on: !w.quiet });
+      return;
+    }
     if (def.kind !== 'knife' && pressed & BTN_RELOAD && w.mag < def.magSize && w.reserve > 0) {
       this.startReload(p, w);
       return;
@@ -616,7 +630,7 @@ export class Sim {
       let dz = fwd.z + rz * sx + uz * sy;
       const inv = 1 / Math.sqrt(dx * dx + dy * dy + dz * dz);
       dx *= inv; dy *= inv; dz *= inv;
-      this.traceBullet(p, def, ox, oy, oz, dx, dy, dz, ends, kinds);
+      this.traceBullet(p, def, w.quiet ? SUPPRESSED_RANGE : 1, ox, oy, oz, dx, dy, dz, ends, kinds);
     }
 
     // The shot pushes the aim on by the pattern's next step from wherever it now is.
@@ -624,8 +638,9 @@ export class Sim {
     const fromPitch = punch.pitch, fromYaw = punch.yaw;
     p.recoilIdx += 1;
     patternAt(def, p.recoilIdx, punch);
-    p.punchPitch += punch.pitch - fromPitch;
-    p.punchYaw += punch.yaw - fromYaw;
+    const steady = w.quiet ? SUPPRESSED_RECOIL : 1;
+    p.punchPitch += (punch.pitch - fromPitch) * steady;
+    p.punchYaw += (punch.yaw - fromYaw) * steady;
     p.fireSpread = Math.min(def.spreadPerShot * 8, p.fireSpread + def.spreadPerShot);
     p.lastShotAt = now;
     if (def.kind === 'sniper' && p.scope > 0) {
@@ -633,11 +648,14 @@ export class Sim {
       p.scope = 0;
       this.events.push({ type: 'scope', player: p.id, level: 0 });
     }
-    this.events.push({ type: 'shot', player: p.id, weapon: def.id, ox, oy, oz, ends, hitKinds: kinds });
+    this.events.push(w.quiet
+      ? { type: 'shot', player: p.id, weapon: def.id, ox, oy, oz, ends, hitKinds: kinds, quiet: true }
+      : { type: 'shot', player: p.id, weapon: def.id, ox, oy, oz, ends, hitKinds: kinds });
   }
 
+  /** @param carry what the round keeps of its damage with every 10 m, on top of the gun's own falloff */
   private traceBullet(
-    p: Player, def: WeaponDef,
+    p: Player, def: WeaponDef, carry: number,
     ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
     ends: number[], kinds: number[],
   ): void {
@@ -669,7 +687,8 @@ export class Sim {
       if (victim) {
         const hx = sx + dx * vt, hy = sy + dy * vt, hz = sz + dz * vt;
         if (!recorded) { ends.push(hx, hy, hz, -dx, -dy, -dz); kinds.push(HIT_PLAYER); recorded = true; }
-        this.damage(victim, p, def, def.damage * factor, vgroup, travelled + vt, hx, hy, hz, wallbang);
+        const far = carry === 1 ? 1 : Math.pow(carry, (travelled + vt) / 10);
+        this.damage(victim, p, def, def.damage * factor * far, vgroup, travelled + vt, hx, hy, hz, wallbang);
         return;
       }
       if (!worldHit) {

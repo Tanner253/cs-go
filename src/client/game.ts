@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Sim } from '../sim/game';
 import { lerp, yawTo } from '../sim/math';
 import { ATK, DEF, HIT_PLAYER, HIT_WORLD, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
-import { WEAPONS } from '../sim/weapons';
+import { SUPPRESSOR_TIME, WEAPONS } from '../sim/weapons';
 import type { Replica } from '../net/replica';
 import { buildWorld } from './world';
 import { createGfx, setupEnvironment, type Gfx, type Quality } from './gfx';
@@ -320,31 +320,33 @@ export class GameApp {
           const s = sim.players[e.player]!;
           const def = WEAPONS[e.weapon]!;
           const own = s === view;
+          const quiet = e.quiet === true;
           let ox: number, oy: number, oz: number;
           if (own) {
-            this.vm.onShot(def);
+            this.vm.onShot(def, quiet);
             this.jolt.kick(def.kick * (def.auto ? 0.5 : 0.75));
             this.joltYaw.kick((Math.random() - 0.5) * def.kick * 0.22);
             this.fovKick = Math.min(2.5, this.fovKick + def.kick * 0.55);
-            this.audio.shot(def.kind, null, 0, 0, def.id, s.id);
+            this.audio.shot(def.kind, null, 0, 0, def.id, s.id, quiet);
             // Viewmodel muzzle -> world, compensating for the viewmodel's narrower FOV.
             const k = Math.tan((this.vm.camera.fov * Math.PI) / 360) / Math.tan((this.camera.fov * Math.PI) / 360);
             this.tmp.set(this.vm.muzzleWorld.x * k, this.vm.muzzleWorld.y * k, this.vm.muzzleWorld.z);
             this.camera.localToWorld(this.tmp);
             ox = this.tmp.x; oy = this.tmp.y; oz = this.tmp.z;
           } else {
-            this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id, s.id);
+            this.audio.shot(def.kind, e.ox, e.oy, e.oz, def.id, s.id, quiet);
             const m = this.chars[s.id]!.muzzle;
             this.chars[s.id]!.shot();
             ox = m.x; oy = m.y; oz = m.z;
-            this.fx.muzzleFlash(ox, oy, oz, 1);
+            this.fx.muzzleFlash(ox, oy, oz, quiet ? 0.3 : 1);
           }
-          this.fx.flashLight(ox, oy, oz);
+          // (a suppressed gun lights very little and shows no tracer)
+          this.fx.flashLight(ox, oy, oz, quiet ? 6 : 34);
           let nearest = Infinity, nx = 0, ny = 0, nz = 0;
           for (let i = 0; i < e.hitKinds.length; i++) {
             const b = i * 6;
             const ex = e.ends[b]!, ey = e.ends[b + 1]!, ez = e.ends[b + 2]!;
-            this.fx.tracer(ox, oy, oz, ex, ey, ez);
+            if (!quiet) this.fx.tracer(ox, oy, oz, ex, ey, ez);
             // Someone else's round going past the head (not into it).
             if (!own && view.alive && s.team !== view.team && e.hitKinds[i] !== HIT_PLAYER) {
               const cam = this.camera.position;
@@ -436,6 +438,9 @@ export class GameApp {
           break;
         case 'scope':
           if (sim.players[e.player] === view) this.audio.ui('scope');
+          break;
+        case 'fit':
+          if (sim.players[e.player] === view) this.audio.fit(e.on);
           break;
         case 'draw':
           if (sim.players[e.player] === view) this.audio.draw(e.weapon);
@@ -704,6 +709,8 @@ export class GameApp {
         recoilPitch: view.punchPitch,
         recoilYaw: view.punchYaw,
         scoped: view.scope > 0,
+        quiet: view.weapons[view.active]?.quiet === true,
+        fitT: view.fitTimer > 0 ? Math.max(0.001, 1 - view.fitTimer / SUPPRESSOR_TIME) : 0,
         grappling: false,
         mantling: false,
       });

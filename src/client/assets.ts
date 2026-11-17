@@ -32,6 +32,11 @@ export interface PackInfo {
   ownGun?: string[];
   /** how much of the firing movement's travel is shown (it is drawn for a heavier kick than this game's) */
   fireTravel?: number;
+  /**
+   * where this pack's left wrist sits against the middle of a suppressor the hand is holding
+   * (the gun's own space: along the barrel, up, to the right; metres)
+   */
+  canGrip?: V3;
 }
 
 /** A separate gun model mounted on a pack's joints. */
@@ -39,7 +44,10 @@ export interface GunMount {
   file: string;
   /** gun piece -> joint it rides on; pieces not listed ride with `base` */
   ride: Record<string, string>;
-  /** optional attachments stored in the file that are not fitted */
+  /**
+   * optional attachments stored in the file that are not fitted
+   * (a `silencer` is left to the weapon: fitted and taken off in play where it takes one, see `suppressor` in weapons.ts)
+   */
   hide?: string[];
   /** fine placement in the gun's own space */
   nudge?: V3;
@@ -73,6 +81,7 @@ export const PACKS: Record<string, PackInfo> = {
     hold: [0.1, -0.19, -0.09],
     // (as drawn, each shot brings the hand 10 cm back towards the eye)
     fireTravel: 0.4,
+    canGrip: [-0.06, -0.03, -0.01],
     frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.1514388, -0.0360554, 0.0042332, 1],
     ownGun: ['base', 'stopper', 'mag', 'hammer', 'trigger', 'slide'],
   },
@@ -88,6 +97,7 @@ export const PACKS: Record<string, PackInfo> = {
     clips: { fire: [0, 10], bolt: [10, 48], reload: [49, 97], inspect: [98, 147], idle: [148, 180], melee: [180, 200] },
     view: [-0.01, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, -0.01, 0, 0, 0, 0, 1],
     hold: [0.14, -0.22, -0.36],
+    canGrip: [-0.07, -0.045, -0.02],
     frame: [0, 0, -0.01, 0, 0, 0.01, 0, 0, 0.01, 0, 0, 0, -0.3425852, -0.0541586, -0.014514, 1],
     ownGun: ['base', 'scope', 'glass', 'boltrear', 'bolt', 'cheekrest', 'trigger', 'clip', 'bullet', 'silencer', 'mag'],
   },
@@ -137,12 +147,12 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     pack: 'm9', world: 'mp7', hold: SMG_HOLD, skip: ['fire'],
     // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
     // the stock is left off too: extended, its rails run past the camera)
-    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['silencer', 'foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
+    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
   },
   lumen: {
     pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true,
     // (this model has no separate trigger to measure: seated by eye)
-    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['silencer', 'foregrip', 'light'], nudge: [-0.134, -0.029, -0.017] },
+    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['foregrip', 'light', 'sight'], nudge: [-0.134, -0.029, -0.017] },
   },
   osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
   // ---- both sides ----
@@ -200,50 +210,11 @@ function reshape(name: string, g: GLTF): void {
   }
 }
 
-/**
- * Parts from another model fitted to a gun as it loads, so they are part of it everywhere it
- * is drawn (in hand, in other players' hands, in the armory): where the part's foot stands on
- * the gun (the gun's own space) and the size it is drawn at.
- */
-interface Fitted { part: string; at: V3; size: number }
-const HOLO = 'holo_sight.glb';
-const FITTED: Record<string, Fitted[]> = {};
-for (const [gun, fit] of [
-  // (on the top cover, behind the rear sight)
-  ['ak', { part: HOLO, at: [-0.095, 0.1062, 0.0012], size: 0.85 }],
-  // (on the rail along the top)
-  ['smg', { part: HOLO, at: [0.035, 0.082, -0.003], size: 0.62 }],
-  // (on its rail, between the folded irons, where its own painted-over optic stood)
-  ['mp7a1', { part: HOLO, at: [0.049, 0.1171, -0.0085], size: 0.66 }],
-  // (the Osprey's a91 keeps its own carry-handle sight: nothing is fitted)
-] as [string, Fitted][]) {
-  FITTED[`${gun}.glb`] = [fit];
-  FITTED[`world/${gun}_lod1.glb`] = [fit];
-}
-
-/** Stand a copy of each fitted part on the gun, as pieces named `optic`. */
-async function fit(name: string, g: GLTF): Promise<void> {
-  for (const { part, at, size } of FITTED[name] ?? []) {
-    const src = await loadFile(part);
-    if (!src) continue;
-    src.scene.updateMatrixWorld(true);
-    const seat = new THREE.Matrix4().compose(new THREE.Vector3(...at), new THREE.Quaternion(), new THREE.Vector3(size, size, size));
-    src.scene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      const piece = new THREE.Mesh(mesh.geometry, mesh.material);
-      piece.name = 'optic';
-      new THREE.Matrix4().copy(seat).multiply(mesh.matrixWorld).decompose(piece.position, piece.quaternion, piece.scale);
-      g.scene.add(piece);
-    });
-  }
-}
-
 function loadFile(name: string): Promise<GLTF | null> {
   let p = pending.get(name);
   if (!p) {
     p = loader.loadAsync(base + name).then(
-      async (g) => { reshape(name, g); await fit(name, g); files.set(name, g); return g; },
+      (g) => { reshape(name, g); files.set(name, g); return g; },
       (err) => { console.warn(`weapon file "${name}" failed to load`, err); files.set(name, null); return null; },
     );
     pending.set(name, p);
@@ -305,6 +276,8 @@ export interface WorldGun {
   fore?: number;
   /** muzzle tip in the gun's own space */
   muzzle: V3;
+  /** optics stored in the file that are not fitted (the guns are shot over their own sights) */
+  hide?: string[];
   /** a blade: its long axis is +y rather than +x, and it is held at `grip` in one hand */
   blade?: boolean;
   grip?: V3;
@@ -320,9 +293,9 @@ export interface CharacterAssets {
 // where the gun was seated in the first-person hands.)
 const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   ak: { file: 'world/ak_lod1.glb', carry: 'rifle', trigger: [-0.145, 0.024], muzzle: [0.455, 0.03, 0.01] },
-  ar15: { file: 'ar15_lod1.glb', carry: 'rifle', trigger: [-0.127, 0.02], muzzle: [0.373, 0.03, 0.01] },
+  ar15: { file: 'ar15_lod1.glb', carry: 'rifle', trigger: [-0.127, 0.02], muzzle: [0.373, 0.03, 0.01], hide: ['sight'] },
   smg: { file: 'world/smg_lod1.glb', carry: 'smg', trigger: [0.059, 0.018], fore: 0.12, muzzle: [0.25, 0.03, 0] },
-  mp7: { file: 'world/mp7a1_lod1.glb', carry: 'smg', trigger: [0.026, 0.046], fore: 0.2, muzzle: [0.466, 0.03, 0] },
+  mp7: { file: 'world/mp7a1_lod1.glb', carry: 'smg', trigger: [0.026, 0.046], fore: 0.2, muzzle: [0.466, 0.03, 0], hide: ['sight'] },
   m9: { file: 'world/m9_lod1.glb', carry: 'pistol', trigger: [0.077, 0.031], muzzle: [0.218, 0.06, 0] },
   colt: { file: 'world/colt_1911_lod1.glb', carry: 'pistol', trigger: [0.067, 0.031], muzzle: [0.181, 0.06, 0] },
   deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', trigger: [0.095, 0.024], muzzle: [0.263, 0.06, 0] },

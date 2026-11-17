@@ -1,27 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
-import { ATK, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, DEF, TICK, emptyCmd, type Cmd, type Player } from '../src/sim/types';
-import { WEAPONS, patternAt } from '../src/sim/weapons';
+import { ATK, BTN_ALT, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, DEF, TICK, emptyCmd, type Cmd, type Player, type SimEvent, type Team } from '../src/sim/types';
+import { SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt } from '../src/sim/weapons';
+import { decodePlayer, encodePlayer } from '../src/net/protocol';
 
 /** A sim with one human and no opposition interfering: freeze time skipped. */
-function soloSim(vertical = false): { sim: Sim; me: Player; step: (cmd: Partial<Cmd>, ticks?: number) => void } {
-  const sim = new Sim({ teamSize: 1, humanTeam: ATK, rules: { freezeTime: 0.02, roundTime: 9999, verticalKit: vertical } });
+function soloSim(vertical = false, team: Team = ATK): {
+  sim: Sim; me: Player; step: (cmd: Partial<Cmd>, ticks?: number) => void; seen: SimEvent[];
+} {
+  const sim = new Sim({ teamSize: 1, humanTeam: team, rules: { freezeTime: 0.02, roundTime: 9999, verticalKit: vertical } });
   const me = sim.human!;
   const cmd = emptyCmd();
+  /** Every event since the test last emptied it. */
+  const seen: SimEvent[] = [];
   const step = (c: Partial<Cmd>, ticks = 1) => {
     for (let i = 0; i < ticks; i++) {
       Object.assign(cmd, emptyCmd(), { yaw: me.yaw, pitch: me.pitch }, c);
       sim.tick((p) => (p === me ? cmd : null));
+      seen.push(...sim.events);
       sim.events.length = 0;
     }
   };
   // Park the lone enemy bot far away and make it harmless.
-  const enemy = sim.players.find((p) => p.team === DEF)!;
+  const enemy = sim.players.find((p) => p.team !== team)!;
   enemy.pos.x = 0; enemy.pos.z = -33;
   sim.bots.clear();
   enemy.isBot = false;
   step({}, 4);
-  return { sim, me, step };
+  return { sim, me, step, seen };
 }
 
 describe('navigation', () => {
@@ -230,6 +236,119 @@ describe('gunplay', () => {
     expect(me.kills).toBe(1);
     // rifle price, kill reward, then the round-win bonus for eliminating the other team
     expect(me.money).toBe(5000 - 2700 + 300 + 3250);
+  });
+});
+
+describe('suppressors', () => {
+  /** A defender holding `id`, drawn and ready, the enemy standing `far` metres in front. */
+  const armed = (id: string, far = 8) => {
+    const t = soloSim(false, DEF);
+    const { sim, me, step } = t;
+    const enemy = sim.players.find((p) => p.team === ATK)!;
+    sim.phase = 'freeze';
+    me.money = 16000;
+    expect(sim.tryBuy(me, id)).toBe(true);
+    sim.phase = 'live';
+    // (down the long west lane: thirty metres of clear, level ground)
+    me.pos.x = -26; me.pos.z = 24; me.pos.y = 0.002;
+    enemy.pos.x = -26; enemy.pos.z = 24 - far; enemy.pos.y = 0.002;
+    step({ yaw: 0, pitch: 0 }, 64);
+    t.seen.length = 0;
+    return { ...t, enemy, gun: me.weapons[0]! };
+  };
+  const fitTicks = Math.ceil(SUPPRESSOR_TIME / TICK) + 2;
+
+  it('the Osprey comes with one on, the Lumen and Hornet without; other guns take none', () => {
+    expect(armed('osprey').gun.quiet).toBe(true);
+    expect(armed('lumen').gun.quiet).toBe(false);
+    expect(armed('hornet').gun.quiet).toBe(false);
+    const { me, step, seen } = armed('breaker');
+    step({ buttons: BTN_ALT });
+    step({}, fitTicks);
+    expect(me.fitTimer).toBe(0);
+    expect(me.weapons[0]!.quiet).toBe(false);
+    expect(seen.some((e) => e.type === 'fit')).toBe(false);
+  });
+
+  it('alt-fire fits it, which takes time and both hands; again takes it off', () => {
+    const { me, step, seen, gun } = armed('lumen');
+    step({ buttons: BTN_ALT });
+    expect(me.fitTimer).toBeGreaterThan(SUPPRESSOR_TIME - 2 * TICK);
+    expect(seen.filter((e) => e.type === 'fit')).toEqual([{ type: 'fit', player: me.id, weapon: 'lumen', on: true }]);
+    // Holding the button does not start it again, and the gun cannot be fired meanwhile.
+    step({ buttons: BTN_ALT | BTN_FIRE }, 30);
+    expect(gun.mag).toBe(30);
+    expect(gun.quiet).toBe(false);
+    step({}, fitTicks);
+    expect(me.fitTimer).toBe(0);
+    expect(gun.quiet).toBe(true);
+    expect(seen.filter((e) => e.type === 'fit')).toHaveLength(1);
+    step({ buttons: BTN_ALT });
+    step({}, fitTicks);
+    expect(gun.quiet).toBe(false);
+  });
+
+  it('putting the gun away part-way leaves it as it was', () => {
+    const { me, step, gun } = armed('osprey');
+    step({ buttons: BTN_ALT });
+    step({}, 40);
+    step({ slot: 1 });
+    expect(me.fitTimer).toBe(0);
+    step({}, fitTicks);
+    step({ slot: 0 }, 1);
+    step({}, 64);
+    expect(gun.quiet).toBe(true);
+  });
+
+  it('fitted, the gun climbs less, is marked quiet, and loses a little more with distance', () => {
+    const spray = (quiet: boolean, far: number) => {
+      const t = armed('lumen', far);
+      t.gun.quiet = quiet;
+      // (aimed at the chest, so every round of a short burst lands)
+      const pitch = Math.atan2(1.3 - 1.63, far);
+      t.step({ yaw: 0, pitch, buttons: BTN_FIRE });
+      const first = 100 - t.enemy.hp;
+      t.enemy.hp = 100000;
+      t.step({ yaw: 0, pitch, buttons: BTN_FIRE }, 40);
+      const shots = t.seen.filter((e) => e.type === 'shot');
+      return { first, climb: t.me.punchPitch, shots };
+    };
+    const loud = spray(false, 8), quiet = spray(true, 8);
+    expect(loud.shots.length).toBeGreaterThan(4);
+    expect(quiet.shots.length).toBe(loud.shots.length);
+    expect(quiet.climb / loud.climb).toBeCloseTo(SUPPRESSED_RECOIL, 3);
+    expect(loud.shots.every((e) => e.type === 'shot' && e.quiet === undefined)).toBe(true);
+    expect(quiet.shots.every((e) => e.type === 'shot' && e.quiet === true)).toBe(true);
+    // Up close the two hit alike; far off the suppressed round has lost more.
+    expect(loud.first).toBeGreaterThan(20);
+    expect(loud.first - quiet.first).toBeLessThanOrEqual(1);
+    const farLoud = spray(false, 26), farQuiet = spray(true, 26);
+    expect(farLoud.first).toBeGreaterThan(farQuiet.first);
+    expect(farQuiet.first).toBeGreaterThan(farLoud.first * 0.9);
+  });
+
+  it('the Osprey with its suppressor on shoots as it always has', () => {
+    const p = { pitch: 0, yaw: 0 };
+    const DEG = Math.PI / 180;
+    patternAt(WEAPONS['osprey']!, 8, p);
+    expect((p.pitch * SUPPRESSED_RECOIL) / DEG).toBeCloseTo(4.6, 1);
+    patternAt(WEAPONS['osprey']!, 13, p);
+    expect(Math.abs((p.yaw * SUPPRESSED_RECOIL) / DEG - 1.3)).toBeLessThan(0.1);
+    expect(Math.pow(WEAPONS['osprey']!.rangeMod * 0.985, 3)).toBeCloseTo(Math.pow(0.95, 3), 2);
+  });
+
+  it('is carried in what the server tells clients', () => {
+    const { me, step, gun } = armed('lumen');
+    step({ buttons: BTN_ALT });
+    step({}, 10);
+    const other = soloSim(false, DEF).me;
+    decodePlayer(other, encodePlayer(me));
+    expect(other.fitTimer).toBeCloseTo(me.fitTimer, 3);
+    expect(other.weapons[0]!.quiet).toBe(false);
+    gun.quiet = true;
+    decodePlayer(other, encodePlayer(me));
+    expect(other.weapons[0]!.quiet).toBe(true);
+    expect(other.weapons[1]!.quiet).toBe(false);
   });
 });
 

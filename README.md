@@ -34,7 +34,7 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
 |---|---|---|
 | Sidearm | Kite-9 (M9) | Tern P7 (1911) |
 | SMG | Wasp SMG | Hornet PDW (MP7) |
-| Budget rifle | Mako Carbine (AKS-74U) | Osprey SD (9A-91, suppressed) |
+| Budget rifle | Mako Carbine (AKS-74U) | Osprey SD (9A-91, comes suppressed) |
 | Rifle | Hammerhead AR (AK) | Lumen AR (AR-15) |
 | Both sides | Stinger MP (machine pistol), Maul .50 (Desert Eagle), Breaker (pump shotgun), Thresher DB (sawn-off), Longsight (bolt-action sniper, AWP class), Colossus .50 (semi-auto sniper), Edge knife | |
 
@@ -42,6 +42,13 @@ Each has its own model, sound, stats and painted skin (`src/client/skins.ts`): a
 light-emitting lines that flare as the gun heats up, and a magazine that glows as an ammo
 gauge. Every gun is held by the same pair of arms: the gun model is mounted piece by piece on
 the joints of one of three animated arm packs by the same artist (`src/client/assets.ts`).
+The guns are shot over their own sights: nothing is fitted to a gun that did not come with it.
+
+**Suppressors.** The Osprey, Lumen and Hornet take one. Right click (ZOOM on touch) fits it or
+takes it off, which takes 1.7 seconds and both hands. Fitted, the gun is quiet (heard from less
+than half as far, by players and bots alike), shows no tracer and almost no flash, and climbs
+15% less; its rounds lose 1.5% more of their damage with every 10 m. The Osprey comes with
+its suppressor on; the other two come without.
 The armory (B) lists them in columns as plain line icons, with stat bars for the one in
 focus; press a column's number, then the item's.
 
@@ -108,7 +115,7 @@ the lobby screen says so while it waits.
 | Action | Desktop | Touch |
 |---|---|---|
 | Move / look | WASD / mouse | left stick / drag |
-| Fire / scope | left click / right click | FIRE / ZOOM |
+| Fire / scope or suppressor | left click / right click | FIRE / ZOOM |
 | Jump / crouch / walk | Space / C or Ctrl / Shift | JUMP / DUCK |
 | Reload / use | R / E (plant, disarm) | RLD / USE |
 | Inspect weapon | F | — |

@@ -38,6 +38,7 @@ const numbered = (name: string, n: number): string[] => Array.from({ length: n }
 const isMp3 = (file: string): boolean => /^(reload_|knife_|cloth_)/.test(file);
 
 const SHOT = { ref: 20, wet: 0.18, jitter: 0.02 };
+const QUIET = { ref: 8, wet: 0.1, jitter: 0.02 };
 
 export const CUES: Record<string, Cue> = {
   // ---- gunshots: one recording set per weapon ----
@@ -52,9 +53,13 @@ export const CUES: Record<string, Cue> = {
   'shot.longsight': { files: takes('shot_bolt', 2), level: -14, rate: 0.94, ...SHOT, wet: 0.28 },
   'shot.stinger': { files: takes('shot_pistol380', 2), level: -18, rate: 1.06, ...SHOT },
   'shot.mako': { files: takes('shot_carbine', 2), level: -16, ...SHOT },
-  'shot.osprey': { files: takes('shot_blackout', 2), level: -19, rate: 0.96, ...SHOT, wet: 0.1 },
+  'shot.osprey': { files: takes('shot_carbine', 2), level: -16.5, rate: 0.92, ...SHOT },
   'shot.thresher': { files: takes('shot_shotgun_b', 2), level: -14, rate: 0.92, ...SHOT },
   'shot.colossus': { files: takes('shot_magnum', 2), level: -13, rate: 0.86, ...SHOT, wet: 0.3 },
+  // ---- suppressed: one recording, pitched to the gun; it carries less than half as far ----
+  'shot.osprey.quiet': { files: takes('shot_blackout', 2), level: -19, rate: 0.96, ...QUIET },
+  'shot.lumen.quiet': { files: takes('shot_blackout', 2), level: -19, rate: 1.06, ...QUIET },
+  'shot.hornet.quiet': { files: takes('shot_blackout', 2), level: -20, rate: 1.2, ...QUIET },
   // ---- weapon handling ----
   'reload.pistol': { files: ['reload_pistol'], level: -30, ref: 2, wet: 0.04 },
   'reload.rifle': { files: ['reload_rifle'], level: -29, ref: 2, wet: 0.04 },
@@ -279,7 +284,7 @@ export class GameAudio {
    * A gunshot. `x` null = your own gun. `shooter` identifies who fired so rapid fire from
    * one gun chokes its previous tail instead of stacking twenty of them.
    */
-  shot(kind: WeaponKind, x: number | null, y = 0, z = 0, id = '', shooter = -1): void {
+  shot(kind: WeaponKind, x: number | null, y = 0, z = 0, id = '', shooter = -1, quiet = false): void {
     const ctx = this.ctx;
     if (!ctx || kind === 'knife') return;
     const prev = this.lastShot.get(shooter);
@@ -287,7 +292,7 @@ export class GameAudio {
       prev.gain.gain.cancelScheduledValues(ctx.currentTime);
       prev.gain.gain.setTargetAtTime(0, ctx.currentTime + 0.04, 0.06);
     }
-    const v = this.play(`shot.${id}`, x, y, z, x === null ? 1 : 1.15);
+    const v = this.play(quiet && CUES[`shot.${id}.quiet`] ? `shot.${id}.quiet` : `shot.${id}`, x, y, z, x === null ? 1 : 1.15);
     if (v) this.lastShot.set(shooter, v);
     // Your own bolt or pump being worked.
     if (x === null && (kind === 'sniper' || kind === 'shotgun')) {
@@ -320,6 +325,13 @@ export class GameAudio {
     }
     this.play('draw', null);
     this.play('draw_metal', null, 0, 0, 1, 0.14);
+  }
+
+  /** Your own suppressor being screwed on or off: a few turns of metal on metal, then it seats (or comes free). */
+  fit(on: boolean): void {
+    for (const at of [0.5, 0.72, 0.94]) this.play('draw_metal', null, 0, 0, 0.8, at);
+    this.play('bolt', null, 0, 0, 0.9, on ? 1.2 : 0.42);
+    this.play('draw', null, 0, 0, 1, on ? 0.05 : 1.15);
   }
 
   dry(): void {

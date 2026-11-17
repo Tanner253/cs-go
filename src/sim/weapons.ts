@@ -48,7 +48,18 @@ export interface WeaponDef {
   /** Viewmodel feel. */
   kick: number;
   range: number;
+  /**
+   * The gun takes a suppressor, fitted or taken off with alt-fire: `fitted` is how it comes
+   * when bought. The numbers above are the gun's without one.
+   */
+  suppressor?: { fitted: boolean };
 }
+
+/** Seconds to fit or take off a suppressor. */
+export const SUPPRESSOR_TIME = 1.7;
+/** Fitted, it tames the recoil and costs the round a little of its energy with every 10 m. */
+export const SUPPRESSED_RECOIL = 0.85;
+export const SUPPRESSED_RANGE = 0.985;
 
 /**
  * A deterministic, learnable spray pattern in the manner of Counter-Strike's.
@@ -138,6 +149,7 @@ const defs: WeaponDef[] = [
     magSize: 30, reserve: 120, reloadTime: 3.0, drawTime: 0.6, maxSpeed: 5.6,
     spreadStand: 0.0075, spreadCrouch: 0.006, spreadMove: 0.03, spreadAir: 0.16, spreadPerShot: 0.0026, spreadDecay: 5.5,
     pattern: spray(30, 3.7, 10, 0.4, [[9, 0.35], [16, -0.9], [24, 0.8], [29, 0.2]], 22), penetration: 0.35, kick: 0.55, range: 120,
+    suppressor: { fitted: false },
   },
   {
     id: 'breaker', name: 'Breaker', kind: 'shotgun', slot: 0, price: 1100, killReward: 900, team: -1,
@@ -163,12 +175,14 @@ const defs: WeaponDef[] = [
     pattern: spray(30, 6.8, 8, 0.5, [[6, -0.7], [12, 2.2], [20, -2.4], [29, 1.6]], 43), penetration: 0.8, kick: 0.9, range: 200,
   },
   {
-    // Defenders' budget rifle: suppressed, steady, a small magazine.
+    // Defenders' budget rifle: comes suppressed, steady, a small magazine.
+    // (its numbers are the bare gun's, set so that with the suppressor on it shoots as it always has)
     id: 'osprey', name: 'Osprey SD', kind: 'rifle', slot: 0, price: 2050, killReward: 300, team: 1,
-    damage: 30, armorPen: 0.7, rangeMod: 0.95, headMult: 4, rpm: 600, auto: true, pellets: 1,
+    damage: 30, armorPen: 0.7, rangeMod: 0.9645, headMult: 4, rpm: 600, auto: true, pellets: 1,
     magSize: 20, reserve: 80, reloadTime: 2.9, drawTime: 0.7, maxSpeed: 5.8,
     spreadStand: 0.0036, spreadCrouch: 0.0028, spreadMove: 0.1, spreadAir: 0.26, spreadPerShot: 0.003, spreadDecay: 5.2,
-    pattern: spray(20, 4.6, 8, 0.4, [[8, 0.3], [13, 1.3], [19, -0.8]], 44), penetration: 0.8, kick: 0.7, range: 200,
+    pattern: spray(20, 5.41, 8, 0.47, [[8, 0.35], [13, 1.53], [19, -0.94]], 44), penetration: 0.8, kick: 0.7, range: 200,
+    suppressor: { fitted: true },
   },
   {
     id: 'hammerhead', name: 'Hammerhead AR', kind: 'rifle', slot: 0, price: 2700, killReward: 300, team: 0,
@@ -183,6 +197,7 @@ const defs: WeaponDef[] = [
     magSize: 30, reserve: 90, reloadTime: 3.0, drawTime: 0.7, maxSpeed: 5.72,
     spreadStand: 0.0033, spreadCrouch: 0.0025, spreadMove: 0.1, spreadAir: 0.26, spreadPerShot: 0.003, spreadDecay: 5,
     pattern: spray(30, 5.8, 9, 0.4, [[6, 0.35], [9, -1.25], [14, 2.1], [19, 2.5], [24, -0.45], [29, -0.6]], 42), penetration: 0.9, kick: 0.85, range: 200,
+    suppressor: { fitted: false },
   },
   {
     id: 'longsight', name: 'Longsight', kind: 'sniper', slot: 0, price: 4750, killReward: 100, team: -1,
