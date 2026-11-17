@@ -57,6 +57,19 @@ No sounds come from ZONA.
 
 Every gun and the arms are repainted in game (`src/client/finish.ts`, `skins.ts`): the models' own colours are replaced by a pattern and light-emitting lines drawn by a shader.
 
+## Grenades and explosions
+
+- This work is based on "Frag Granade" (https://sketchfab.com/3d-models/frag-granade-e715224c90e34b949939adaca382cd0e) by MB_Cre8 (https://sketchfab.com/MB_Cre81) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+  Files: `public/assets/weapons/frag_grenade.glb`, `frag_grenade_lod1.glb`. Changes made (by the ZONA project): scaled to life size, stood on the ground about its own middle, textures re-encoded as WebP, geometry compressed. In the game its pin and ring are drawn out by the left hand and its lever flies off as it is thrown.
+- "Smoke grenade", made for ZONA with Higgsfield (Tripo text-to-3D) on the owner's account. Used for the smoke, the flashbang and the incendiary, each in its own colour.
+  Files: `public/assets/weapons/smoke_grenade.glb`, `smoke_grenade_lod1.glb`.
+- This work is based on "Isopropyl Rubbing Alcohol Bottle Game Ready" (https://sketchfab.com/3d-models/isopropyl-rubbing-alcohol-bottle-game-ready-a323700f7c93400aba8000f2f2a7e8e0) by KQ92 (https://sketchfab.com/KQ92) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+  Files: `public/assets/weapons/alcohol_bottle.glb`. Changes made (by the ZONA project): stood on the ground about its own middle, textures re-encoded as WebP, geometry compressed. The molotov.
+- The smoke, dust, clods, sparks, rays and rings of an explosion: [Particle Pack](https://kenney.nl/assets/particle-pack) by Kenney (CC0 1.0), set out as one sheet by the ZONA project.
+  Files: `public/assets/fx/blast.webp`.
+- This work is based on "Campfire" (https://sketchfab.com/3d-models/campfire-fcb278e6a64c4a34ba84b2b1fce8c3c0) by Zelad (https://sketchfab.com/zelad3d) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+  Files: `public/assets/fx/flames.webp`. Changes made: only its sheet of flame pictures is used (re-encoded as WebP by the ZONA project); five of them are the fireball of an explosion and the flames of a molotov's fire, each pushed about from inside so that it boils and coloured anew from how hot each point of it is (`src/client/blast.ts`).
+
 ## Player character
 
 - This work is based on "Military tactical suit (LowPolyGameReady)" (https://sketchfab.com/3d-models/military-tactical-suit-lowpolygameready-ef698ce36b1545a78ce592dd3db4c7ed) by DanlyVostok (https://sketchfab.com/1799danly) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
@@ -73,8 +86,9 @@ Files: `public/assets/audio/*`, built by `tools/build-sounds.mjs` from packs dow
 their own publishers. No sound is taken from another game.
 
 - Gunshots, reloads, racks, slides and bolts: recordings of real guns from [Snake's Authentic Gun Sounds](https://f8studios.itch.io/snakes-authentic-gun-sounds) and [Snake's SECOND Authentic Gun Sounds](https://f8studios.itch.io/snakes-second-authentic-gun-sounds-pack) by Snake / F8 Studios (free for commercial use, credit not required and given gladly). Used as recorded: cut at the shot, played a little faster or slower where one calibre stands in for another, faded and levelled by `tools/build-sounds.mjs`. The suppressed shots are the same recordings with the top taken off.
-- Footsteps, landings, hit and impact sounds, metal clicks: [Impact Sounds](https://kenney.nl/assets/impact-sounds) by Kenney (CC0 1.0). Interface sounds: [Interface Sounds](https://kenney.nl/assets/interface-sounds) by Kenney (CC0 1.0). Explosion: [Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) by Kenney (CC0 1.0). Decoded from Ogg to WAV.
+- Footsteps, landings, hit and impact sounds, metal clicks: [Impact Sounds](https://kenney.nl/assets/impact-sounds) by Kenney (CC0 1.0). Interface sounds: [Interface Sounds](https://kenney.nl/assets/interface-sounds) by Kenney (CC0 1.0). Decoded from Ogg to WAV. (The charge's explosion is the HE grenade's dynamite recording below, played deeper.)
 - Knife (CC0 1.0, from freesound.org, as prepared by WebStrafe): [Knife Swing 1_4, 1_5 and 1_7](https://freesound.org/people/Joao_Janz/packs/27423/) by Joao_Janz; [Knife Stabs into Foam Block](https://freesound.org/s/870740/) by CHallSmith; [Knife Stab Pull](https://freesound.org/s/411742/) by neilsher; [Knife scrape and hit](https://freesound.org/s/434338/) by draftcraft; [Knife on Jeans](https://freesound.org/s/329358/) by bassoonrckr; [Schwing 1](https://freesound.org/s/524215/) by magnuswaker.
+- Grenades (CC0 1.0, from freesound.org): [Dynamite explosion in the mountain](https://freesound.org/s/251401/) by felix.blume (the HE grenade, with the crack of [Firecracker Explosion](https://freesound.org/s/609588/) by unfa on its front); [EXPLODE_FIRECRACKER.wav](https://freesound.org/s/462363/) by keng-wai-chane-chick-te and [firecracker](https://freesound.org/s/263536/) by grobbd (the flashbang); [Smoke Bomb](https://freesound.org/s/332602/) by vckhaze (the smoke, and a fire put out); [Grenade with Pin Handling](https://freesound.org/s/876008/) by loganzsound (the pin); [small metal object fall](https://freesound.org/s/259553/) by nicktermer (a grenade bouncing); [Glass_Smash.wav](https://freesound.org/s/343756/) by Brokenphono and [Breaking a glass bottle](https://freesound.org/s/212698/) by dasebr (the molotov); [fire crackles](https://freesound.org/s/563766/) by florianreichelt (the fire). Cut, filtered of rumble, faded and levelled by `tools/build-sounds.mjs`.
 - The beep of the planted charge is synthesised.
 
 ## Code and fonts

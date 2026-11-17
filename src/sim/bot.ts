@@ -7,10 +7,13 @@ import { angleDelta, clamp, lerp, v3, wrapAngle, yawTo, type Vec3 } from './math
 import { eyeHeight } from './movement';
 import type { RouteDef } from './map';
 import {
-  ATK, BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, DEF,
+  ATK, BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, DEF, SLOT_NADE,
   type Cmd, type Player,
 } from './types';
 import type { Sim } from './game';
+import { NADE_INDEX } from './weapons';
+import { PIN_TIME } from './grenades';
+import { solveThrow, type ThrowPlan } from './bot-nades';
 
 export type BotMode =
   | 'freeze' | 'wait' | 'move' | 'stage' | 'hold' | 'guard' | 'fight' | 'cover'
@@ -46,8 +49,11 @@ class Board {
   claims = new Map<number, Vec3>();
   eco = false;
   ecoRound = -1;
+  /** Where the team has put grenades lately, so two bots never smoke the same spot. */
+  nadeSpots: { x: number; z: number; t: number }[] = [];
 
   reset(): void {
+    this.nadeSpots.length = 0;
     this.sight.length = 0;
     this.heat = [[], []];
     this.chargeSite = -1;
@@ -64,6 +70,8 @@ class Board {
 class Tactics {
   bots: Bot[] = [];
   boards: [Board, Board] = [new Board(), new Board()];
+  /** The tick a bot last worked out a throw on (one a tick, so no tick runs long). */
+  solveTick = -1;
   /** Densified walking line for each attack route (spawn -> waypoints -> site). */
   routeLines = new Map<string, Vec3[]>();
 }
@@ -217,6 +225,12 @@ export class Bot {
   private rotateAt = -99;
   private bought = false;
   private buyAt = 0;
+  /** A grenade being thrown: how, and when it was decided on. */
+  private throwing: (ThrowPlan & { since: number }) | null = null;
+  private nadeCheckAt = 0;
+  /** After throwing a flashbang: looking away from it until this time. */
+  private awayUntil = -99;
+  private awayYaw = 0;
 
   constructor(readonly me: Player, private sim: Sim) {
     this.nextSense = (me.id % 6) / 64;
@@ -246,6 +260,8 @@ export class Bot {
     this.nextLook = 0;
     this.bought = false;
     this.buyAt = sim.time + 0.3 + rng.next() * 1.6;
+    this.throwing = null;
+    this.nadeCheckAt = 0;
     this.aimYaw = this.lookYaw = this.me.yaw;
     this.aimPitch = this.lookPitch = 0;
     this.spot = null;
@@ -393,17 +409,21 @@ export class Bot {
   // ======================================================================================
 
   private canSee(e: Player, d: number): boolean {
-    const me = this.me;
+    const me = this.me, sim = this.sim;
     if (d > 85) return false;
+    // (flashed: nothing, until the white has thinned)
+    if (sim.blindFor(me) > 0.7) return false;
     if (d > 2.5) {
       const off = Math.abs(angleDelta(this.aimYaw, yawTo(me.pos.x, me.pos.z, e.pos.x, e.pos.z)));
       if (off > 1.08) return false; // ~125 degree field of view
     }
     const oy = this.eye();
     const s = 1 - 0.25 * e.crouchT;
+    // (a sight line counts if no wall stands in it and no smoke hides the far end of it)
+    const ey = e.pos.y + eyeHeight(e) + 0.05, cy = e.pos.y + 1.05 * s;
     return (
-      this.los(me.pos.x, oy, me.pos.z, e.pos.x, e.pos.y + eyeHeight(e) + 0.05, e.pos.z) ||
-      this.los(me.pos.x, oy, me.pos.z, e.pos.x, e.pos.y + 1.05 * s, e.pos.z)
+      (this.los(me.pos.x, oy, me.pos.z, e.pos.x, ey, e.pos.z) && !sim.smokeBlocks(me.pos.x, oy, me.pos.z, e.pos.x, ey, e.pos.z)) ||
+      (this.los(me.pos.x, oy, me.pos.z, e.pos.x, cy, e.pos.z) && !sim.smokeBlocks(me.pos.x, oy, me.pos.z, e.pos.x, cy, e.pos.z))
     );
   }
 
@@ -1108,6 +1128,90 @@ export class Bot {
       if (!sim.tryBuy(me, 'armorhelmet')) sim.tryBuy(me, 'armor');
     }
     if (me.team === DEF && !B.eco && me.money >= 400 && (me.weapons[0] || me.money >= 900)) sim.tryBuy(me, 'kit');
+    // Grenades with what is left: each side's habits, in a different order each round; never on a save.
+    if (!B.eco && me.weapons[0]) {
+      const fire = me.team === ATK ? 'molotov' : 'incendiary';
+      const wants = me.team === ATK ? ['smoke', 'flash', fire, 'frag', 'flash'] : ['frag', 'flash', fire, 'smoke'];
+      const start = rng.int(wants.length);
+      for (let k = 0; k < wants.length; k++) {
+        const id = wants[(start + k) % wants.length]!;
+        if (me.money >= 900 || (me.money >= 300 && rng.next() < 0.5)) sim.tryBuy(me, id);
+      }
+    }
+  }
+
+  /**
+   * Decide on a grenade, if there is one worth throwing from here: fire or an HE grenade at an
+   * enemy known to be behind cover close by; going onto a site, smoke on the defenders' spots and a
+   * flash over it; with the charge down and defenders closing on it, fire on the charge.
+   */
+  private planNade(): void {
+    const sim = this.sim, me = this.me, now = sim.time, rng = sim.rng, B = this.board();
+    if ((sim.phase !== 'live' && sim.phase !== 'planted') || me.reloadTimer > 0 || !me.nades.some((n) => n > 0)) return;
+    if (rng.next() > 0.3 + this.skill * 0.55) return;
+    const has = (id: string): number => { const i = NADE_INDEX.get(id)!; return me.nades[i]! > 0 ? i : -1; };
+    const fire = has(me.team === ATK ? 'molotov' : 'incendiary'), he = has('frag'), smoke = has('smoke'), flash = has('flash');
+    const tries: [kind: number, x: number, y: number, z: number, within: number][] = [];
+    const s = this.threat(4, 26);
+    if (s && !this.visible) {
+      const d = Math.hypot(s.x - me.pos.x, s.z - me.pos.z);
+      if (d > 6) {
+        if (he >= 0) tries.push([he, s.x, s.y, s.z, 2.5]);
+        if (fire >= 0 && d < 22) tries.push([fire, s.x, s.y, s.z, 2]);
+        if (flash >= 0 && d < 16) tries.push([flash, s.x, s.y + 1.6, s.z, 4]);
+      }
+    }
+    if (me.team === ATK && B.execute && now - B.executeAt < 10) {
+      const site = sim.map.sites[B.site]!;
+      const d = Math.hypot(site.center.x - me.pos.x, site.center.z - me.pos.z);
+      if (d > 8 && d < 32) {
+        if (smoke >= 0) for (const h of site.holds) tries.push([smoke, h.pos.x, h.pos.y, h.pos.z, 2.5]);
+        if (flash >= 0) tries.push([flash, site.center.x, site.center.y + 1.8, site.center.z, 5]);
+      }
+    }
+    const c = sim.charge;
+    if (me.team === ATK && sim.phase === 'planted' && c.state === 'planted' && fire >= 0) {
+      const d = Math.hypot(c.pos.x - me.pos.x, c.pos.z - me.pos.z);
+      const closing = B.sight.some((t) => !!t && now - t.t < 3 && Math.hypot(t.x - c.pos.x, t.z - c.pos.z) < 9);
+      if (closing && d > 7 && d < 24) tries.push([fire, c.pos.x, c.pos.y, c.pos.z, 1.5]);
+    }
+    const T = tac(sim);
+    let solved = 0;
+    for (const [kind, x, y, z, within] of tries) {
+      if (B.nadeSpots.some((p) => now - p.t < 8 && Math.hypot(p.x - x, p.z - z) < 3.5)) continue;
+      // (a flashbang is not thrown where a teammate would be looking at it)
+      if (kind === flash && sim.players.some((m) => m !== me && m.alive && m.team === me.team && Math.hypot(m.pos.x - x, m.pos.z - z) < 12)) continue;
+      // One throw worked out a tick between all the bots, and two at most for this one now.
+      if (T.solveTick === sim.tickCount || solved >= 2) { this.nadeCheckAt = now + 0.1; return; }
+      T.solveTick = sim.tickCount;
+      solved++;
+      const plan = solveThrow(sim.world, me, kind, x, y, z, within);
+      if (!plan) continue;
+      this.throwing = { ...plan, since: now };
+      B.nadeSpots.push({ x, z, t: now });
+      return;
+    }
+  }
+
+  /** One tick of a throw: the grenade out, the aim on, the pin pulled, let go. */
+  private throwStep(cmd: Cmd): void {
+    const me = this.me, now = this.sim.time, T = this.throwing!;
+    if (me.active !== 3 || me.nadeSel !== T.kind) {
+      if (me.throwAt < 0) cmd.slot = SLOT_NADE + T.kind;
+      return;
+    }
+    if (me.throwAt >= 0) {
+      // Gone: back to the gun (and a flashbang is not watched going off).
+      if (me.weapons[3]?.def.nade?.type === 'flash' || T.kind === NADE_INDEX.get('flash')) { this.awayUntil = now + 1.9; this.awayYaw = T.yaw + Math.PI; }
+      this.throwing = null;
+      this.nadeCheckAt = now + 2.5;
+      return;
+    }
+    if (me.drawTimer > 0) return;
+    const aimed = Math.abs(angleDelta(this.aimYaw, T.yaw)) < 0.025 && Math.abs(this.aimPitch - T.pitch) < 0.025;
+    const btn = T.str >= 0.75 ? BTN_FIRE : T.str <= 0.25 ? BTN_ALT : BTN_FIRE | BTN_ALT;
+    if (me.pinAt < 0) { if (aimed) cmd.buttons |= btn; }
+    else if (now - me.pinAt < PIN_TIME + 0.05 || !aimed) cmd.buttons |= btn;
   }
 
   // ======================================================================================
@@ -1439,17 +1543,26 @@ export class Bot {
     const def = w.def;
     const dist = tgt ? Math.hypot(tgt.pos.x - me.pos.x, tgt.pos.z - me.pos.z) : 0;
 
+    // ---- grenades: a fight (or a throw that will not come right) beats a throw ----
+    if (this.throwing && (tgt || now - this.throwing.since > 4)) this.throwing = null;
+    if (!this.throwing && !tgt && now >= this.nadeCheckAt) {
+      this.nadeCheckAt = now + 0.7;
+      this.planNade();
+    }
+    const throwing = this.throwing;
+
     // ---- weapon handling ----
     const prim = me.weapons[0], sec = me.weapons[1];
     const primAmmo = !!prim && (prim.mag > 0 || prim.reserve > 0);
     const secAmmo = !!sec && (sec.mag > 0 || sec.reserve > 0);
-    if (me.active === 0 && prim && prim.mag === 0 && tgt && dist < 16 && sec && sec.mag > 0) cmd.slot = 1; // faster than reloading
+    if (throwing) { /* (the grenade's own slot: see throwStep) */ }
+    else if (me.active === 0 && prim && prim.mag === 0 && tgt && dist < 16 && sec && sec.mag > 0) cmd.slot = 1; // faster than reloading
     else if (me.active !== 0 && prim && (prim.mag > 0 || (!tgt && primAmmo))) { if (!tgt || me.active === 2 || !sec || sec.mag === 0) cmd.slot = 0; }
     else if (me.active === 2 && secAmmo) cmd.slot = 1;
     else if (me.active !== 2 && !primAmmo && !secAmmo) cmd.slot = 2;
     const calm = !tgt && now - this.lastSeenAt > 2.5 && !this.threat(2.5, 12);
     if (def.kind === 'sniper' && !tgt && now - this.lastSeenAt > 1.2) this.scopeTo(cmd, 0);
-    if (def.magSize > 0 && me.reloadTimer <= 0 && w.reserve > 0 && (w.mag === 0 || (calm && w.mag < def.magSize * 0.55))) {
+    if (!throwing && def.magSize > 0 && me.reloadTimer <= 0 && w.reserve > 0 && (w.mag === 0 || (calm && w.mag < def.magSize * 0.55))) {
       cmd.buttons |= BTN_RELOAD;
     }
 
@@ -1459,6 +1572,8 @@ export class Bot {
       this.updateLook();
     }
     let wantYaw = this.lookYaw, wantPitch = this.lookPitch;
+    if (throwing) { wantYaw = throwing.yaw; wantPitch = throwing.pitch; }
+    else if (!tgt && now < this.awayUntil) { wantYaw = this.awayYaw; wantPitch = 0; }
     if (tgt) {
       if (now > this.errUntil) {
         // Human aim wobbles; fresh acquisitions and strafing targets are harder.
@@ -1492,6 +1607,21 @@ export class Bot {
       return;
     }
     if (sim.phase === 'freeze' || this.mode === 'wait') return;
+
+    // Standing in fire: out of it, whatever else is going on.
+    const burning = sim.fireAt(me.pos.x, me.pos.y, me.pos.z, 0.5);
+    if (burning) {
+      if (tgt) this.combat(cmd, tgt, true);
+      const dx = me.pos.x - burning.pos.x, dz = me.pos.z - burning.pos.z, d = Math.hypot(dx, dz) || 1;
+      this.steer(cmd, dx / d, dz / d);
+      return;
+    }
+    if (throwing && !tgt) {
+      // (stood still to throw: the aim was worked out from here, standing)
+      this.throwStep(cmd);
+      this.brake(cmd);
+      return;
+    }
 
     const engaged = !!tgt;
     const running = this.mode === 'cover' || this.mode === 'save' || (this.mode === 'move' && this.hurry && me.hasCharge && !!tgt && dist > 25);

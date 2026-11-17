@@ -3,7 +3,7 @@
 
 import type { Sim } from '../sim/game';
 import { ATK, DEF, type Player } from '../sim/types';
-import { GEAR, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
+import { GEAR, NADES, NADE_CARRY, NADE_INDEX, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
 import { eyeHeight } from '../sim/movement';
 import { onSettings } from './settings';
 
@@ -51,6 +51,11 @@ const ABOUT: Record<string, [kind: string, blurb: string]> = {
   armor: ['Body armour', 'Soaks up most of the damage from shots to the body.'],
   armorhelmet: ['Body armour and helmet', 'Protects the head as well: fewer guns kill with a single headshot.'],
   kit: ['Disarm kit', 'Disarm the charge in 5 seconds instead of 10.'],
+  frag: ['High-explosive grenade', 'Goes off 1.6 s after it leaves the hand. Up to 98 damage at the heart of it, a quarter of that five metres out; armour takes half. Left click throws, right click lobs, both for in between.'],
+  flash: ['Flashbang', 'Blinds everyone who can see it go off: up to five seconds looking at it, about one with it behind you. Carry two.'],
+  smoke: ['Smoke grenade', 'Lands, then puts up a cloud nobody can see through for eighteen seconds. Puts out fires.'],
+  molotov: ['Molotov', 'The attackers’ fire bomb: bursts where it first lands and burns the floor there for seven seconds, 40 damage a second to anyone in it.'],
+  incendiary: ['Incendiary grenade', 'The defenders’ fire grenade: bursts where it first lands and burns the floor there for seven seconds, 40 damage a second to anyone in it.'],
 };
 
 const entry = (id: string): BuyEntry => {
@@ -66,6 +71,7 @@ const BUY_COLUMNS: { title: string; items: BuyEntry[] }[] = [
   { title: 'Rifles', items: ['mako', 'osprey', 'hammerhead', 'lumen'].map(entry) },
   { title: 'Snipers', items: ['longsight', 'colossus'].map(entry) },
   { title: 'Gear', items: ['armor', 'armorhelmet', 'kit'].map(entry) },
+  { title: 'Grenades', items: ['frag', 'flash', 'smoke', 'molotov', 'incendiary'].map(entry) },
 ];
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -99,6 +105,7 @@ export class Hud {
     pAtk: $('pips-atk'), pDef: $('pips-def'), feed: $('killfeed'), msg: $('msg'), sub: $('sub'),
     hint: $('hint'), prog: $('progress'), progFill: $('progress-fill'), progLabel: $('progress-label'),
     spectate: $('spectate'), cross: $('crosshair'), scope: $('scope'), vig: $('vignette'), white: $('whiteout'),
+    flashStill: $<HTMLCanvasElement>('flash-still'), flashWhite: $('flash-white'),
     carry: $('carry'), kit: $('kit'), slots: $('slots'), fps: $('fps'), hit: $('hitmarker'), dmg: $('dmgdir'),
     buy: $('buy'), buyGrid: $('buy-grid'), buyMoney: $('buy-money'), buyDetail: $('buy-detail'), buyHint: $('buy-hint'), board: $('scoreboard'),
   };
@@ -274,6 +281,20 @@ export class Hud {
     this.white = Math.max(this.white, amount);
   }
 
+  /** The player we look through was flashed: keep the next frame drawn as the after-image. */
+  wantStill = false;
+  flashed(): void {
+    this.wantStill = true;
+  }
+  /** Keep this frame (the game's canvas, just drawn) as the after-image. */
+  takeStill(canvas: HTMLCanvasElement): void {
+    this.wantStill = false;
+    const c = this.el.flashStill;
+    if (c.width !== Math.round(canvas.width / 3)) { c.width = Math.round(canvas.width / 3); c.height = Math.round(canvas.height / 3); }
+    c.getContext('2d')?.drawImage(canvas, 0, 0, c.width, c.height);
+  }
+  private flashK = '';
+
   setBuyOpen(open: boolean): void {
     this.buyOpen = open;
     this.buyCol = -1;
@@ -322,6 +343,12 @@ export class Hud {
 
   /** What an item costs this player now, and whether they already have it. */
   private buyState(p: Player, e: BuyEntry): { price: number; owned: boolean } {
+    const nade = WEAPONS[e.id]?.nade;
+    if (nade) {
+      // (full: as many of this kind as can be carried, or four grenades in all)
+      const i = NADE_INDEX.get(e.id)!;
+      return { owned: p.nades[i]! >= nade.max || p.nades.reduce((a, b) => a + b, 0) >= NADE_CARRY, price: e.price };
+    }
     const owned = p.weapons[0]?.def.id === e.id || p.weapons[1]?.def.id === e.id ||
       (e.id === 'armor' && p.armor >= 100) || (e.id === 'armorhelmet' && p.armor >= 100 && p.helmet) || (e.id === 'kit' && p.kit);
     return { owned, price: e.id === 'armorhelmet' && p.armor >= 100 && !p.helmet ? 350 : e.price };
@@ -329,7 +356,7 @@ export class Hud {
 
   private renderBuy(sim: Sim, p: Player): void {
     const can = sim.canBuy(p);
-    const key = `${p.money}|${p.team}|${p.armor}|${p.helmet}|${p.kit}|${p.weapons[0]?.def.id}|${p.weapons[1]?.def.id}|${can}|${this.buyCol}|${this.thumbsSeen}`;
+    const key = `${p.money}|${p.team}|${p.armor}|${p.helmet}|${p.kit}|${p.weapons[0]?.def.id}|${p.weapons[1]?.def.id}|${p.nades.join('')}|${can}|${this.buyCol}|${this.thumbsSeen}`;
     if (this.k.buy.v !== key) {
       this.k.buy.v = key;
       this.k.buyDetail.v = '\u0000';
@@ -339,7 +366,7 @@ export class Hud {
         this.buyFocus = p.weapons[0]?.def.id ?? cols[2]?.items.at(-1)?.id ?? '';
       }
       this.el.buyMoney.textContent = `$${p.money}`;
-      this.el.buyHint.textContent = this.buyCol < 0 ? '1–5 pick a column · B closes' : `1–${cols[this.buyCol]!.items.length} buy · B closes`;
+      this.el.buyHint.textContent = this.buyCol < 0 ? `1–${cols.length} pick a column · B closes` : `1–${cols[this.buyCol]!.items.length} buy · B closes`;
       this.el.buyGrid.innerHTML = cols.map((col, ci) => {
         const picked = ci === this.buyCol;
         return `<div class="buy-col${picked ? ' picked' : ''}${this.buyCol >= 0 && !picked ? ' dim' : ''}">` +
@@ -351,7 +378,7 @@ export class Hud {
             const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
             return `<button class="buy-item${owned ? ' owned' : ''}${off ? ' off' : ''}${!owned && p.money < price ? ' poor' : ''}${e.id === this.buyFocus ? ' focus' : ''}" data-id="${e.id}">` +
               `<span class="k">${picked ? i + 1 : ''}</span><span class="art">${art}</span>` +
-              `<span class="n">${e.name}</span><span class="p">${owned ? 'Owned' : '$' + price}</span></button>`;
+              `<span class="n">${e.name}</span><span class="p">${owned ? (WEAPONS[e.id]?.nade ? 'Full' : 'Owned') : '$' + price}</span></button>`;
           }).join('') + '</div>';
       }).join('');
     }
@@ -371,13 +398,14 @@ export class Hud {
     const { owned, price } = this.buyState(p, e);
     const src = this.thumb(e.id);
     const art = GEAR_ART[e.id] ?? (src ? `<img src="${src}" alt="" draggable="false">` : '');
-    const status = owned ? '<span class="st">Owned</span>'
+    const status = owned ? `<span class="st">${d?.nade ? 'Carrying all you can' : 'Owned'}</span>`
       : !can ? '<span class="st">Armory closed</span>'
         : p.money < price ? `<span class="st poor">$${price} · $${price - p.money} short</span>`
           : `<span class="st ok">$${price}</span>`;
-    const bars = d ? statBars(d).map(([label, v]) =>
+    const bars = d && !d.nade ? statBars(d).map(([label, v]) =>
       `<div class="bar"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`).join('') : '';
-    const facts = d ? `<div class="facts">Magazine <b>${d.magSize} / ${d.reserve}</b> · Kill award <b>$${d.killReward}</b></div>` : '';
+    const facts = d?.nade ? `<div class="facts">Carry <b>${d.nade.max}</b> · Kill award <b>$${d.killReward}</b></div>`
+      : d ? `<div class="facts">Magazine <b>${d.magSize} / ${d.reserve}</b> · Kill award <b>$${d.killReward}</b></div>` : '';
     this.el.buyDetail.innerHTML =
       `<div class="art">${art}</div>` +
       `<div class="title">${e.name}</div><div class="kind">${e.kind}</div>` +
@@ -435,14 +463,16 @@ export class Hud {
     const w = view.weapons[view.active];
     if (w) {
       text(e.wname, k.wname, w.def.name);
-      text(e.mag, k.mag, w.def.magSize < 0 ? '—' : String(w.mag));
+      text(e.mag, k.mag, w.def.nade ? String(w.mag) : w.def.magSize < 0 ? '—' : String(w.mag));
       text(e.res, k.res, w.def.magSize < 0 ? '' : String(w.reserve));
       e.mag.classList.toggle('low', w.def.magSize > 0 && w.mag <= w.def.magSize * 0.25);
     }
-    const slotKey = view.weapons.map((s, i) => `${s ? s.def.name : ''}${i === view.active ? '*' : ''}`).join('|');
+    const slotKey = view.weapons.map((s, i) => `${s ? s.def.name : ''}${i === view.active ? '*' : ''}`).join('|') + view.nades.join('');
     if (k.slots.v !== slotKey) {
       k.slots.v = slotKey;
-      e.slots.innerHTML = view.weapons.map((s, i) => (s ? `<span class="${i === view.active ? 'on' : ''}">${i + 1} ${s.def.name}</span>` : '')).join('');
+      // (the grenade slot lists every kind carried)
+      const nades = NADES.map((d, i) => (view.nades[i]! > 0 ? `${d.name}${view.nades[i]! > 1 ? ` ×${view.nades[i]}` : ''}` : '')).filter(Boolean).join(' · ');
+      e.slots.innerHTML = view.weapons.map((s, i) => (s ? `<span class="${i === view.active ? 'on' : ''}">${i + 1} ${i === 3 ? nades : s.def.name}</span>` : '')).join('');
     }
 
     // Round clock and score.
@@ -494,6 +524,16 @@ export class Hud {
     if (this.vig > 0.001) {
       this.vig = Math.max(0, this.vig - dt * 1.6);
       e.vig.style.opacity = this.vig.toFixed(3);
+    }
+    // Flashed: white while it lasts, then the white thins first and the frozen picture after it.
+    const blind = view.alive ? Math.max(0, view.flashEnd - sim.time) : 0;
+    const fade = Math.min(2.6, Math.max(0.7, view.flashLen * 0.55));
+    const fk = `${Math.min(1, (blind / fade) ** 1.3).toFixed(3)}|${Math.min(0.85, blind / (fade * 1.25)).toFixed(3)}`;
+    if (fk !== this.flashK) {
+      this.flashK = fk;
+      const [w, s] = fk.split('|');
+      e.flashWhite.style.opacity = w!;
+      e.flashStill.style.opacity = s!;
     }
     if (this.white > 0.001) {
       this.white = Math.max(0, this.white - dt * 0.9);

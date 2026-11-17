@@ -25,7 +25,10 @@ export interface Cmd {
   yaw: number;
   pitch: number;
   buttons: number;
-  /** Weapon slot to switch to this tick, or -1. */
+  /**
+   * Weapon slot to switch to this tick (0..3; 3 is the grenades, and asking for it again goes
+   * on to the next kind carried), SLOT_LAST, SLOT_NADE + a grenade's index, or -1.
+   */
   slot: number;
   /** Item id to buy this tick, or ''. */
   buy: string;
@@ -34,6 +37,13 @@ export interface Cmd {
   /** Ticks of lag compensation to apply to this command's shots (set by the server). */
   lag: number;
 }
+
+/** `Cmd.slot`: back to the weapon held before this one. */
+export const SLOT_LAST = 8;
+/** `Cmd.slot`: SLOT_NADE + i takes out grenade NADES[i]. */
+export const SLOT_NADE = 16;
+/** Weapon slots: primary, secondary, melee, grenade. */
+export const SLOTS = 4;
 
 export const emptyCmd = (): Cmd => ({ fwd: 0, side: 0, yaw: 0, pitch: 0, buttons: 0, slot: -1, buy: '', seq: 0, lag: 0 });
 
@@ -95,7 +105,21 @@ export interface Player {
   grappleTime: number;
   grappleReadyAt: number;
 
-  weapons: [WeaponState | null, WeaponState | null, WeaponState | null];
+  /** Slot 3 is the grenade picked out of `nades` (its `mag` is how many of that kind). */
+  weapons: [WeaponState | null, WeaponState | null, WeaponState | null, WeaponState | null];
+  /** Grenades carried, per kind, in NADES order. */
+  nades: number[];
+  /** Index in NADES of the grenade in slot 3. */
+  nadeSel: number;
+  /** When the pin was pulled (sim time), or -1. */
+  pinAt: number;
+  /** How hard the grenade will be thrown: 1 overarm, 0.5 both buttons, 0 underarm lob. */
+  throwStr: number;
+  /** When the last grenade left the hand (sim time), or -1 once the throw is over. */
+  throwAt: number;
+  /** Blinded by a flashbang until this sim time, from a blindness this many seconds long. */
+  flashEnd: number;
+  flashLen: number;
   active: number;
   lastActive: number;
   drawTimer: number;
@@ -118,6 +142,24 @@ export interface Player {
   prevButtons: number;
   /** Who last damaged this player and how recently (for assists / kill credit). */
   spawnIndex: number;
+}
+
+/** A grenade in the world: flying, at rest, or (smoke, fire) burning. */
+export interface Grenade {
+  id: number;
+  /** Index in NADES. */
+  kind: number;
+  owner: number;
+  team: Team;
+  pos: Vec3;
+  vel: Vec3;
+  /** Sim time thrown. */
+  born: number;
+  /** 0 flying, 1 at rest, 2 smoke or fire going, 3 spent (removed next tick). */
+  state: 0 | 1 | 2 | 3;
+  /** Smoke / fire: sim time it went off and the time it is gone. */
+  popAt: number;
+  endAt: number;
 }
 
 export interface Charge {
@@ -150,6 +192,12 @@ export type SimEvent =
   | { type: 'scope'; player: number; level: number }
   | { type: 'fit'; player: number; weapon: string; on: boolean }
   | { type: 'buy'; player: number; item: string; ok: boolean }
+  | { type: 'pin'; player: number; weapon: string }
+  | { type: 'throw'; player: number; weapon: string; strength: number }
+  | { type: 'bounce'; id: number; x: number; y: number; z: number; speed: number }
+  /** A grenade going off: kind 'out' is a fire put out (or landing in smoke). */
+  | { type: 'boom'; id: number; kind: 'he' | 'flash' | 'smoke' | 'fire' | 'out'; x: number; y: number; z: number }
+  | { type: 'flashed'; player: number; by: number; seconds: number }
   | { type: 'knife'; player: number; hit: boolean }
   | { type: 'planted'; player: number; site: number; x: number; y: number; z: number }
   | { type: 'disarmed'; player: number }

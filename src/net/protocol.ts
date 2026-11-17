@@ -2,10 +2,10 @@
 // Messages are JSON; player state is a flat number array to keep snapshots small.
 
 import type { Sim } from '../sim/game';
-import type { Charge, Phase, Player, SimEvent, Team, WinReason } from '../sim/types';
-import { WEAPON_LIST } from '../sim/weapons';
+import { SLOTS, type Charge, type Grenade, type Phase, type Player, type SimEvent, type Team, type WinReason } from '../sim/types';
+import { NADES, WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 11;
+export const PROTOCOL = 12;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -63,6 +63,8 @@ export interface Snapshot {
   c: number[];
   /** One encoded player per id. */
   p: number[][];
+  /** Grenades: GRENADE_FIELDS numbers each. */
+  g: number[];
   /** Last input sequence the server has applied, per player id. */
   a: number[];
   e: SimEvent[];
@@ -88,8 +90,10 @@ export function encodePlayer(p: Player): number[] {
     p.grappleOn ? 1 : 0, r4(p.grapplePoint.x), r4(p.grapplePoint.y), r4(p.grapplePoint.z), r4(p.grappleTime), r4(p.grappleReadyAt),
     p.active, p.lastActive, r4(p.drawTimer), r4(p.reloadTimer), r4(p.fitTimer), r4(p.nextFireAt), r4(p.lastShotAt),
     r4(p.recoilIdx), r4(p.punchPitch), r4(p.punchYaw), r4(p.fireSpread), p.scope, r4(p.useTime), p.prevButtons, p.rescope, r4(p.fireBuffer),
+    p.nadeSel, r4(p.pinAt), p.throwStr, r4(p.throwAt), r4(p.flashEnd), r4(p.flashLen),
+    ...p.nades,
   ];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < SLOTS; i++) {
     const w = p.weapons[i];
     if (w) out.push(WEAPON_INDEX.get(w.def.id)!, w.mag, w.reserve, w.quiet ? 1 : 0);
     else out.push(-1, 0, 0, 0);
@@ -115,8 +119,10 @@ export function encodeEnemy(p: Player): number[] {
   const out = encodePlayer(p);
   out[2] = p.alive ? 100 : 0; // hp
   out[3] = 0; out[4] = 0; out[5] = 0; out[6] = 0; // armour, helmet, kit, money
-  const first = out.length - 3 * SLOT_FIELDS;
-  for (let s = 0; s < 3; s++) {
+  const first = out.length - SLOTS * SLOT_FIELDS;
+  // (nor how many grenades they carry)
+  for (let k = 0; k < NADES.length; k++) out[first - NADES.length + k] = 0;
+  for (let s = 0; s < SLOTS; s++) {
     const at = first + s * SLOT_FIELDS;
     // (whether the gun in their hands wears a suppressor can be seen)
     if (s !== p.active) { out[at] = -1; out[at + 3] = 0; }
@@ -141,7 +147,9 @@ export function decodePlayer(p: Player, a: number[]): void {
   p.grappleOn = n() === 1; p.grapplePoint.x = n(); p.grapplePoint.y = n(); p.grapplePoint.z = n(); p.grappleTime = n(); p.grappleReadyAt = n();
   p.active = n(); p.lastActive = n(); p.drawTimer = n(); p.reloadTimer = n(); p.fitTimer = n(); p.nextFireAt = n(); p.lastShotAt = n();
   p.recoilIdx = n(); p.punchPitch = n(); p.punchYaw = n(); p.fireSpread = n(); p.scope = n() as 0 | 1 | 2; p.useTime = n(); p.prevButtons = n(); p.rescope = n() as 0 | 1 | 2; p.fireBuffer = n();
-  for (let s = 0; s < 3; s++) {
+  p.nadeSel = n(); p.pinAt = n(); p.throwStr = n(); p.throwAt = n(); p.flashEnd = n(); p.flashLen = n();
+  for (let k = 0; k < NADES.length; k++) p.nades[k] = n();
+  for (let s = 0; s < SLOTS; s++) {
     const wi = n(), mag = n(), reserve = n(), quiet = n() === 1;
     if (wi < 0) {
       p.weapons[s] = null;
@@ -178,6 +186,7 @@ export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidde
     mw: sim.matchWinner,
     c: [CHARGE_STATES.indexOf(c.state), c.carrier, r4(c.pos.x), r4(c.pos.y), r4(c.pos.z), r4(c.timer), c.site],
     p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : secret(p) ? encodeEnemy(p) : encodePlayer(p))),
+    g: sim.grenades.flatMap(encodeGrenade),
     a: acks,
     e: events,
   };
@@ -204,6 +213,28 @@ export function applySnapshot(sim: Sim, s: Snapshot): void {
   c.timer = s.c[5]!;
   c.site = s.c[6]!;
   for (let i = 0; i < s.p.length && i < sim.players.length; i++) decodePlayer(sim.players[i]!, s.p[i]!);
+  decodeGrenades(sim.grenades, s.g ?? []);
+}
+
+/** Numbers sent for each grenade. */
+export const GRENADE_FIELDS = 13;
+const encodeGrenade = (g: Grenade): number[] => [
+  g.id, g.kind, g.owner, g.team, g.state, r4(g.pos.x), r4(g.pos.y), r4(g.pos.z), r4(g.vel.x), r4(g.vel.y), r4(g.vel.z), r4(g.popAt), r4(g.endAt),
+];
+
+/** Bring a client's grenade list in line with the server's, keeping the objects it already has. */
+export function decodeGrenades(list: Grenade[], a: number[]): void {
+  const old = new Map(list.map((g) => [g.id, g]));
+  list.length = 0;
+  for (let i = 0; i + GRENADE_FIELDS <= a.length; i += GRENADE_FIELDS) {
+    const id = a[i]!;
+    const g = old.get(id) ?? { id, kind: 0, owner: 0, team: 0, state: 0, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, born: 0, popAt: 0, endAt: 0 } as Grenade;
+    g.kind = a[i + 1]!; g.owner = a[i + 2]!; g.team = a[i + 3]! as Team; g.state = a[i + 4]! as Grenade['state'];
+    g.pos.x = a[i + 5]!; g.pos.y = a[i + 6]!; g.pos.z = a[i + 7]!;
+    g.vel.x = a[i + 8]!; g.vel.y = a[i + 9]!; g.vel.z = a[i + 10]!;
+    g.popAt = a[i + 11]!; g.endAt = a[i + 12]!;
+    list.push(g);
+  }
 }
 
 const ITEMS = new Set<string>([...WEAPON_LIST.map((d) => d.id), 'armor', 'armorhelmet', 'kit']);

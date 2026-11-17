@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { Sim } from '../sim/game';
 import { lerp, yawTo } from '../sim/math';
-import { ATK, DEF, HIT_PLAYER, HIT_WORLD, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
+import { ATK, DEF, HIT_PLAYER, HIT_WORLD, SLOTS, TICK, emptyCmd, type Player, type SimEvent, type Team } from '../sim/types';
+import { WHEEL_NEXT, WHEEL_PREV } from './input';
 import { SUPPRESSOR_TIME, WEAPONS } from '../sim/weapons';
 import type { Replica } from '../net/replica';
 import { buildWorld } from './world';
@@ -15,6 +16,8 @@ import { setFinishRenderer } from './finish';
 import { Thumbs } from './thumbs';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
+import { NadeFx } from './nade-fx';
+import { Blasts } from './blast';
 import { GameAudio } from './audio';
 import { Input, isTouchDevice } from './input';
 import { Hud } from './hud';
@@ -37,6 +40,17 @@ export class GameApp {
   private vm = new Viewmodel();
   private fx = new Effects();
   private audio = new GameAudio();
+  /** Grenades in the world: in flight, smoke clouds, fires. */
+  private nades = new NadeFx(this.fx, this.audio);
+  /** Explosions (an HE grenade, the charge), made in layers: see blast.ts. Made once the level is. */
+  private blasts: Blasts | null = null;
+  /**
+   * Standing in smoke: a grey veil just in front of the eye, drawn last in the level's pass so
+   * the gun in your hands (drawn after) stays clear, as it does in Counter-Strike.
+   */
+  private veil = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({
+    color: new THREE.Color(0.115, 0.122, 0.138), transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false,
+  }));
   private hud = new Hud();
   /** Icons of the guns for the armory, drawn one a frame once the models are in. */
   private thumbs!: Thumbs;
@@ -98,6 +112,13 @@ export class GameApp {
     setupEnvironment(this.scene, this.renderer, quality);
     this.gfx = createGfx(this.renderer, this.scene, this.camera, this.vm.scene, this.vm.camera, quality);
     this.scene.add(this.fx.group);
+    this.scene.add(this.nades.group);
+    this.veil.position.z = -0.3;
+    this.veil.renderOrder = 999;
+    this.veil.frustumCulled = false;
+    this.veil.visible = false;
+    this.camera.add(this.veil);
+    this.scene.add(this.camera);
     this.camera.rotation.order = 'YXZ';
 
     this.input = new Input(this.canvas, $('touch'));
@@ -174,6 +195,9 @@ export class GameApp {
       preloadAssets((f) => { assets = f; show(); }),
     ]);
     this.scene.add(group);
+    this.blasts = new Blasts(this.sim.world);
+    this.nades.blasts = this.blasts;
+    this.scene.add(this.blasts.group);
     this.renderer.shadowMap.needsUpdate = true;
     this.ensureChars(this.sim);
     this.ready = true;
@@ -203,6 +227,8 @@ export class GameApp {
     this.deathAt = -99;
     this.ensureChars(sim);
     this.fx.clearRound();
+    this.nades.clear(); this.blasts?.clear();
+    this.audio.stopLoops();
     this.menu.show(false);
     this.menu.showPause(false);
     $('touch').classList.add('live');
@@ -247,6 +273,8 @@ export class GameApp {
     $('touch').classList.remove('live');
     this.ensureChars(this.sim);
     this.fx.clearRound();
+    this.nades.clear(); this.blasts?.clear();
+    this.audio.stopLoops();
   }
 
   private setPaused(p: boolean): void {
@@ -453,6 +481,36 @@ export class GameApp {
         case 'buy':
           if (sim.players[e.player] === me) this.audio.ui(e.ok ? 'buy' : 'deny');
           break;
+        case 'pin': {
+          const p = sim.players[e.player]!;
+          this.audio.nadePin(p === view ? null : p.pos.x, p.pos.y + 1.3, p.pos.z);
+          break;
+        }
+        case 'throw': {
+          const p = sim.players[e.player]!;
+          if (p !== view) this.chars[p.id]?.toss();
+          this.audio.nadeThrow(p === view ? null : p.pos.x, p.pos.y + 1.4, p.pos.z);
+          break;
+        }
+        case 'bounce':
+          this.audio.nadeBounce(e.x, e.y, e.z, e.speed);
+          break;
+        case 'boom': {
+          this.audio.nade(e.kind, e.x, e.y, e.z);
+          const d = Math.hypot(e.x - this.camera.position.x, e.y - this.camera.position.y, e.z - this.camera.position.z);
+          if (e.kind === 'he') {
+            this.blasts?.go(e, 'grenade');
+            void d;
+          } else if (e.kind === 'flash') {
+            this.fx.flashPop(e.x, e.y, e.z);
+          } else if (e.kind === 'out') {
+            this.fx.fireOut(e.x, e.y, e.z);
+          }
+          break;
+        }
+        case 'flashed':
+          if (sim.players[e.player] === view) this.hud.flashed();
+          break;
         case 'knife': {
           const p = sim.players[e.player]!;
           if (p === view) this.vm.onMelee();
@@ -469,7 +527,7 @@ export class GameApp {
           this.audio.ui('disarm');
           break;
         case 'detonated': {
-          this.fx.detonate(e.x, e.y, e.z);
+          this.blasts?.go(e, 'charge');
           this.audio.explosion(e.x, e.y, e.z);
           const d = Math.hypot(e.x - this.camera.position.x, e.z - this.camera.position.z);
           this.hud.whiteFlash(Math.max(0.15, 1 - d / 45));
@@ -484,6 +542,8 @@ export class GameApp {
           break;
         case 'roundStart':
           this.fx.clearRound();
+          this.nades.clear(); this.blasts?.clear();
+          this.audio.stopLoops();
           for (const c of this.chars) c.hideCorpse();
           if (me) { this.input.yaw = sim.map.spawnYaw[me.team]; this.input.pitch = 0; }
           this.deathAt = -99;
@@ -569,11 +629,12 @@ export class GameApp {
 
   private buildCmd(me: Player | null, active: boolean): void {
     this.input.build(this.cmd, active);
-    if (me && this.cmd.slot >= 4) {
-      const dir = this.cmd.slot === 4 ? 1 : -1;
+    // (the wheel and the touch swap button: next and previous slot, grenades included)
+    if (me && (this.cmd.slot === WHEEL_NEXT || this.cmd.slot === WHEEL_PREV)) {
+      const dir = this.cmd.slot === WHEEL_NEXT ? 1 : -1;
       this.cmd.slot = -1;
-      for (let i = 1; i <= 3; i++) {
-        const s = (me.active + dir * i + 6) % 3;
+      for (let i = 1; i <= SLOTS; i++) {
+        const s = (me.active + dir * i + SLOTS * 2) % SLOTS;
         if (me.weapons[s]) { this.cmd.slot = s; break; }
       }
     }
@@ -585,7 +646,12 @@ export class GameApp {
     let n = 0;
     while (this.acc >= TICK && n++ < 4) { this.acc -= TICK; sim.tick(); }
     for (const e of sim.events) {
-      if (e.type === 'roundStart') { this.fx.clearRound(); for (const c of this.chars) c.hideCorpse(); }
+      if (e.type === 'roundStart') { this.fx.clearRound(); this.nades.clear(); this.blasts?.clear(); for (const c of this.chars) c.hideCorpse(); }
+      else if (e.type === 'detonated') this.blasts?.go(e, 'charge');
+      else if (e.type === 'boom') {
+        if (e.kind === 'he') this.blasts?.go(e, 'grenade');
+        else if (e.kind === 'flash') this.fx.flashPop(e.x, e.y, e.z);
+      }
     }
     sim.events.length = 0;
     if (sim.phase === 'over') sim.restart();
@@ -596,6 +662,9 @@ export class GameApp {
     for (const p of sim.players) this.chars[p.id]!.update(p, this.acc / TICK, dt, false, false);
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
     this.fx.charge.visible = false;
+    this.nades.update(sim, dt, this.acc / TICK, this.camera.position);
+    this.blasts?.update(dt, this.camera.position);
+    this.veil.visible = false;
     this.fx.update(dt, 0);
     if (this.thumbs.step()) this.hud.thumbsChanged();
     this.gfx.render(dt, false);
@@ -675,6 +744,10 @@ export class GameApp {
       this.chars[p.id]!.update(p, alpha, dt, !!me && p.team === me.team && p !== me, (p === view && view.alive) || (this.replica?.hidden[p.id] === true && p.alive));
     }
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
+    const veil = this.nades.update(sim, dt, alpha, this.camera.position);
+    this.shake = Math.max(this.shake, this.blasts?.update(dt, this.camera.position) ?? 0);
+    (this.veil.material as THREE.MeshBasicMaterial).opacity = veil * 0.97;
+    this.veil.visible = veil > 0.002;
 
     // ---- the charge ----
     const c = sim.charge;
@@ -719,6 +792,12 @@ export class GameApp {
         fitT: view.fitTimer > 0 ? Math.max(0.001, 1 - view.fitTimer / SUPPRESSOR_TIME) : 0,
         grappling: false,
         mantling: false,
+        nade: def.kind === 'grenade' ? {
+          drawT: Math.max(0, Math.min(1, view.drawTimer / def.drawTime)),
+          pinT: view.pinAt >= 0 ? sim.time - view.pinAt : -1,
+          throwT: view.throwAt >= 0 ? sim.time - view.throwAt : -1,
+          str: view.throwStr,
+        } : undefined,
       });
     }
     this.input.lookDX = 0;
@@ -726,6 +805,8 @@ export class GameApp {
 
     if (this.thumbs.step()) this.hud.thumbsChanged();
     this.gfx.render(dt, showVm && view.scope === 0);
+    // (the after-image of a flashbang is this frame, taken while it is still in the canvas)
+    if (this.hud.wantStill) this.hud.takeStill(this.canvas);
 
     // ---- HUD ----
     const spread = sim.spreadOf(view);

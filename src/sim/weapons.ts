@@ -3,8 +3,10 @@
 
 import { DEG, Rng } from './math';
 
-export type WeaponSlot = 0 | 1 | 2; // primary, secondary, melee
-export type WeaponKind = 'rifle' | 'smg' | 'pistol' | 'sniper' | 'shotgun' | 'knife';
+export type WeaponSlot = 0 | 1 | 2 | 3; // primary, secondary, melee, grenades
+export type WeaponKind = 'rifle' | 'smg' | 'pistol' | 'sniper' | 'shotgun' | 'knife' | 'grenade';
+/** What a grenade does when it goes off. */
+export type NadeType = 'he' | 'flash' | 'smoke' | 'fire';
 
 export interface WeaponDef {
   id: string;
@@ -53,6 +55,8 @@ export interface WeaponDef {
    * when bought. The numbers above are the gun's without one.
    */
   suppressor?: { fitted: boolean };
+  /** Grenades: what it does, and how many of it can be carried. */
+  nade?: { type: NadeType; max: number };
 }
 
 /** Seconds to fit or take off a suppressor. */
@@ -96,6 +100,20 @@ function spray(
 }
 
 const KNIFE_SPEED = 6.35;
+
+/** A grenade's entry: none of the gun numbers apply. */
+function grenade(
+  id: string, name: string, type: NadeType, price: number, team: -1 | 0 | 1, max: number,
+  damage: number, armorPen: number,
+): WeaponDef {
+  return {
+    id, name, kind: 'grenade', slot: 3, price, killReward: 300, team,
+    damage, armorPen, rangeMod: 1, headMult: 1, rpm: 60, auto: false, pellets: 0,
+    magSize: -1, reserve: 0, reloadTime: 0, drawTime: 0.55, maxSpeed: 6.2,
+    spreadStand: 0, spreadCrouch: 0, spreadMove: 0, spreadAir: 0, spreadPerShot: 0, spreadDecay: 10,
+    pattern: new Float32Array(2), penetration: 0, kick: 0, range: 0, nade: { type, max },
+  };
+}
 
 const defs: WeaponDef[] = [
   {
@@ -236,12 +254,25 @@ const defs: WeaponDef[] = [
     spreadStand: 0.013, spreadCrouch: 0.0105, spreadMove: 0.02, spreadAir: 0.12, spreadPerShot: 0.002, spreadDecay: 5.2,
     pattern: spray(40, 4.6, 13, 0.5, [[9, 0.7], [18, -1.2], [28, 1.3], [39, -0.6]], 62), penetration: 0.25, kick: 0.5, range: 100,
   },
+  // Grenades, in the order the grenade key cycles through them. Damage is at the centre of the
+  // blast (HE) or per second standing in the flames (fire); armour takes half an HE blast.
+  grenade('frag', 'HE Grenade', 'he', 300, -1, 1, 98, 0.57),
+  grenade('flash', 'Flashbang', 'flash', 200, -1, 2, 0, 1),
+  grenade('smoke', 'Smoke', 'smoke', 300, -1, 1, 0, 1),
+  grenade('molotov', 'Molotov', 'fire', 400, 0, 1, 40, 1),
+  grenade('incendiary', 'Incendiary', 'fire', 500, 1, 1, 40, 1),
 ];
 
 export const WEAPONS: Record<string, WeaponDef> = Object.fromEntries(defs.map((d) => [d.id, d]));
 export const WEAPON_LIST: readonly WeaponDef[] = defs;
 
 export const DEFAULT_PISTOL = ['kite', 'tern'] as const;
+
+/** Every grenade, in cycling order; a player's grenade counts are kept in this order. */
+export const NADES: readonly WeaponDef[] = defs.filter((d) => d.kind === 'grenade');
+export const NADE_INDEX = new Map(NADES.map((d, i) => [d.id, i]));
+/** At most this many grenades of all kinds together. */
+export const NADE_CARRY = 4;
 
 export interface GearDef {
   id: string;

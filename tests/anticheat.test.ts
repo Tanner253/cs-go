@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
-import { BTN_FIRE, emptyCmd, type Player } from '../src/sim/types';
+import { BTN_FIRE, SLOTS, emptyCmd, type Player } from '../src/sim/types';
 import { RULES_1V1, SLOT_FIELDS, encodePlayer, takeSnapshot } from '../src/net/protocol';
 import { Monitor } from '../server/anticheat';
 
@@ -243,9 +243,9 @@ describe('anti-cheat: what a client is told', () => {
     expect(told.length).toBe(full.length);
     expect(told.slice(2, 7)).toEqual([100, 0, 0, 0, 0]);
     expect(JSON.stringify(told)).not.toContain('4321');
-    const kit = told.slice(-3 * SLOT_FIELDS);
+    const kit = told.slice(-SLOTS * SLOT_FIELDS);
     for (let s = 0; s < 3; s++) {
-      expect(kit[s * SLOT_FIELDS], `slot ${s}`).toBe(s === b.active ? full[full.length - 3 * SLOT_FIELDS + s * SLOT_FIELDS] : -1);
+      expect(kit[s * SLOT_FIELDS], `slot ${s}`).toBe(s === b.active ? full[full.length - SLOTS * SLOT_FIELDS + s * SLOT_FIELDS] : -1);
       expect(kit[s * SLOT_FIELDS + 1]).toBe(0);
       expect(kit[s * SLOT_FIELDS + 2]).toBe(0);
     }

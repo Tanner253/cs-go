@@ -21,7 +21,7 @@ interface Sample {
 
 /** Events the client plays from its own prediction, so the server's copies are dropped. */
 const PREDICTED = new Set<SimEvent['type']>([
-  'shot', 'step', 'jump', 'land', 'walljump', 'mantle', 'grapple', 'grappleEnd', 'reload', 'dry', 'draw', 'scope', 'fit', 'knife',
+  'shot', 'step', 'jump', 'land', 'walljump', 'mantle', 'grapple', 'grappleEnd', 'reload', 'dry', 'draw', 'scope', 'fit', 'knife', 'pin', 'throw',
 ]);
 
 export class Replica {

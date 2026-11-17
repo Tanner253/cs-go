@@ -9,7 +9,7 @@ import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
 import { eyeHeight } from '../sim/movement';
 import { SUPPRESSOR_TIME, WEAPONS } from '../sim/weapons';
-import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
+import { WEAPON_LOOK, getCharacters, nadeMaterial, type CharacterAssets, type WorldGun } from './assets';
 import { PUMP_LOADING, PUMP_SHELLS } from './moves';
 import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
 import { SKINS } from './skins';
@@ -120,7 +120,9 @@ function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
     let m = s.gunMats.get(id);
     if (!m) {
       const wear = skin ? { skin, role, length, cell, ...AT_REST } : undefined;
-      s.gunMats.set(id, (m = applyFinish(src, WORLD_GUN_FINISH, [mesh], wear)));
+      // (a grenade keeps its own paint, in its own colour)
+      const nade = s.assets.guns.get(key)?.carry === 'nade';
+      s.gunMats.set(id, (m = nade ? nadeMaterial(src, WEAPON_OF_GUN[key] ?? key) : applyFinish(src, WORLD_GUN_FINISH, [mesh], wear)));
     }
     mesh.material = m;
   }
@@ -176,6 +178,9 @@ function holdOf(s: Shared, key: string, gun: WorldGun, obj: THREE.Object3D): Hol
 
 /** The knife: where its grip is held relative to the chest, in the aim frame. */
 const KNIFE_CARRY: [number, number, number] = [0.24, -0.08, -0.36];
+/** A grenade wound back by the right ear, and where it leaves the hand, in the same frame. */
+const NADE_WOUND: [number, number, number] = [0.26, 0.3, 0.04];
+const NADE_RELEASE: [number, number, number] = [0.1, 0.08, -0.55];
 /** The middle of the palm in a hand bone's own space (for the right hand; mirrored in x for the left). */
 const PALM = new THREE.Vector3(-0.022, 0.075, 0.003);
 /** How far the torso is turned (the off shoulder forward) with a gun held in both hands at the shoulder. */
@@ -294,6 +299,9 @@ export class CharacterView {
   /** Seconds since this player last fired (for the pump that follows a shot), and how far into a knife swing (1 -> 0). */
   private sinceShot = 9;
   private slash = 0;
+  /** A grenade: how far the arm is wound back with the pin out (eased), and how far through a throw (1 -> 0). */
+  private wind = 0;
+  private tossT = 0;
   private waist: THREE.Object3D | null = null;
   private head: THREE.Object3D | null = null;
   private legs: { chain: Arm; knee: THREE.Vector3; foot: THREE.Vector3; turn: THREE.Quaternion }[] = [];
@@ -608,7 +616,7 @@ export class CharacterView {
       // A rotation expressed in the group's axes (undo the leg twist, then pitch),
       // re-expressed in the spine's parent space.
       const held = p.weapons[p.active]?.def;
-      const shouldered = !!held && held.kind !== 'pistol' && held.kind !== 'knife' && this.gun?.carry !== 'dual';
+      const shouldered = !!held && held.kind !== 'pistol' && held.kind !== 'knife' && held.kind !== 'grenade' && this.gun?.carry !== 'dual';
       this.blade += ((shouldered ? BLADED : 0) - this.blade) * Math.min(1, dt * 8);
       // (a hit throws the shoulders back and round, away from the side it landed on)
       this.flinch *= Math.exp(-dt * 7);
@@ -644,6 +652,8 @@ export class CharacterView {
     this.kick *= Math.exp(-dt * 16);
     this.sinceShot += dt;
     this.slash = Math.max(0, this.slash - dt / 0.36);
+    this.tossT = Math.max(0, this.tossT - dt / 0.45);
+    this.wind += ((p.pinAt >= 0 ? 1 : 0) - this.wind) * Math.min(1, dt * 9);
 
     // ---- what the hands are doing with it -------------------------------------------------
     // Nobody reloads with the gun in the shoulder: it comes down and across, muzzle low, while
@@ -680,7 +690,19 @@ export class CharacterView {
         const at = gun.grip ?? [0, 0, 0];
         // (a swing takes the hand out across the body and back)
         const cut = Math.sin(Math.PI * (1 - this.slash)) * (this.slash > 0 ? 1 : 0);
-        _b.set(KNIFE_CARRY[0] - 0.26 * cut, KNIFE_CARRY[1] + 0.06 * cut, KNIFE_CARRY[2] - 0.3 * cut).applyQuaternion(aimQ).add(_a);
+        _b.set(KNIFE_CARRY[0] - 0.26 * cut, KNIFE_CARRY[1] + 0.06 * cut, KNIFE_CARRY[2] - 0.3 * cut);
+        if (gun.carry === 'nade') {
+          // Wound back above the shoulder with the pin out; thrown over and forward, then the hand comes back.
+          _b.lerp(_c.set(...NADE_WOUND), this.wind);
+          if (this.tossT > 0) {
+            const u = 1 - this.tossT;
+            if (u < 0.3) _b.copy(_c.set(...NADE_WOUND)).lerp(_d.set(...NADE_RELEASE), THREE.MathUtils.smoothstep(u, 0, 0.3));
+            else _b.copy(_c.set(...NADE_RELEASE)).lerp(_d.set(...KNIFE_CARRY), THREE.MathUtils.smoothstep(u, 0.3, 1));
+          }
+          // (gone from the hand from the release until the next one comes up)
+          obj.visible = !(this.tossT > 0 && this.tossT < 0.85);
+        }
+        _b.applyQuaternion(aimQ).add(_a);
         obj.position.set(at[0], at[1], at[2]).applyQuaternion(obj.quaternion).negate().add(_b);
         obj.updateMatrixWorld(true);
         if (this.armR) {
@@ -824,6 +846,11 @@ export class CharacterView {
   /** This player swung their knife. */
   swing(): void {
     this.slash = 1;
+  }
+
+  /** This player threw a grenade. */
+  toss(): void {
+    this.tossT = 1;
   }
 
   /**

@@ -83,6 +83,29 @@ its suppressor on; the other two come without.
 The armory (B) lists them in columns as plain line icons, with stat bars for the one in
 focus; press a column's number, then the item's.
 
+**Grenades** (`src/sim/grenades.ts`), as Counter-Strike's: an HE grenade ($300, up to 98 damage at
+its heart, 25 five metres out, armour takes half), two flashbangs ($200), a smoke ($300, eighteen
+seconds of cloud) and a fire bomb (the attackers' molotov $400, the defenders' incendiary $500: seven
+seconds of floor burning at 40 a second, put out by smoke); four at most. Key 4 takes one out (again,
+the next kind). Pressing either button pulls the pin; letting go throws it: overarm (left), an
+underarm lob (right) or in between (both), at up to 17 m/s plus some of your own speed, under 0.4 g,
+losing over half its speed at each bounce. HE and flashbangs go off 1.6 s after leaving the hand,
+smokes once they lie still, fire where it first lands. A flashbang blinds everyone who can see it,
+up to five seconds looking straight at it, about one with it behind you; the white thins and leaves
+the frozen picture of the moment it went off. Smoke hides players from the server's sight test and
+from the bots as well as from the eye; standing in it greys the view (your own gun stays clear).
+In first person the grenade is held in our own arms, posed by `src/client/nade-view.ts`: the left
+hand draws the pin out by its ring, the arm winds up, comes over and lets go, and the lever flies
+off. Bots buy grenades and throw them (`src/sim/bot-nades.ts`): each throw is first flown in the
+bot's head against the real level, so it banks off walls and lobs over cover only where that
+works: smokes and a flash on a site they are taking, HE and fire at enemies known to be behind
+cover, fire on the charge when defenders close on it; they turn away from their own flashbangs.
+
+**Explosions** (`src/client/blast.ts`) are made in layers, as the ZONA project's are: the flash,
+a fireball of fire photographs that swells, rises, boils and cools to soot, smoke lit from inside
+while the fire lasts, dust rolled out along the floor and a ring of it, sparks and embers, the
+floor left scorched, a light that flares and dies, all kept on the blast's side of nearby walls.
+
 ## Cheat resistance
 
 The server is the only authority; a client sends inputs and nothing else.
@@ -150,7 +173,8 @@ the lobby screen says so while it waits.
 | Jump / crouch / walk | Space / C or Ctrl / Shift | JUMP / DUCK |
 | Reload / use | R / E (plant, disarm) | RLD / USE |
 | Inspect weapon | F | — |
-| Armory / weapons | B / 1 2 3, Q, wheel | BUY / SWAP |
+| Armory / weapons | B / 1 2 3, 4 (grenades), Q, wheel | BUY / SWAP |
+| Throw a grenade | left click (overarm), right click (lob), both | FIRE / ZOOM |
 | Scoreboard / pause | Tab / Esc | II |
 
 ## Architecture
@@ -173,6 +197,6 @@ rewinds targets to what the shooter saw when testing hits.
 
 ## Not built yet
 
-Grenades, weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
+Weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
 direction-specific strafe animations, and audio compressed for download size (sounds ship
 mostly as WAV).

@@ -103,8 +103,19 @@ export const CUES: Record<string, Cue> = {
   hit_body: { files: numbered('hit_body', 3), level: -29, rate: 1.25, ref: 1, wet: 0.02, jitter: 0.06 },
   hit_head: { files: numbered('hit_head', 2), level: -25, rate: 1.5, ref: 1, wet: 0.05 },
   hurt: { files: numbered('hurt', 2), level: -22, rate: 0.9, ref: 1, wet: 0.02, jitter: 0.05 },
-  explosion: { files: numbered('explosion', 3), level: -11, rate: 0.8, ref: 40, wet: 0.45 },
-  explosion_low: { files: ['explosion_low'], level: -10, ref: 40, wet: 0.3 },
+  // (the charge: the dynamite recording of the HE grenade, played deeper and slower for a far bigger blast)
+  explosion: { files: numbered('nade_he', 2), level: -7, rate: 0.78, ref: 45, wet: 0.45 },
+  explosion_low: { files: ['nade_he_far'], level: -8, rate: 0.85, ref: 60, wet: 0.35 },
+  // ---- grenades: field recordings (a dynamite blast, firecrackers, a smoke bomb, smashed bottles, a fire) ----
+  'nade.he': { files: numbered('nade_he', 2), level: -9, ref: 26, wet: 0.4, jitter: 0.03 },
+  'nade.he.far': { files: ['nade_he_far'], level: -12, ref: 60, wet: 0.5 },
+  'nade.flash': { files: numbered('nade_flash', 2), level: -11, ref: 20, wet: 0.35, jitter: 0.03 },
+  'nade.smoke': { files: ['nade_smoke'], level: -20, ref: 10, wet: 0.2, jitter: 0.05 },
+  'nade.out': { files: ['nade_out'], level: -25, ref: 8, wet: 0.15 },
+  'nade.glass': { files: numbered('nade_glass', 4), level: -17, ref: 14, wet: 0.25, jitter: 0.05 },
+  'nade.fire': { files: ['nade_fire'], level: -23, ref: 5, wet: 0.12 },
+  'nade.pin': { files: ['nade_pin'], level: -29, ...HANDLE },
+  'nade.bounce': { files: numbered('nade_bounce', 3), level: -27, ref: 6, wet: 0.08, jitter: 0.1 },
   // ---- interface ----
   'ui.click': { files: ['ui_click_002'], level: -35, ref: 1, wet: 0 },
   'ui.tick': { files: ['ui_tick_001'], level: -36, ref: 1, wet: 0 },
@@ -242,6 +253,7 @@ export class GameAudio {
 
   setListener(x: number, y: number, z: number, yaw: number): void {
     this.listener.x = x; this.listener.y = y; this.listener.z = z; this.listener.yaw = yaw;
+    if (this.loops.size > 0) this.placeLoops();
   }
 
   /** Output chain for a sound at a world position (or centred if `x` is null). */
@@ -460,6 +472,67 @@ export class GameAudio {
   explosion(x: number, y: number, z: number): void {
     this.play('explosion', x, y, z);
     this.play('explosion_low', x, y, z);
+  }
+
+  /** A grenade going off (or, 'out', a fire smothered). */
+  nade(kind: 'he' | 'flash' | 'smoke' | 'fire' | 'out', x: number, y: number, z: number): void {
+    if (kind === 'he') {
+      this.play('nade.he', x, y, z);
+      this.play('nade.he.far', x, y, z);
+    } else if (kind === 'flash') this.play('nade.flash', x, y, z);
+    else if (kind === 'smoke') this.play('nade.smoke', x, y, z);
+    else if (kind === 'fire') this.play('nade.glass', x, y, z);
+    else this.play('nade.out', x, y, z);
+  }
+
+  /** The pin pulled, and the throw (`x` null: your own). */
+  nadePin(x: number | null, y = 0, z = 0): void {
+    this.play('nade.pin', x, y, z);
+  }
+  nadeThrow(x: number | null, y = 0, z = 0): void {
+    this.play('draw', x, y, z, 1.6);
+  }
+  nadeBounce(x: number, y: number, z: number, speed: number): void {
+    this.play('nade.bounce', x, y, z, Math.min(1.2, 0.35 + speed * 0.12));
+  }
+
+  /** Sounds that go on until stopped (a fire), by key, kept placed as the listener moves. */
+  private loops = new Map<number, { src: AudioBufferSourceNode; gain: GainNode; x: number; y: number; z: number; out: GainNode; base: number }>();
+  loop(key: number, name: string, x: number, y: number, z: number): void {
+    const ctx = this.ctx, cue = CUES[name];
+    if (!ctx || !cue || this.loops.has(key)) return;
+    const sample = this.bank.get(cue.files[0]!);
+    // (placed as if at the listener, then turned down for distance every frame: see `setListener`)
+    const out = this.out(null, 0, 0, cue.ref ?? 8, 0);
+    if (!sample || !out) return;
+    const src = ctx.createBufferSource();
+    src.buffer = sample.buf;
+    src.loop = true;
+    const g = ctx.createGain();
+    const base = Math.pow(10, (cue.level - sample.loud) / 20);
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(base, ctx.currentTime, 0.15);
+    src.connect(g).connect(out);
+    src.start(ctx.currentTime, Math.random() * sample.buf.duration);
+    this.loops.set(key, { src, gain: g, x, y, z, out, base });
+    this.placeLoops();
+  }
+  stopLoop(key: number): void {
+    const l = this.loops.get(key), ctx = this.ctx;
+    if (!l || !ctx) return;
+    this.loops.delete(key);
+    l.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+    l.src.stop(ctx.currentTime + 1.2);
+  }
+  stopLoops(): void {
+    for (const k of [...this.loops.keys()]) this.stopLoop(k);
+  }
+  private placeLoops(): void {
+    const L = this.listener;
+    for (const l of this.loops.values()) {
+      const d = Math.hypot(l.x - L.x, l.y - L.y, l.z - L.z);
+      l.out.gain.value = 1 / (1 + (d / 5) ** 1.5);
+    }
   }
 
   /** Interface and announcer cues. */

@@ -19,7 +19,12 @@ export const GRACE = 0.6;
 const OFFSETS: [number, number][] = [[0, 0], [0.42, 0], [-0.42, 0], [0, 0.42], [0, -0.42]];
 
 export function canSee(sim: Sim, viewer: Player, target: Player): boolean {
-  const w = sim.world;
+  const world = sim.world;
+  // A sight line counts if no wall stands in it and no smoke cloud hides the far end.
+  const w = {
+    lineOfSight: (ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean =>
+      world.lineOfSight(ax, ay, az, bx, by, bz) && !sim.smokeBlocks(ax, ay, az, bx, by, bz),
+  };
   const dx = target.pos.x - viewer.pos.x, dz = target.pos.z - viewer.pos.z;
   if (dx * dx + dz * dz < ALWAYS * ALWAYS) return true;
   const ey = viewer.pos.y + eyeHeight(viewer);

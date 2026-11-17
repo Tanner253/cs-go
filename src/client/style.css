@@ -36,6 +36,10 @@ button { cursor: pointer; }
 #hud { overflow: hidden; pointer-events: none; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
 #vignette { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(220, 20, 20, 0.6) 100%); }
 #whiteout { position: absolute; inset: 0; opacity: 0; background: #fff; }
+/* Flashed: white, then the frozen picture of the moment it went off, fading. */
+#flashout { position: absolute; inset: 0; pointer-events: none; }
+#flash-still { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; filter: brightness(1.6) contrast(0.8); }
+#flash-white { position: absolute; inset: 0; opacity: 0; background: #fff; }
 #dmgdir { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
 #dmgdir::before { content: ''; position: absolute; left: -70px; top: -150px; width: 140px; height: 26px; border-radius: 140px 140px 0 0 / 26px 26px 0 0; background: linear-gradient(to bottom, rgba(255, 60, 50, 0.95), rgba(255, 60, 50, 0)); }
 
@@ -140,19 +144,19 @@ button { cursor: pointer; }
 .panel-hint { font-size: 12px; color: var(--dim); font-weight: 600; }
 /* ---------- armory ---------- */
 /* Kept plain: white line icons, one accent (green for what you can afford). */
-#buy { width: min(1080px, 96%); max-height: 94%; }
+#buy { width: min(1220px, 97%); max-height: 94%; }
 .buy-body { display: grid; grid-template-columns: minmax(0, 1fr) 270px; }
-#buy-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; padding: 14px 16px 16px; align-items: start; }
+#buy-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; padding: 14px 16px 16px; align-items: start; }
 .buy-col { display: flex; flex-direction: column; gap: 2px; transition: opacity 0.12s; }
 .buy-col.dim { opacity: 0.35; }
 .buy-cat { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-bottom: 7px; white-space: nowrap; overflow: hidden; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
 .buy-cat .k, .buy-item .k { display: inline-grid; place-items: center; min-width: 16px; height: 16px; font-size: 11px; font-weight: 700; letter-spacing: 0; color: var(--dim); border: 1px solid var(--line); }
 .buy-col.picked .buy-cat { color: var(--text); border-bottom-color: var(--text); }
 .buy-col.picked .buy-cat .k, .buy-item .k { color: #000; background: var(--text); border-color: var(--text); }
-.buy-item { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 0 8px; align-items: baseline; text-align: left; padding: 2px 8px 7px; background: none; border: 1px solid transparent; color: var(--text); font: inherit; cursor: pointer; }
-.buy-item .art { grid-column: 1 / 3; display: grid; place-items: center; aspect-ratio: 5 / 2; color: var(--text); overflow: hidden; }
+.buy-item { position: relative; display: grid; grid-template-columns: 1fr; gap: 1px 8px; align-items: baseline; text-align: left; padding: 2px 8px 7px; background: none; border: 1px solid transparent; color: var(--text); font: inherit; cursor: pointer; }
+.buy-item .art { grid-column: 1; display: grid; place-items: center; aspect-ratio: 5 / 2; color: var(--text); overflow: hidden; }
 .buy-item .art img, .buy-item .art svg { width: 100%; height: 100%; object-fit: contain; }
-.buy-item .n { font-weight: 600; font-size: 14px; line-height: 1.15; overflow-wrap: anywhere; }
+.buy-item .n { font-weight: 600; font-size: 14px; line-height: 1.15; overflow-wrap: break-word; }
 .buy-item .p { color: var(--good); font-weight: 700; font-size: 14px; white-space: nowrap; }
 .buy-item .k { position: absolute; left: 4px; top: 4px; }
 .buy-item .k:empty { display: none; }

@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { OggVorbisDecoder } from '@wasm-audio-decoders/ogg-vorbis';
+import { MPEGDecoder } from 'mpg123-decoder';
 
 const SRC = '_reference/sounds-src';
 const OUT = 'public/assets/audio';
@@ -371,8 +372,6 @@ for (const [i, k] of seq(2).entries()) await ogg('kenney-impact', `impactPlate_l
 for (const f of ['click_002', 'confirmation_001', 'confirmation_002', 'error_004', 'switch_002', 'tick_001', 'bong_001', 'drop_002', 'maximize_006', 'minimize_006']) {
   await ogg('kenney-interface', f, `ui_${f}`);
 }
-for (const [i, k] of seq(3).entries()) await ogg('kenney-scifi', `explosionCrunch_${k}`, `explosion_${i + 1}`);
-await ogg('kenney-scifi', 'lowFrequency_explosion_000', 'explosion_low');
 // ---- from Kenney's impact recordings: footsteps, impacts, a hand catching a gun ---------------
 
 /** One of Kenney's recordings, at SR, peaking at 1. */
@@ -427,6 +426,80 @@ for (let i = 0; i < 5; i++) {
 }
 
 decoder.free();
+
+// ---- grenades: field recordings from Freesound, every one CC0 (see CREDITS.md) -------------------
+//
+// A dynamite blast in the mountains for the HE grenade (with the crack of a firecracker in a
+// concrete street laid over its front, both real), firecrackers for the flashbang, a smoke bomb
+// going off for the smoke, a dummy grenade's pin for the pin, a metal part falling for the bounce,
+// bottles being smashed for the molotov and a fire burning for the flames. Cut, levelled, faded.
+
+const NADES_SRC = path.join(SRC, 'freesound-nades');
+const mp3 = new MPEGDecoder();
+await mp3.ready;
+/** A Freesound recording (by its number) at SR, mono, peaking at 1. */
+function freesound(id) {
+  const p = path.join(NADES_SRC, `${id}.mp3`);
+  if (!fs.existsSync(p)) { console.warn(`missing ${p}`); return new Float32Array(SR); }
+  const { channelData, sampleRate } = mp3.decode(new Uint8Array(fs.readFileSync(p)));
+  const n = channelData[0].length, x = new Float32Array(n);
+  for (const c of channelData) for (let i = 0; i < n; i++) x[i] += c[i] / channelData.length;
+  return normalise(sampleRate === SR ? x : repitch(x, 1, sampleRate), 0);
+}
+const out = (name, y, db = -1) => { normalise(y, db); writeWav(name, y, SR); report(name, y); };
+const dyn = freesound(251401), street = freesound(609588), cracker = freesound(462363), indoor = freesound(263536);
+const at0 = (x) => onsets(x, SR)[0] ?? 0;
+{
+  // HE: the blast and its first echoes off the mountain, the street crack on its leading edge.
+  const blast = cut(dyn, SR, at0(dyn), 3.4);
+  const crack = filt(cut(street, SR, at0(street), 0.6), 'hp', 300);
+  const a = new Float32Array(blast.length);
+  mix(a, blast, 1); mix(a, crack, 0.42);
+  out('nade_he_1', filt(a, 'hp', 35));
+  const b = repitch(blast, 1.07);
+  mix(b, filt(cut(cracker, SR, at0(cracker), 0.5), 'hp', 300), 0.3);
+  out('nade_he_2', filt(b, 'hp', 35));
+  // Far off: the walls between take the top off it.
+  out('nade_he_far', fadeOut(filt(filt(blast.slice(), 'lp', 900), 'lp', 900), 0.5));
+}
+// Flashbang: a hard, close bang (the firecrackers), one take each.
+out('nade_flash_1', filt(cut(cracker, SR, at0(cracker), 1.3), 'hp', 60));
+out('nade_flash_2', filt(cut(indoor, SR, at0(indoor), 1.1), 'hp', 60));
+{
+  // Smoke: the smoke bomb's burst and hiss; put out (a fire smothered), the same lower and softer.
+  const sm = freesound(332602);
+  const s = cut(sm, SR, Math.max(0, at0(sm) - 0.05), 1.35);
+  out('nade_smoke', filt(s.slice(), 'hp', 70), -2);
+  out('nade_out', filt(repitch(s, 0.82), 'lp', 3000), -6);
+}
+{
+  // The pin: the first handling of the dummy grenade's pin.
+  const pin = freesound(876008);
+  out('nade_pin', filt(cut(pin, SR, at0(pin), 0.32), 'hp', 400), -3);
+  // Bouncing: each strike of a small metal part dropped on the floor.
+  const fall = freesound(259553);
+  const hits = onsets(fall, SR);
+  for (let i = 0; i < 3; i++) out(`nade_bounce_${i + 1}`, filt(cut(fall, SR, hits[i % Math.max(1, hits.length)] ?? 0, 0.22), 'hp', 250), -2);
+  // Bottles smashed: three of the six blows, and a bottle broken on its own.
+  const tub = freesound(343756);
+  const blows = onsets(tub, SR);
+  for (let i = 0; i < 3; i++) out(`nade_glass_${i + 1}`, cut(tub, SR, blows[[0, 2, 4][i]] ?? blows[0] ?? 0, 1.0), -2);
+  const bottle = freesound(212698);
+  out('nade_glass_4', cut(bottle, SR, at0(bottle), 1.2), -2);
+}
+{
+  // Fire: six seconds of the fire burning, its end faded into its start so it loops unbroken.
+  const fire = freesound(563766);
+  const len = 6 * SR, over = Math.floor(0.6 * SR), from = 10 * SR;
+  const loop = fire.slice(from, from + len);
+  for (let i = 0; i < over; i++) {
+    const k = i / over;
+    loop[i] = loop[i] * Math.sqrt(k) + fire[from + len + i] * Math.sqrt(1 - k);
+  }
+  out('nade_fire', filt(loop, 'hp', 60), -3);
+}
+mp3.free();
+
 
 // ---- recordings used as they are (MP3) ----------------------------------------------------
 

@@ -1,9 +1,13 @@
 // Keyboard/mouse (pointer lock, raw input) and touch, both reduced to the same per-tick Cmd.
 
 import {
-  BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, type Cmd,
+  BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, SLOT_LAST, type Cmd,
 } from '../sim/types';
 import { settings } from './settings';
+
+/** `Cmd.slot` as the input leaves it, before the game turns it into a slot: the next and previous weapon. */
+export const WHEEL_NEXT = 100;
+export const WHEEL_PREV = 101;
 
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
 /** Radians per mouse count at sensitivity 1 (0.022 degrees, the classic FPS scale). */
@@ -90,7 +94,7 @@ export class Input {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('wheel', (e) => {
       if (!this.locked) return;
-      this.slot = e.deltaY > 0 ? 4 : 5; // next / previous
+      this.slot = e.deltaY > 0 ? WHEEL_NEXT : WHEEL_PREV;
       e.preventDefault();
     }, { passive: false });
 
@@ -157,8 +161,9 @@ export class Input {
       if (c.startsWith('Digit')) {
         const d = Number(c.slice(5));
         if (this.onMenuKey(d)) { e.preventDefault(); return; }
-        if (d >= 1 && d <= 3) this.slot = d - 1;
-      } else if (c === 'KeyQ') this.slot = 3;
+        // (4 is the grenades: again, the next kind carried)
+        if (d >= 1 && d <= 4) this.slot = d - 1;
+      } else if (c === 'KeyQ') this.slot = SLOT_LAST;
       else if (c === 'KeyB') this.onToggleBuy();
       else if (c === 'KeyF') this.onInspect();
       else if (c === 'Tab') this.onScoreboard(true);
@@ -244,7 +249,7 @@ export class Input {
         el.classList.add('down');
         if (bit) this.touchButtons |= bit;
         if (tag === 'crouch') { this.crouchToggle = !this.crouchToggle; el.classList.toggle('held', this.crouchToggle); }
-        else if (tag === 'swap') this.slot = 4;
+        else if (tag === 'swap') this.slot = WHEEL_NEXT;
         else if (tag === 'buy') this.onToggleBuy();
         else if (tag === 'menu') this.onEscape();
         if (bit === BTN_FIRE) { this.lookX = e.clientX; this.lookY = e.clientY; }

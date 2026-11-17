@@ -144,9 +144,6 @@ export class Effects {
 
   readonly charge = new THREE.Group();
   private chargeCore: THREE.MeshBasicMaterial;
-  private blast: THREE.Mesh;
-  private ring: THREE.Mesh;
-  private blastT = -1;
 
   constructor() {
     const unit = new THREE.BoxGeometry(1, 1, 1);
@@ -269,15 +266,6 @@ export class Effects {
     this.charge.visible = false;
     this.group.add(this.charge);
 
-    const blastMat = new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-    this.blast = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 14), blastMat);
-    this.blast.visible = false;
-    this.group.add(this.blast);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffe0b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48), ringMat);
-    this.ring.rotation.x = -Math.PI / 2;
-    this.ring.visible = false;
-    this.group.add(this.ring);
   }
 
   /** Light the level for a moment (muzzle flash, explosion). */
@@ -413,28 +401,49 @@ export class Effects {
     for (let i = this.ropesUsed; i < MAX_ROPES; i++) this.ropes[i]!.visible = false;
   }
 
-  detonate(x: number, y: number, z: number): void {
-    this.blast.position.set(x, y + 0.5, z);
-    this.ring.position.set(x, y + 0.08, z);
-    this.blastT = 0;
-    this.blast.visible = this.ring.visible = true;
-    this.flashLight(x, y + 1.2, z, 900, 0.5, 0xffb060);
-    for (let i = 0; i < 110; i++) {
-      const a = Math.random() * Math.PI * 2, e = Math.random() * Math.PI * 0.5;
-      const sp = 6 + Math.random() * 18;
-      this.emit(x, y + 0.3, z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp, Math.sin(a) * Math.cos(e) * sp, 3.4, 1.8 + Math.random(), 0.6, 0.5 + Math.random() * 0.8, 11, 0.07, -0.04, 1, 1, 0.6);
+  /** A flashbang: one white pop, too short to look at, and a wisp of smoke. */
+  flashPop(x: number, y: number, z: number): void {
+    this.flashLight(x, y + 0.2, z, 300, 0.12, 0xe9f1ff);
+    const R = Math.random;
+    this.emit(x, y + 0.1, z, 0, 0, 0, 2.6, 2.6, 2.8, 0.07, 0, 0.9, 0.8, 1, 1, 0);
+    for (let i = 0; i < 26; i++) {
+      const a = R() * Math.PI * 2, e = (R() - 0.3) * Math.PI, sp = 5 + R() * 9;
+      this.emit(x, y + 0.1, z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp, Math.sin(a) * Math.cos(e) * sp,
+        3.5, 3.5, 3.8, 0.08 + R() * 0.12, 4, 0.025, -0.02, 1, 1, 2);
     }
-    for (let i = 0; i < 40; i++) {
-      const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 5;
-      this.emit(x, y + 0.4, z, Math.cos(a) * sp, 0.6 + Math.random() * 2.5, Math.sin(a) * sp, 0.2, 0.2, 0.22, 1.4 + Math.random() * 1.2, -0.2, 0.7, 1.6, 0.42, 0, 1.6);
+    for (let i = 0; i < 6; i++) {
+      this.emit(x, y + 0.15, z, (R() - 0.5) * 0.8, 0.3 + R() * 0.5, (R() - 0.5) * 0.8, 0.55, 0.57, 0.6, 1.2 + R(), -0.2, 0.35, 1.2, 0.35, 0, 1.5);
+    }
+  }
+
+  /** One tongue of flame (fire on the ground, a molotov's rag in flight). */
+  flame(x: number, y: number, z: number, size = 1): void {
+    const R = Math.random;
+    const hot = R();
+    // (big soft tongues, overlapping, that shrink and redden as they rise)
+    this.emit(x, y + 0.1, z, (R() - 0.5) * 0.35, 1.2 + R() * 1.4, (R() - 0.5) * 0.35,
+      1.5 + hot * 0.6, 0.42 + hot * 0.5, 0.08 + hot * 0.1, 0.35 + R() * 0.35, -1.0, (0.55 + R() * 0.4) * size, -0.5 * size, 0.5, 1, 1.5);
+  }
+
+  /** Smoke off a fire. */
+  fireSmoke(x: number, y: number, z: number): void {
+    const R = Math.random;
+    this.emit(x, y, z, (R() - 0.5) * 0.5, 0.8 + R() * 0.8, (R() - 0.5) * 0.5, 0.1, 0.1, 0.11, 1.8 + R() * 1.2, -0.15, 0.4, 1.8, 0.38, 0, 0.8);
+  }
+
+  /** A fire put out: steam and smoke. */
+  fireOut(x: number, y: number, z: number): void {
+    const R = Math.random;
+    for (let i = 0; i < 16; i++) {
+      const a = R() * Math.PI * 2, sp = 0.5 + R() * 1.5;
+      this.emit(x + Math.cos(a) * R() * 1.2, y + 0.1, z + Math.sin(a) * R() * 1.2, Math.cos(a) * sp, 0.6 + R() * 1.2, Math.sin(a) * sp,
+        0.5, 0.52, 0.55, 1.2 + R() * 0.8, -0.2, 0.5, 1.6, 0.45, 0, 1.2);
     }
   }
 
   clearRound(): void {
     this.decalI = 0;
     this.decals.count = 0;
-    this.blast.visible = this.ring.visible = false;
-    this.blastT = -1;
   }
 
   /** `chargeBlink` 0..1 brightness of the charge's light. */
@@ -486,20 +495,5 @@ export class Effects {
     }
 
     this.chargeCore.color.setRGB(0.3 + chargeBlink * 2.6, 0.06 + chargeBlink * 0.5, 0.05 + chargeBlink * 0.2);
-    if (this.blastT >= 0) {
-      this.blastT += dt / 0.8;
-      const t = this.blastT;
-      if (t >= 1) {
-        this.blast.visible = this.ring.visible = false;
-        this.blastT = -1;
-      } else {
-        const r = 2 + t * 18;
-        this.blast.scale.set(r, r, r);
-        (this.blast.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - t) * (1 - t);
-        const rr = 1 + t * 30;
-        this.ring.scale.set(rr, rr, rr);
-        (this.ring.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - t);
-      }
-    }
   }
 }

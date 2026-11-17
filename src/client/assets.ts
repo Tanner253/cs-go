@@ -330,7 +330,38 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     loadAt: [-0.27, 0.0, 0],
   },
   longsight: { pack: 'sniper', world: 'sniper', rack: true },
+  // ---- grenades: held in our own arms (the submachine-gun pack's), thrown by nade-view.ts ----
+  frag: { pack: 'smg', world: 'frag', mount: { file: 'frag_grenade.glb', ride: {} } },
+  flash: { pack: 'smg', world: 'flash', mount: { file: 'smoke_grenade.glb', ride: {} } },
+  smoke: { pack: 'smg', world: 'smoke', mount: { file: 'smoke_grenade.glb', ride: {} } },
+  molotov: { pack: 'smg', world: 'molotov', mount: { file: 'alcohol_bottle.glb', ride: {} } },
+  incendiary: { pack: 'smg', world: 'incendiary', mount: { file: 'smoke_grenade.glb', ride: {} } },
 };
+
+/**
+ * Grenades that share a model are told apart by the colour of their body (a multiplier on the
+ * model's own texture), as Counter-Strike's are: the flashbang pale, the incendiary red.
+ */
+export const NADE_TINT: Record<string, number> = {
+  flash: 0xe6ecf2, smoke: 0x9aa59a, incendiary: 0xc4553a,
+};
+
+/** A grenade's own material, in its colour (made once per grenade and source material). */
+const nadeMats = new Map<string, THREE.Material>();
+export function nadeMaterial(src: THREE.Material, id: string): THREE.Material {
+  const key = `${id}|${src.uuid}`;
+  let m = nadeMats.get(key);
+  if (!m) {
+    const c = src.clone() as THREE.MeshStandardMaterial;
+    if (c.isMeshStandardMaterial) {
+      const tint = NADE_TINT[id];
+      if (tint !== undefined) c.color.multiply(new THREE.Color(tint));
+      c.envMapIntensity = 0.7;
+    }
+    nadeMats.set(key, (m = c));
+  }
+  return m;
+}
 
 // ---- loading ----------------------------------------------------------------------------
 
@@ -417,7 +448,7 @@ export function loadWeapon(id: string): Promise<unknown> {
 
 // ---- third-person characters ---------------------------------------------------------
 
-export type Carry = 'rifle' | 'smg' | 'pistol' | 'knife' | 'dual';
+export type Carry = 'rifle' | 'smg' | 'pistol' | 'knife' | 'dual' | 'nade';
 
 /** A weapon as other players see it: a low-poly model whose +x runs along the barrel. */
 export interface WorldGun {
@@ -470,6 +501,12 @@ const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   // (measured off its outline: the wrist of its stock is at x = 0, its guard just ahead)
   db12: { file: 'world/db12_lod1.glb', carry: 'rifle', trigger: [0.07, -0.02], wrist: true, fore: 0.25, muzzle: [0.565, 0.08, 0] },
   knife: { file: 'world/knife_lod1.glb', carry: 'knife', trigger: [0, 0], grip: [0.0146, -0.004, 0.076], muzzle: [0, 0.24, 0], blade: true },
+  // (grenades stand upright as modelled, so they are held as a blade is: long axis up, gripped round the middle)
+  frag: { file: 'frag_grenade_lod1.glb', carry: 'nade', trigger: [0, 0], grip: [0, 0.045, 0], muzzle: [0, 0.09, 0], blade: true },
+  flash: { file: 'smoke_grenade_lod1.glb', carry: 'nade', trigger: [0, 0], grip: [0, 0.07, 0], muzzle: [0, 0.15, 0], blade: true },
+  smoke: { file: 'smoke_grenade_lod1.glb', carry: 'nade', trigger: [0, 0], grip: [0, 0.07, 0], muzzle: [0, 0.15, 0], blade: true },
+  molotov: { file: 'alcohol_bottle.glb', carry: 'nade', trigger: [0, 0], grip: [0, 0.09, 0], muzzle: [0, 0.25, 0], blade: true },
+  incendiary: { file: 'smoke_grenade_lod1.glb', carry: 'nade', trigger: [0, 0], grip: [0, 0.07, 0], muzzle: [0, 0.15, 0], blade: true },
 };
 
 let characters: CharacterAssets | null = null;

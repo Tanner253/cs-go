@@ -6,12 +6,18 @@ import { World, newRayHit, newTrace } from './world';
 import { buildMap, inZone, type MapDef } from './map';
 import { Nav } from './nav';
 import { GRAVITY, endGrapple, eyeHeight, hullHeight, movePlayer } from './movement';
-import { DEFAULT_PISTOL, GEAR, SUPPRESSED_RANGE, SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt, type WeaponDef } from './weapons';
+import {
+  DEFAULT_PISTOL, GEAR, NADES, NADE_CARRY, NADE_INDEX, SUPPRESSED_RANGE, SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt,
+  type WeaponDef,
+} from './weapons';
+import {
+  FIRE_FUSE, FIRE_GROW, FIRE_LIFE, FIRE_R, FUSE, PIN_TIME, SMOKE_LIFE, SMOKE_RH, THROW_TIME, flyNade, inSmoke, throwFrom,
+} from './grenades';
 import { Bot, assignRoles } from './bot';
 import {
-  ATK, BTN_ALT, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, TICK,
+  ATK, BTN_ALT, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, SLOT_LAST, SLOT_NADE, TICK,
   emptyCmd,
-  type Charge, type Cmd, type Phase, type Player, type SimEvent, type Team, type WeaponState, type WinReason,
+  type Charge, type Cmd, type Grenade, type Phase, type Player, type SimEvent, type Team, type WeaponState, type WinReason,
 } from './types';
 
 export const RULES = {
@@ -120,6 +126,9 @@ export class Sim {
   readonly bots = new Map<number, Bot>();
   readonly cmds: Cmd[] = [];
   readonly charge: Charge = { state: 'carried', carrier: -1, pos: v3(), timer: 0, site: -1 };
+  /** Grenades thrown this round that are still flying, lying, smoking or burning. */
+  grenades: Grenade[] = [];
+  private nadeId = 0;
   /** Events produced since the consumer last cleared them. */
   events: SimEvent[] = [];
 
@@ -191,7 +200,8 @@ export class Sim {
       wallJumps: 0, lastWallNx: 0, lastWallNz: 0,
       mantleT: -1, mantleFrom: v3(), mantleTo: v3(),
       grappleOn: false, grapplePoint: v3(), grappleTime: 0, grappleReadyAt: 0,
-      weapons: [null, null, null], active: 1, lastActive: 2,
+      weapons: [null, null, null, null], active: 1, lastActive: 2,
+      nades: NADES.map(() => 0), nadeSel: 0, pinAt: -1, throwStr: 1, throwAt: -1, flashEnd: 0, flashLen: 0,
       drawTimer: 0, reloadTimer: 0, fitTimer: 0, nextFireAt: 0, lastShotAt: -99, recoilIdx: 0,
       punchPitch: 0, punchYaw: 0, fireSpread: 0, scope: 0, rescope: 0, fireBuffer: 0, useTime: 0, prevButtons: 0, spawnIndex: 0,
     };
@@ -229,7 +239,8 @@ export class Sim {
   }
 
   private resetLoadout(p: Player): void {
-    p.weapons = [null, this.makeWeapon(DEFAULT_PISTOL[p.team]), this.makeWeapon('edge')];
+    p.weapons = [null, this.makeWeapon(DEFAULT_PISTOL[p.team]), this.makeWeapon('edge'), null];
+    p.nades.fill(0);
     p.armor = 0;
     p.helmet = false;
     p.kit = false;
@@ -246,6 +257,7 @@ export class Sim {
     this.liveTime = 0;
     this.planted = false;
     this.intel[0].site = this.intel[1].site = -1;
+    this.grenades.length = 0;
 
     const used: [number, number] = [0, 0];
     const offset = this.rng.int(7);
@@ -278,6 +290,10 @@ export class Sim {
       p.punchPitch = p.punchYaw = 0;
       p.fireSpread = 0;
       p.nextFireAt = 0;
+      p.pinAt = -1;
+      p.throwAt = -1;
+      p.flashEnd = 0;
+      if (p.active === 3) p.active = p.weapons[0] ? 0 : 1;
       p.prevButtons = 0;
       p.drawTimer = 0.3;
       if (!p.weapons[p.active]) p.active = p.weapons[0] ? 0 : 1;
@@ -364,6 +380,17 @@ export class Sim {
   tryBuy(p: Player, item: string): boolean {
     if (!this.canBuy(p)) return false;
     const def = WEAPONS[item];
+    if (def?.nade) {
+      if (def.team !== -1 && def.team !== p.team) return false;
+      const i = NADE_INDEX.get(def.id)!;
+      const carried = p.nades.reduce((a, b) => a + b, 0);
+      if (p.money < def.price || carried >= NADE_CARRY || p.nades[i]! >= def.nade.max) return false;
+      p.money -= def.price;
+      p.nades[i]!++;
+      if (!p.weapons[3]) p.nadeSel = i;
+      this.syncNade(p);
+      return true;
+    }
     if (def) {
       if (def.kind === 'knife' || (def.team !== -1 && def.team !== p.team)) return false;
       if (p.money < def.price || p.weapons[def.slot]?.def.id === def.id) return false;
@@ -400,7 +427,46 @@ export class Sim {
 
   // ---- weapons ---------------------------------------------------------------------
 
+  /** Slot 3 shows the grenade picked out (or the next kind carried, once that one is gone). */
+  private syncNade(p: Player): void {
+    const n = NADES.length;
+    let i = p.nadeSel;
+    for (let k = 0; k < n && !(p.nades[i]! > 0); k++) i = (i + 1) % n;
+    if (!(p.nades[i]! > 0)) {
+      p.weapons[3] = null;
+      return;
+    }
+    p.nadeSel = i;
+    const w = p.weapons[3];
+    if (w && w.def === NADES[i]) w.mag = p.nades[i]!;
+    else p.weapons[3] = { def: NADES[i]!, mag: p.nades[i]!, reserve: 0, quiet: false };
+  }
+
+  /** Take out grenade kind `i` (if carried). */
+  private pickNade(p: Player, i: number): void {
+    if (!(p.nades[i]! > 0) || (p.active === 3 && p.nadeSel === i && p.throwAt < 0)) return;
+    p.nadeSel = i;
+    this.syncNade(p);
+    if (p.active === 3) {
+      // Changing kind with a grenade already out: put it away and bring the other up.
+      p.pinAt = -1;
+      p.throwAt = -1;
+      p.drawTimer = NADES[i]!.drawTime;
+      this.events.push({ type: 'draw', player: p.id, weapon: NADES[i]!.id });
+    } else {
+      this.switchTo(p, 3);
+    }
+  }
+
   private switchTo(p: Player, slot: number): void {
+    if (slot === 3 && p.active === 3) {
+      // The grenade key again: on to the next kind carried.
+      for (let k = 1; k < NADES.length; k++) {
+        const i = (p.nadeSel + k) % NADES.length;
+        if (p.nades[i]! > 0) { this.pickNade(p, i); return; }
+      }
+      return;
+    }
     if (slot === p.active || !p.weapons[slot]) return;
     p.lastActive = p.active;
     p.active = slot;
@@ -414,7 +480,16 @@ export class Sim {
     p.recoilIdx = 0;
     p.punchPitch = p.punchYaw = 0;
     p.fireSpread = 0;
+    // A grenade with its pin out goes back on the belt, pin and all.
+    p.pinAt = -1;
+    p.throwAt = -1;
     this.events.push({ type: 'draw', player: p.id, weapon: def.id });
+  }
+
+  /** The gun to go back to once the last grenade of a kind has been thrown. */
+  private afterNade(p: Player): number {
+    if (p.lastActive !== 3 && p.weapons[p.lastActive]) return p.lastActive;
+    return p.weapons[0] ? 0 : p.weapons[1] ? 1 : 2;
   }
 
   /** Current total inaccuracy (radians) — also drives the crosshair. */
@@ -422,7 +497,7 @@ export class Sim {
     const w = p.weapons[p.active];
     if (!w) return 0;
     const def = w.def;
-    if (def.kind === 'knife') return 0;
+    if (def.kind === 'knife' || def.kind === 'grenade') return 0;
     let s = p.ducked ? def.spreadCrouch : def.spreadStand;
     if (def.kind === 'sniper' && p.scope === 0) s = def.spreadUnscoped!;
     s += p.fireSpread;
@@ -439,10 +514,15 @@ export class Sim {
 
   private updateWeapon(p: Player, cmd: Cmd, canAct: boolean): void {
     const now = this.time;
-    if (cmd.slot >= 0 && cmd.slot <= 2) this.switchTo(p, cmd.slot);
-    else if (cmd.slot === 3) this.switchTo(p, p.weapons[p.lastActive] ? p.lastActive : 2);
+    if (cmd.slot >= SLOT_NADE) this.pickNade(p, cmd.slot - SLOT_NADE);
+    else if (cmd.slot >= 0 && cmd.slot <= 3) this.switchTo(p, cmd.slot);
+    else if (cmd.slot === SLOT_LAST) this.switchTo(p, p.weapons[p.lastActive] ? p.lastActive : 2);
 
-    const w = p.weapons[p.active]!;
+    const w = p.weapons[p.active];
+    if (!w) {
+      this.switchTo(p, this.afterNade(p));
+      return;
+    }
     const def = w.def;
     const pressed = cmd.buttons & ~p.prevButtons;
 
@@ -461,6 +541,10 @@ export class Sim {
 
     if (p.drawTimer > 0) {
       p.drawTimer -= TICK;
+      return;
+    }
+    if (def.kind === 'grenade') {
+      this.updateNade(p, w, cmd, pressed, canAct);
       return;
     }
     if (p.reloadTimer > 0) {
@@ -518,6 +602,209 @@ export class Sim {
       this.shoot(p, w, cmd.seq);
       this.restore(p, cmd.lag);
     }
+  }
+
+  // ---- grenades ----------------------------------------------------------------------
+
+  /**
+   * A grenade in hand. Pressing either button pulls the pin; letting go throws it, overarm
+   * (fire), as an underarm lob (alt) or in between (both). Once a throw is asked for, it goes
+   * as soon as the pin is out.
+   */
+  private updateNade(p: Player, w: WeaponState, cmd: Cmd, pressed: number, canAct: boolean): void {
+    const now = this.time;
+    if (p.throwAt >= 0) {
+      if (now < p.throwAt + THROW_TIME) return;
+      p.throwAt = -1;
+      const same = p.nades[p.nadeSel]! > 0;
+      this.syncNade(p);
+      if (same) {
+        p.drawTimer = w.def.drawTime;
+        this.events.push({ type: 'draw', player: p.id, weapon: w.def.id });
+      } else {
+        this.switchTo(p, this.afterNade(p));
+      }
+      return;
+    }
+    if (!canAct) return;
+    const held = cmd.buttons & (BTN_FIRE | BTN_ALT);
+    const strength = (b: number): number => ((b & BTN_FIRE) && (b & BTN_ALT) ? 0.5 : b & BTN_FIRE ? 1 : 0);
+    if (p.pinAt < 0) {
+      if (pressed & (BTN_FIRE | BTN_ALT)) {
+        p.pinAt = now;
+        p.throwStr = strength(held);
+        this.events.push({ type: 'pin', player: p.id, weapon: w.def.id });
+      }
+      return;
+    }
+    if (held) {
+      // Both buttons, once held together, stay a middle throw however they are let go.
+      if (p.throwStr !== 0.5) p.throwStr = strength(held);
+      return;
+    }
+    if (now < p.pinAt + PIN_TIME) return;
+    this.throwNade(p, w);
+  }
+
+  private throwNade(p: Player, w: WeaponState): void {
+    const i = NADE_INDEX.get(w.def.id)!;
+    p.nades[i] = Math.max(0, p.nades[i]! - 1);
+    w.mag = p.nades[i]!;
+    p.pinAt = -1;
+    p.throwAt = this.time;
+    this.events.push({ type: 'throw', player: p.id, weapon: w.def.id, strength: p.throwStr });
+    if (this.predicting) return;
+    const g = this.spawnNade(p, i);
+    throwFrom(p, this.eyeY(p), p.throwStr, this.world, g.pos, g.vel);
+  }
+
+  private spawnNade(p: Player, kind: number): Grenade {
+    const g: Grenade = {
+      id: ++this.nadeId, kind, owner: p.id, team: p.team, pos: v3(), vel: v3(),
+      born: this.time, state: 0, popAt: 0, endAt: 0,
+    };
+    this.grenades.push(g);
+    return g;
+  }
+
+  /** True if smoke hides b from a (enough of the line runs through one or more clouds). */
+  smokeBlocks(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+    let inside = 0;
+    for (const g of this.grenades) {
+      if (g.state !== 2 || NADES[g.kind]!.nade!.type !== 'smoke') continue;
+      inside += inSmoke(g, this.time, ax, ay, az, bx, by, bz);
+      if (inside > 1.1) return true;
+    }
+    return false;
+  }
+
+  /** A fire burning at this point (feet), if any: for bots to keep out of. */
+  fireAt(x: number, y: number, z: number, margin = 0): Grenade | null {
+    for (const g of this.grenades) {
+      if (g.state !== 2 || NADES[g.kind]!.nade!.type !== 'fire') continue;
+      const r = this.fireRadius(g) + margin;
+      if (Math.hypot(x - g.pos.x, z - g.pos.z) < r && y > g.pos.y - 0.5 && y < g.pos.y + 1) return g;
+    }
+    return null;
+  }
+
+  /** Fire spreads out from where it lands over its first FIRE_GROW seconds. */
+  fireRadius(g: Grenade): number {
+    const age = this.time - g.popAt;
+    return FIRE_R * Math.min(1, 0.35 + age / FIRE_GROW);
+  }
+
+  private updateGrenades(): void {
+    const now = this.time;
+    this.grenades = this.grenades.filter((g) => g.state !== 3);
+    for (const g of this.grenades) {
+      const def = NADES[g.kind]!;
+      const type = def.nade!.type;
+      const owner = this.players[g.owner] ?? null;
+      const age = now - g.born;
+      if (g.state < 2) {
+        const floor = flyNade(g, this.world, this.players, now, TICK, this.events);
+        if (type === 'he' || type === 'flash') {
+          if (age >= FUSE) this.detonate(g, def, owner);
+        } else if (type === 'smoke') {
+          if ((g.state === 1 && age >= 0.5) || age >= 6) this.popSmoke(g);
+        } else if (floor || age >= FIRE_FUSE) {
+          this.ignite(g, age);
+        }
+      } else if (g.state === 2) {
+        if (now >= g.endAt) g.state = 3;
+        else if (type === 'fire' && this.tickCount % 16 === 0) this.burn(g, def, owner);
+      }
+    }
+  }
+
+  private popSmoke(g: Grenade): void {
+    const now = this.time;
+    g.state = 2;
+    g.popAt = now;
+    g.endAt = now + SMOKE_LIFE;
+    g.vel.x = g.vel.y = g.vel.z = 0;
+    this.events.push({ type: 'boom', id: g.id, kind: 'smoke', x: g.pos.x, y: g.pos.y, z: g.pos.z });
+    // Smoke smothers any fire it covers.
+    for (const f of this.grenades) {
+      if (f.state !== 2 || NADES[f.kind]!.nade!.type !== 'fire') continue;
+      if (Math.hypot(f.pos.x - g.pos.x, f.pos.z - g.pos.z) < SMOKE_RH + 1 && Math.abs(f.pos.y - g.pos.y) < 2.5) {
+        f.state = 3;
+        this.events.push({ type: 'boom', id: f.id, kind: 'out', x: f.pos.x, y: f.pos.y, z: f.pos.z });
+      }
+    }
+  }
+
+  private ignite(g: Grenade, age: number): void {
+    const now = this.time;
+    g.pos.y = this.floorBelow(g.pos.x, g.pos.y, g.pos.z);
+    g.vel.x = g.vel.y = g.vel.z = 0;
+    const smothered = this.grenades.some((s) => s.state === 2 && NADES[s.kind]!.nade!.type === 'smoke'
+      && Math.hypot(s.pos.x - g.pos.x, s.pos.z - g.pos.z) < SMOKE_RH + 0.5 && Math.abs(s.pos.y - g.pos.y) < 2.5);
+    // Burst in the air (thrown high, never finding a floor): nothing much comes down, as in Counter-Strike.
+    const air = age >= FIRE_FUSE && g.state === 0;
+    g.state = smothered || air ? 3 : 2;
+    g.popAt = now;
+    g.endAt = now + FIRE_LIFE;
+    this.events.push({ type: 'boom', id: g.id, kind: g.state === 2 ? 'fire' : 'out', x: g.pos.x, y: g.pos.y, z: g.pos.z });
+  }
+
+  /** A quarter of the burn rate every quarter second to anyone standing in the flames. */
+  private burn(g: Grenade, def: WeaponDef, owner: Player | null): void {
+    if (this.predicting) return;
+    const r = this.fireRadius(g);
+    for (const v of this.players) {
+      if (!v.alive || (v.team === g.team && v.id !== g.owner)) continue;
+      if (Math.hypot(v.pos.x - g.pos.x, v.pos.z - g.pos.z) > r || v.pos.y < g.pos.y - 0.5 || v.pos.y > g.pos.y + 0.9) continue;
+      this.damage(v, owner, def, def.damage / 4, CHEST, 0, v.pos.x, v.pos.y + 0.3, v.pos.z, false);
+    }
+  }
+
+  private detonate(g: Grenade, def: WeaponDef, owner: Player | null): void {
+    g.state = 3;
+    const now = this.time;
+    const gx = g.pos.x, gy = g.pos.y + 0.08, gz = g.pos.z;
+    const type = def.nade!.type;
+    this.events.push({ type: 'boom', id: g.id, kind: type === 'he' ? 'he' : 'flash', x: g.pos.x, y: g.pos.y, z: g.pos.z });
+    if (this.predicting) return;
+    const w = this.world;
+    for (const v of this.players) {
+      if (!v.alive) continue;
+      if (type === 'he') {
+        if (v.team === g.team && v.id !== g.owner) continue;
+        const bx = v.pos.x, by = v.pos.y + 1.0, bz = v.pos.z;
+        const d = Math.hypot(bx - gx, by - gy, bz - gz);
+        if (d > 9) continue;
+        if (!w.lineOfSight(gx, gy, gz, bx, by, bz) && !w.lineOfSight(gx, gy, gz, bx, v.pos.y + eyeHeight(v), bz)
+          && !w.lineOfSight(gx, gy, gz, bx, v.pos.y + 0.3, bz)) continue;
+        // Falls away fast: 98 at the centre, about 60 at 3 m, 25 at 5 m (before armour).
+        const dmg = def.damage * Math.exp(-(d * d) / (2 * 3 * 3));
+        if (dmg >= 1) this.damage(v, owner, def, dmg, CHEST, 0, bx, by, bz, false);
+      } else {
+        // Flashbang: blinds anyone who can see it, longest for those looking straight at it
+        // and close by; even with it behind you, a short white-out.
+        const ex = v.pos.x, ey = this.eyeY(v), ez = v.pos.z;
+        const d = Math.hypot(gx - ex, gy - ey, gz - ez);
+        if (d > 40 || !w.lineOfSight(gx, gy, gz, ex, ey, ez)) continue;
+        if (this.smokeBlocks(gx, gy, gz, ex, ey, ez)) continue;
+        forwardFromAngles(v.yaw, v.pitch, fwd);
+        const dot = d > 0.01 ? ((gx - ex) * fwd.x + (gy - ey) * fwd.y + (gz - ez) * fwd.z) / d : 1;
+        const facing = dot >= 0.5 ? 1 : dot <= -0.4 ? 0.22 : 0.22 + (0.78 * (dot + 0.4)) / 0.9;
+        const near = d <= 7 ? 1 : Math.max(0, 1 - (d - 7) / 28);
+        const seconds = 4.9 * facing * near;
+        if (seconds < 0.3) continue;
+        if (v.flashEnd - now < seconds) {
+          v.flashEnd = now + seconds;
+          v.flashLen = seconds;
+        }
+        this.events.push({ type: 'flashed', player: v.id, by: g.owner, seconds });
+      }
+    }
+  }
+
+  /** Blind for this many more seconds (0 = can see). */
+  blindFor(p: Player): number {
+    return Math.max(0, p.flashEnd - this.time);
   }
 
   // ---- lag compensation -------------------------------------------------------------
@@ -779,6 +1066,17 @@ export class Sim {
     v.deaths++;
     v.scope = 0;
     v.useTime = 0;
+    v.flashEnd = 0;
+    // Killed with the pin out: the grenade falls from the hand and goes off anyway.
+    if (v.pinAt >= 0 && v.active === 3 && v.weapons[3] && !this.predicting) {
+      const i = NADE_INDEX.get(v.weapons[3].def.id)!;
+      v.nades[i] = Math.max(0, v.nades[i]! - 1);
+      const g = this.spawnNade(v, i);
+      g.pos.x = v.pos.x; g.pos.y = v.pos.y + 1.2; g.pos.z = v.pos.z;
+      g.vel.x = v.vel.x * 0.5; g.vel.y = 1; g.vel.z = v.vel.z * 0.5;
+    }
+    v.pinAt = -1;
+    v.throwAt = -1;
     endGrapple(v, this.time, this.events);
     if (killer && killer !== v) {
       killer.kills++;
@@ -976,6 +1274,7 @@ export class Sim {
     }
 
     this.separate();
+    this.updateGrenades();
     this.updateCharge();
     this.checkWin();
 

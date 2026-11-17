@@ -70,14 +70,39 @@ export const CREDITS: Credit[] = [
   { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Attacker sniper (Colossus). Set in rigid pieces, held in the .50 sniper pack.' },
   { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun (cut down to a sawn-off) and its own animations (draw, fire, reload), worn by the arms of the SMG pack.' },
   {
+    title: 'Frag Granade', author: 'MB_Cre8', license: 'CC BY 4.0',
+    url: 'https://sketchfab.com/3d-models/frag-granade-e715224c90e34b949939adaca382cd0e',
+    note: 'The HE grenade. Its pin and ring are drawn out by the left hand and its lever flies off as it is thrown.',
+  },
+  {
+    title: 'Isopropyl Rubbing Alcohol Bottle Game Ready', author: 'KQ92', license: 'CC BY 4.0',
+    url: 'https://sketchfab.com/3d-models/isopropyl-rubbing-alcohol-bottle-game-ready-a323700f7c93400aba8000f2f2a7e8e0',
+    note: 'The molotov.',
+  },
+  {
+    title: 'Campfire', author: 'Zelad', license: 'CC BY 4.0',
+    url: 'https://sketchfab.com/3d-models/campfire-fcb278e6a64c4a34ba84b2b1fce8c3c0',
+    note: 'Its flame pictures: the fireball of an explosion and the flames of a molotov or incendiary, each made to boil and coloured from how hot it is.',
+  },
+  {
+    title: 'Particle Pack', author: 'Kenney', license: 'CC0 1.0',
+    url: 'https://kenney.nl/assets/particle-pack',
+    note: 'The smoke, dust, sparks and rings of an explosion.',
+  },
+  {
+    title: 'Grenade field recordings (freesound.org)', author: 'felix.blume, unfa, keng-wai-chane-chick-te, grobbd, vckhaze, loganzsound, nicktermer, Brokenphono, dasebr, florianreichelt', license: 'CC0 1.0',
+    url: 'https://freesound.org/s/251401/',
+    note: 'A dynamite blast, firecrackers, a smoke bomb, a dummy grenade\'s pin, a metal part falling, bottles smashed and a fire: the grenades\' sounds. Cut, filtered, faded and levelled.',
+  },
+  {
     title: "Snake's Authentic Gun Sounds (packs 1 and 2)", author: 'Snake / F8 Studios', license: 'Free for commercial use',
     url: 'https://f8studios.itch.io/snakes-authentic-gun-sounds',
     note: 'Every gunshot, reload, rack, slide and bolt: recordings of real guns, used as recorded.',
   },
   {
-    title: 'Impact Sounds, Interface Sounds, Sci-Fi Sounds', author: 'Kenney', license: 'CC0 1.0',
+    title: 'Impact Sounds, Interface Sounds', author: 'Kenney', license: 'CC0 1.0',
     url: 'https://kenney.nl/assets',
-    note: 'Footsteps, hits, impacts, interface sounds and the explosion.',
+    note: 'Footsteps, hits, impacts and interface sounds.',
   },
   {
     title: 'Reload and knife recordings', author: 'MaximBomba, Joao_Janz, CHallSmith, neilsher, draftcraft, bassoonrckr, magnuswaker (freesound.org)', license: 'CC0 1.0',

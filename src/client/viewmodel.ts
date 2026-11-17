@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { WeaponDef } from '../sim/weapons';
-import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
+import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, nadeMaterial, type PackInfo, type WeaponFiles, type WeaponLook } from './assets';
+import { NadeRig, type NadeViewState } from './nade-view';
 import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
 import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 import { FLASH_KINDS, flashTexture } from './effects';
@@ -1027,6 +1028,8 @@ export interface ViewState {
   fitT: number;
   grappling: boolean;
   mantling: boolean;
+  /** A grenade in hand: where it is in a throw. */
+  nade?: NadeViewState;
 }
 
 const SHELLS = 8;
@@ -1057,6 +1060,7 @@ export class Viewmodel {
   /** Carries the spring motion; the active rig hangs under it. */
   private holder = new THREE.Group();
   private rigs = new Map<string, Rig>();
+  private nades = new Map<string, NadeRig>();
   private current: Rig | null = null;
   private currentId = '';
   private flash: THREE.Mesh;
@@ -1170,6 +1174,31 @@ export class Viewmodel {
     return r;
   }
 
+  /** A grenade's hands, made once its files are in. */
+  private nadeRig(def: WeaponDef, team: number): NadeRig | null {
+    let n = this.nades.get(def.id);
+    if (n) return n;
+    const files = getWeapon(def.id);
+    if (!files) {
+      void loadWeapon(def.id);
+      return null;
+    }
+    n = new NadeRig(files, (arms, toGun, nade) => {
+      for (const m of arms) tagGunSpace(m, toGun(m));
+      const src = arms[0]?.material as THREE.Material | undefined;
+      if (src) {
+        const wear: SkinWear = { skin: SUIT, role: 'body', length: UNIT, cell: UNIT, ...SUIT_STATE, glow: this.live.suitGlow };
+        const finished = finishFor(src, team, arms, wear);
+        for (const m of arms) m.material = finished;
+      }
+      for (const m of nade) m.material = nadeMaterial(m.material as THREE.Material, def.id);
+    });
+    n.root.visible = false;
+    this.holder.add(n.root);
+    this.nades.set(def.id, n);
+    return n;
+  }
+
   onShot(def: WeaponDef, quiet = false): void {
     const k = def.kick;
     this.kickZ.kick(5.2 * k);
@@ -1251,7 +1280,9 @@ export class Viewmodel {
     this.live.heat.value *= Math.exp(-dt * 1.9);
     this.live.ammo.value += (st.ammo - this.live.ammo.value) * Math.min(1, dt * 12);
     this.live.suitGlow.set(SIDE_GLOW[st.team] ?? 0x9fc4ff).multiplyScalar(SUIT_GLOW);
-    const r = this.rig(st.def);
+    const nade = st.def.kind === 'grenade' ? this.nadeRig(st.def, st.team) : null;
+    for (const [id, n] of this.nades) n.root.visible = n === nade && id === st.def.id && !st.scoped;
+    const r = st.def.kind === 'grenade' ? null : this.rig(st.def);
     if (this.currentId !== st.def.id) {
       if (this.current) this.current.root.visible = false;
       this.current = r;
@@ -1408,6 +1439,7 @@ export class Viewmodel {
     // ---- muzzle flash ------------------------------------------------------------------
     h.updateMatrixWorld(true);
     r?.follow();
+    if (nade && st.nade) nade.update(dt, st.nade);
     if (r) this.muzzleWorld.copy(r.muzzle);
     else this.muzzleWorld.set(0.1, -0.1, -0.6);
     h.localToWorld(this.muzzleWorld);
