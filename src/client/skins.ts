@@ -28,6 +28,10 @@ export const SKINS: Record<string, Skin> = {
     name: 'Magma', pattern: 'tiger', scale: 34,
     a: 0x141315, b: 0x7a1a0a, accent: 0x2a1c18, glow: 0xff4a14, glowStrength: 2.8,
   },
+  vipers: {
+    name: 'Brimstone', pattern: 'tiger', scale: 22,
+    a: 0x151316, b: 0x5c1408, accent: 0x2a1a16, glow: 0xff5a1a, glowStrength: 2.4, metal: 0.35, rough: 0.55,
+  },
   mako: {
     name: 'Rust Reef', pattern: 'digital', scale: 80,
     a: 0x17181b, b: 0x7a3b10, accent: 0x2a2017, glow: 0xff8a1f, glowStrength: 2.6,
@@ -36,6 +40,10 @@ export const SKINS: Record<string, Skin> = {
   tern: {
     name: 'Glacier', pattern: 'digital', scale: 95,
     a: 0x8a95a3, b: 0x33445a, accent: 0x18222f, glow: 0x35e0ff, glowStrength: 3.0, metal: 0.5,
+  },
+  wrens: {
+    name: 'Frostbite', pattern: 'hex', scale: 40,
+    a: 0x7d8a99, b: 0x24364d, accent: 0x162030, glow: 0x35e0ff, glowStrength: 2.6, metal: 0.45,
   },
   hornet: {
     name: 'Gridline', pattern: 'circuit', scale: 70,

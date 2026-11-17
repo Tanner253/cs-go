@@ -301,6 +301,9 @@ export class CharacterView {
 
   private gunHolder = new THREE.Group();
   private guns = new Map<string, THREE.Object3D>();
+  /** The second of a pair of guns (one in each hand), by the same key, and which of the two fired last (0 = the right). */
+  private twins = new Map<string, THREE.Object3D>();
+  private twinSide = 1;
   private gun: WorldGun | null = null;
   private gunKey = '';
 
@@ -407,6 +410,7 @@ export class CharacterView {
     if (key === this.gunKey || !shared) return;
     this.gunKey = key;
     for (const g of this.guns.values()) g.visible = false;
+    for (const g of this.twins.values()) g.visible = false;
     this.gun = shared.assets.guns.get(key) ?? null;
     if (!this.gun) return;
     let obj = this.guns.get(key);
@@ -415,8 +419,17 @@ export class CharacterView {
       dressGun(shared, key, obj);
       this.gunHolder.add(obj);
       this.guns.set(key, obj);
+      if (this.gun.carry === 'dual') {
+        const other = this.gun.scene.clone(true);
+        dressGun(shared, key, other);
+        this.gunHolder.add(other);
+        this.twins.set(key, other);
+      }
     }
     obj.visible = true;
+    const other = this.twins.get(key);
+    if (other) other.visible = true;
+    this.twinSide = 1;
   }
 
   /**
@@ -595,7 +608,7 @@ export class CharacterView {
       // A rotation expressed in the group's axes (undo the leg twist, then pitch),
       // re-expressed in the spine's parent space.
       const held = p.weapons[p.active]?.def;
-      const shouldered = !!held && held.kind !== 'pistol' && held.kind !== 'knife';
+      const shouldered = !!held && held.kind !== 'pistol' && held.kind !== 'knife' && this.gun?.carry !== 'dual';
       this.blade += ((shouldered ? BLADED : 0) - this.blade) * Math.min(1, dt * 8);
       // (a hit throws the shoulders back and round, away from the side it landed on)
       this.flinch *= Math.exp(-dt * 7);
@@ -677,6 +690,31 @@ export class CharacterView {
           solveArm(this.armR, _t, _pole, _fwd);
           curl(this.armR, 0.75);
         }
+      } else if (gun.carry === 'dual') {
+        // A gun in each hand, held out level at the width of the shoulders; both come down, muzzles
+        // low, while they are reloaded or brought out. The one that fired last is the one that kicks.
+        const other = this.twins.get(this.gunKey) ?? obj;
+        const hold = holdOf(shared!, this.gunKey, gun, obj);
+        const size = obj.scale.x;
+        _e.set(-0.8 * down - 1.0 * drawing, 0, 0);
+        gunQ.copy(aimQ).multiply(_q2.setFromEuler(_e));
+        for (const side of [1, -1] as const) {
+          const o = side > 0 ? obj : other, arm = side > 0 ? this.armR : this.armL;
+          const kick = (side > 0 ? 0 : 1) === this.twinSide ? this.kick : 0;
+          _e.set(kick * 0.09, 0, 0);
+          o.quaternion.copy(gunQ).multiply(_q2.setFromEuler(_e)).multiply(_HALF_PI_Y);
+          _b.set(0.17 * side, 0.1 - 0.2 * down - 0.24 * drawing, -0.42 + kick * 0.04 + 0.16 * down).applyQuaternion(aimQ).add(chest);
+          o.position.copy(hold.grip).multiplyScalar(size).applyQuaternion(o.quaternion).negate().add(_b);
+          o.updateMatrixWorld(true);
+          _t.copy(hold.grip);
+          o.localToWorld(_t);
+          _pole.set(0.55 * side, -1, 0.3).applyQuaternion(groupQ);
+          this.placeHand(arm, side, _t, _hy.set(0, Math.sin(0.42), -Math.cos(0.42)), _hp.set(-side, 0, 0), gunQ, groupQ, _pole, 0.5);
+        }
+        // (the muzzle the next round leaves by)
+        this.muzzle.set(gun.muzzle[0], gun.muzzle[1], gun.muzzle[2]);
+        (this.twinSide === 1 ? obj : other).localToWorld(this.muzzle);
+        return;
       } else {
         const hold = holdOf(shared!, this.gunKey, gun, obj);
         const pistol = gun.carry === 'pistol';
@@ -779,6 +817,7 @@ export class CharacterView {
   shot(): void {
     this.kick = 1;
     this.sinceShot = 0;
+    this.twinSide ^= 1;
   }
 
   /** This player swung their knife. */

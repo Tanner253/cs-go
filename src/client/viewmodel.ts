@@ -10,7 +10,7 @@ import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf,
 import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 import { FLASH_KINDS, flashTexture } from './effects';
 import {
-  BOLT_RELOAD, BREAK_RELOAD, DRAW_HEAVY, DRAW_PISTOL, DRAW_RIFLE, INSPECT_KNIFE, INSPECT_PISTOL, INSPECT_RIFLE, PISTOL_RELOAD, PISTOL_RELOAD_EMPTY, PUMP_LOADING, PUMP_RELOAD,
+  BOLT_RELOAD, BREAK_RELOAD, DRAW_HEAVY, DRAW_PISTOL, DRAW_RIFLE, INSPECT_KNIFE, INSPECT_PAIR, INSPECT_PISTOL, INSPECT_RIFLE, PISTOL_RELOAD, PISTOL_RELOAD_EMPTY, PUMP_LOADING, PUMP_RELOAD,
   PUMP_SHELLS, RIFLE_CLIP_ENDS, RIFLE_RACK, RIFLE_RELOAD, RIFLE_RELOAD_TAP, carryAt, type Foley, type Move,
 } from './moves';
 
@@ -166,6 +166,9 @@ class Rig {
   private canAway = new THREE.Vector3();
   /** The suppressor is on the muzzle. */
   quiet = false;
+  /** A gun in each hand: both muzzles, and which fires next. */
+  private muzzles: [THREE.Vector3, THREE.Vector3] | null = null;
+  private side = 0;
   /** The right wrist at rest, in `root` space: what the gun is turned about when a movement carries it. */
   readonly pivot = new THREE.Vector3(0.12, -0.16, -0.28);
   /** How this gun is loaded, which decides the movements it is shown with (see moves.ts). */
@@ -209,7 +212,7 @@ class Rig {
     const mounted = look.mount;
     // ('own': an automatic in a pack that was animated for one; its clips carry the gun themselves)
     this.style = look.pack === 'knife' ? 'blade' : mounted?.pump ? 'pump' : mounted?.hinge ? 'break' : look.pack === 'm9' ? 'pistol'
-      : info.skinned ? 'own' : mounted ? 'rifle' : 'bolt';
+      : info.skinned || look.authored ? 'own' : mounted ? 'rifle' : 'bolt';
     this.handRack = this.style === 'rifle' && !!look.rack;
     this.rack = !!look.rack && 'bolt' in info.clips;
     const scene = SkeletonUtils.clone(files.pack.scene);
@@ -233,6 +236,40 @@ class Rig {
       if (!joints.has(o.name)) joints.set(o.name, o);
       filed.set(o, new THREE.Matrix4().copy(sceneInv).multiply(o.matrixWorld));
     });
+
+    // A pack that is a skeleton and its animation only: the arms of another pack by the same
+    // maker (the same rig, joint for joint) are bound to its joints.
+    if (info.armsOf && files.arms) {
+      const donor = SkeletonUtils.clone(files.arms.scene);
+      donor.updateMatrixWorld(true);
+      const named = new Map<string, THREE.Object3D>();
+      scene.traverse((o) => { const n = pieceOf(o.name); if (!named.has(n)) named.set(n, o); });
+      const arms: THREE.SkinnedMesh[] = [];
+      donor.traverse((o) => {
+        const mesh = o as THREE.SkinnedMesh;
+        if (mesh.isSkinnedMesh && isArms(mesh.material as THREE.Material)) arms.push(mesh);
+      });
+      for (const mesh of arms) {
+        // The arms keep their own bind pose: the same rig, so the same joints in the same places.
+        const bones: THREE.Bone[] = [], inverses: THREE.Matrix4[] = [];
+        // Joint for joint by name; the ends of the fingers and the palms, which the two files
+        // name differently, by where they hang (the first joint under the same parent not yet taken).
+        const match = new Map<THREE.Object3D, THREE.Object3D>();
+        for (const b of mesh.skeleton.bones) { const j = named.get(pieceOf(b.name)); if (j) match.set(b, j); }
+        const taken = new Set(match.values());
+        for (const b of mesh.skeleton.bones) {
+          if (match.has(b) || !b.parent) continue;
+          const free = match.get(b.parent)?.children.find((c) => !taken.has(c) && !(c as THREE.Mesh).isMesh);
+          if (free) { match.set(b, free); taken.add(free); }
+        }
+        mesh.skeleton.bones.forEach((b, i) => {
+          bones.push((match.get(b) ?? b) as THREE.Bone);
+          inverses.push(mesh.skeleton.boneInverses[i]!.clone());
+        });
+        scene.add(mesh);
+        mesh.bind(new THREE.Skeleton(bones, inverses), mesh.bindMatrix);
+      }
+    }
 
     this.mixer = new THREE.AnimationMixer(scene);
     const clip = files.pack.animations[0]!;
@@ -345,6 +382,12 @@ class Rig {
           hang(spare, mount.spare[0], mount.spare[1]);
         }
         hang(piece, joint);
+        if (mount.twin) {
+          // The gun in the other hand: the same piece, placed as the first is, on the other hand's joint.
+          const other = piece.clone(true);
+          onGun.set(other, onGun.get(piece)!);
+          hang(other, mount.twin[name] ?? mount.twin['base']!, joint);
+        }
         if (name === 'silencer') {
           canMeshes.add(piece);
           piece.geometry.computeBoundingBox();
@@ -405,6 +448,12 @@ class Rig {
         const m = moved(magAt, 0.02), b = moved(boltAt, 0.008);
         if (m) cues.push([m[0], 'magout', 0.3], [m[1], 'magin', 0.6]);
         if (b) cues.push([b[0], 'boltback', 0.3]);
+        // (a reload that ends with the pack's bolt movement: the clip is the first part of it)
+        const part = this.rack ? this.seconds(name) / (this.seconds(name) + this.seconds('bolt')) : 1;
+        if (part < 1) {
+          for (const cue of cues) cue[0] *= part;
+          cues.push([part + 0.3 * (1 - part), 'boltback', 0.4]);
+        }
         cues.sort((p, q) => p[0] - q[0]);
         this.heard.set(name, { keys: [[0, STILL], [1, STILL]], cues });
       }
@@ -567,8 +616,18 @@ class Rig {
       return c > 0;
     };
     tip(pts, this.muzzle);
+    if (mount?.twin) {
+      // A gun in each hand: a muzzle each side of the middle, fired turn about.
+      const right: number[] = [], left: number[] = [];
+      for (let i = 0; i < pts.length; i += 3) (pts[i]! > this.muzzle.x ? right : left).push(pts[i]!, pts[i + 1]!, pts[i + 2]!);
+      const a = new THREE.Vector3(), b = new THREE.Vector3();
+      if (tip(right, a) && tip(left, b)) this.muzzles = [a, b];
+    }
     const grip = [...joints.values()].find((j) => /^R_wrist/.test(j.name));
     if (grip) this.root.worldToLocal(grip.getWorldPosition(this.pivot));
+    // (a gun in each hand is turned about the middle of the pair)
+    const other = this.muzzles && [...joints.values()].find((j) => /^L_wrist/.test(j.name));
+    if (other) this.pivot.add(this.root.worldToLocal(other.getWorldPosition(new THREE.Vector3()))).multiplyScalar(0.5);
     this.bare.copy(this.muzzle);
     if (!tip(canPts, this.capped)) this.capped.copy(this.bare);
     this.fit(0, !!suppressor?.fitted);
@@ -700,7 +759,7 @@ class Rig {
    */
   fit(k: number, quiet: boolean): void {
     this.quiet = quiet && k <= 0;
-    this.muzzle.copy(this.quiet ? this.capped : this.bare);
+    this.muzzle.copy(this.muzzles ? this.muzzles[this.side]! : this.quiet ? this.capped : this.bare);
     if (this.cans.length === 0) return;
     const step = THREE.MathUtils.smoothstep;
     // How far it is drawn off along the barrel (1 = clear of the muzzle), where the hand is, and whether it is to be seen.
@@ -732,6 +791,10 @@ class Rig {
         .addScaledVector(this.canDraw, reach * off)
         .addScaledVector(this.canAway, away);
     }
+  }
+  /** A shot has left: with a gun in each hand, the next comes from the other. */
+  fired(): void {
+    if (this.muzzles) this.side ^= 1;
   }
   /** Whether this gun is pumped by hand between shots. */
   get pumps(): boolean {
@@ -792,9 +855,17 @@ class Rig {
         this.pose('bolt', through);
         return through;
       }
-      default:
-        this.pose(empty && this.has('reloadEmpty') ? 'reloadEmpty' : 'reload', k);
-        return 0;
+      default: {
+        const clip = empty && this.has('reloadEmpty') ? 'reloadEmpty' : 'reload';
+        if (this.style !== 'own' || !this.rack) { this.pose(clip, k); return 0; }
+        // Its magazine change, then the pack's own working of the action, each at the speed it was drawn.
+        const a = this.seconds(clip), b = this.seconds('bolt');
+        const split = a / (a + b);
+        if (k < split) { this.pose(clip, k / split); return 0; }
+        const through = (k - split) / (1 - split);
+        this.pose('bolt', through);
+        return through;
+      }
     }
   }
   /** The movement the gun is carried through while it is reloaded. */
@@ -816,6 +887,7 @@ class Rig {
   /** The movement it is looked over with (null: the pack's own clip is used). */
   get inspectMove(): Move | null {
     if ((this.style === 'bolt' || this.style === 'own') && this.has('inspect')) return null;
+    if (this.muzzles) return INSPECT_PAIR;
     return this.style === 'blade' ? INSPECT_KNIFE : this.style === 'pistol' ? INSPECT_PISTOL : INSPECT_RIFLE;
   }
   /**
@@ -1062,6 +1134,7 @@ export class Viewmodel {
     this.fireT = 0;
     this.shotT = 0;
     this.workedK = 0;
+    r?.fired();
     // Each shot heats the gun; slow, heavy guns more per shot.
     this.live.heat.value = Math.min(1, this.live.heat.value + 0.07 + 0.12 * k);
     const interval = 60 / def.rpm;

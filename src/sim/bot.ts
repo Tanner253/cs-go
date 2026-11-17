@@ -7,7 +7,7 @@ import { angleDelta, clamp, lerp, v3, wrapAngle, yawTo, type Vec3 } from './math
 import { eyeHeight } from './movement';
 import type { RouteDef } from './map';
 import {
-  ATK, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, DEF,
+  ATK, BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, DEF,
   type Cmd, type Player,
 } from './types';
 import type { Sim } from './game';
@@ -192,6 +192,8 @@ export class Bot {
   private bursting = false;
   private pauseUntil = 0;
   private fireHeld = false;
+  /** The scope button was down last tick (it acts on the press, so it is let up between taps). */
+  private altHeld = false;
   private nextClick = 0;
   private strafe = 1;
   private strafeUntil = 0;
@@ -1084,7 +1086,16 @@ export class Bot {
       B.eco = !pistolRound && !lastOfHalf && !matchPoint && canFull < Math.ceil(n * 0.6) && sum / n < full * 0.8;
     }
 
-    if (!me.weapons[0]) {
+    // One on each side carries the sniper, when the team is buying and this one can afford it
+    // with armour besides (as in CS, the AWP is a team's choice, not everyone's).
+    const sniper = me.team === ATK ? 'colossus' : 'longsight';
+    const sniperPrice = me.team === ATK ? 5200 : 4750;
+    const teamHasSniper = sim.players.some((p) => p !== me && p.team === me.team && p.alive && p.weapons[0]?.def.kind === 'sniper');
+    const wantsSniper = !B.eco && !teamHasSniper && me.money >= sniperPrice + 1000 && rng.next() < 0.45;
+    if (!me.weapons[0] && wantsSniper) {
+      sim.tryBuy(me, sniper);
+      sim.tryBuy(me, 'armorhelmet');
+    } else if (!me.weapons[0]) {
       if (me.money >= full) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armorhelmet'); }
       else if (!B.eco) {
         if (me.money >= riflePrice + 650) { sim.tryBuy(me, rifle); sim.tryBuy(me, 'armor'); }
@@ -1333,6 +1344,7 @@ export class Bot {
     }
 
     const close = dist < (def.kind === 'shotgun' ? 10 : 6.5);
+    if (def.kind === 'sniper') this.scopeTo(cmd, dist > 4.5 && me.reloadTimer <= 0 && me.drawTimer <= 0 ? 1 : 0);
     // Fire only when the gun is accurate enough to hit at this range (worse players spray anyway).
     const need = Math.max(def.spreadStand * 2.5, 0.42 / Math.max(1, dist)) * lerp(3.2, 1, skill);
     const okSpread = close || sim.spreadOf(me) <= need;
@@ -1388,6 +1400,15 @@ export class Bot {
     }
   }
 
+  /** Tap the scope button until the scope is at `level` (it steps 0, 1, 2, 0 on each press). */
+  private scopeTo(cmd: Cmd, level: 0 | 1): void {
+    const me = this.me;
+    if (me.scope === level || me.rescope > 0) { this.altHeld = false; return; }
+    if (this.altHeld) { this.altHeld = false; return; }
+    cmd.buttons |= BTN_ALT;
+    this.altHeld = true;
+  }
+
   // ======================================================================================
   // per tick
   // ======================================================================================
@@ -1427,6 +1448,7 @@ export class Bot {
     else if (me.active === 2 && secAmmo) cmd.slot = 1;
     else if (me.active !== 2 && !primAmmo && !secAmmo) cmd.slot = 2;
     const calm = !tgt && now - this.lastSeenAt > 2.5 && !this.threat(2.5, 12);
+    if (def.kind === 'sniper' && !tgt && now - this.lastSeenAt > 1.2) this.scopeTo(cmd, 0);
     if (def.magSize > 0 && me.reloadTimer <= 0 && w.reserve > 0 && (w.mag === 0 || (calm && w.mag < def.magSize * 0.55))) {
       cmd.buttons |= BTN_RELOAD;
     }

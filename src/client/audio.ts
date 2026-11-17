@@ -50,6 +50,8 @@ export const CUES: Record<string, Cue> = {
   'shot.stinger': { files: numbered('shot_stinger', 3), level: -17.5, ...SHOT },
   'shot.wasp': { files: numbered('shot_wasp', 3), level: -17, ...SHOT },
   'shot.hornet': { files: numbered('shot_hornet', 3), level: -17, ...SHOT },
+  'shot.vipers': { files: numbered('shot_vipers', 3), level: -18, ...SHOT },
+  'shot.wrens': { files: numbered('shot_wrens', 3), level: -17.5, ...SHOT },
   'shot.hammerhead': { files: numbered('shot_hammerhead', 3), level: -15, ...SHOT },
   'shot.mako': { files: numbered('shot_mako', 3), level: -15.5, ...SHOT },
   'shot.lumen': { files: numbered('shot_lumen', 3), level: -15.5, ...SHOT },
@@ -119,7 +121,7 @@ export const CUES: Record<string, Cue> = {
 /** Which family of handling sounds each weapon makes (its magazine, its action). */
 type Family = 'pistol' | 'ak' | 'ar' | 'bolt' | 'heavy' | 'pump' | 'break';
 const FAMILY: Record<string, Family> = {
-  kite: 'pistol', tern: 'pistol', maul: 'pistol', stinger: 'pistol', wasp: 'pistol', hornet: 'pistol',
+  kite: 'pistol', tern: 'pistol', maul: 'pistol', stinger: 'pistol', wasp: 'pistol', hornet: 'pistol', vipers: 'pistol', wrens: 'pistol',
   hammerhead: 'ak', mako: 'ak', osprey: 'ak', lumen: 'ar',
   longsight: 'bolt', colossus: 'heavy', breaker: 'pump', thresher: 'break',
 };

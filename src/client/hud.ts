@@ -37,6 +37,8 @@ const ABOUT: Record<string, [kind: string, blurb: string]> = {
   stinger: ['Škorpion machine pistol', 'The attackers’ automatic sidearm. Vicious up close, empty in two seconds.'],
   maul: ['Desert Eagle hand cannon', 'One to the head at any range. Seven rounds and a heavy kick.'],
   wasp: ['Compact submachine gun', 'Cheap and very fast. Made for running and spraying.'],
+  vipers: ['Pair of MAC-10 machine pistols', 'The attackers’ pair: one in each hand, the fastest fire in the armory, fifty rounds. Close range only.'],
+  wrens: ['Pair of compact submachine guns', 'The defenders’ pair: one in each hand, forty rounds, steadier than the Vipers.'],
   hornet: ['MP7 personal defence weapon', 'Tighter than the Wasp and better against armour. Right click fits its suppressor.'],
   breaker: ['M3-pattern pump shotgun', 'The defenders’ shotgun. Nine pellets a shell; owns corners and doorways. Right click fits its suppressor.'],
   thresher: ['Sawn-off double-barrel shotgun', 'The attackers’ shotgun. Two shells, each the hardest hit in the armory. Then you reload.'],
@@ -60,7 +62,7 @@ const entry = (id: string): BuyEntry => {
 /** The armory's columns. Items for the other side are left out when it is drawn. */
 const BUY_COLUMNS: { title: string; items: BuyEntry[] }[] = [
   { title: 'Pistols', items: ['kite', 'tern', 'stinger', 'maul'].map(entry) },
-  { title: 'Close range', items: ['wasp', 'hornet', 'breaker', 'thresher'].map(entry) },
+  { title: 'Close range', items: ['wasp', 'hornet', 'vipers', 'wrens', 'breaker', 'thresher'].map(entry) },
   { title: 'Rifles', items: ['mako', 'osprey', 'hammerhead', 'lumen'].map(entry) },
   { title: 'Snipers', items: ['longsight', 'colossus'].map(entry) },
   { title: 'Gear', items: ['armor', 'armorhelmet', 'kit'].map(entry) },

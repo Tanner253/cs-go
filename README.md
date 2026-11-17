@@ -34,22 +34,27 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
 |---|---|---|
 | Sidearm | Kite-9 (M9), Stinger MP (Škorpion, automatic) | Tern P7 (1911) |
 | SMG | Wasp SMG | Hornet PDW (MP7) |
+| A gun in each hand | Viper Twins (two MAC-10s) | Wren Twins (two SMGs) |
 | Shotgun | Thresher DB (sawn-off double barrel) | Breaker (M3 pump) |
 | Budget rifle | Mako Carbine (AKS-74U) | Osprey SD (9A-91, comes suppressed) |
 | Rifle | Hammerhead AR (AK) | Lumen AR (AR-15) |
 | Sniper | Colossus .50 (M82, semi-automatic) | Longsight AWP (bolt-action) |
 | Both sides | Maul .50 (Desert Eagle), Edge knife | |
 
-Either sniper kills with one shot to the body or head. A shotgun's pellets fill a cone of
-fixed size, thickest in the middle; moving and jumping throw the whole cone off the aim.
+Either sniper kills with one shot to the body or head; bots buy them too (one a side, when the
+team can afford it) and fight from the scope. A shotgun's pellets fill a cone of fixed size,
+thickest in the middle; moving and jumping throw the whole cone off the aim. The twin guns fire
+left and right in turn.
 
 Each has its own model, sound, stats and painted skin (`src/client/skins.ts`): a pattern with
 light-emitting lines that flare as the gun heats up, and a magazine that glows as an ammo
-gauge. Every gun is held by the same pair of arms: the gun model is mounted piece by piece on
-the joints of an animated arm pack (`src/client/assets.ts`): the automatic weapons in the two packs
-that were animated for a rifle and for a submachine gun (their own draw, firing movement, reload,
-reload from empty and inspection), pistols, shotguns, snipers and the knife in three by one artist.
-The guns are shot over their own sights: nothing is fitted to a gun that did not come with it.
+gauge. Each gun model is mounted piece by piece on the joints of an animated arm pack
+(`src/client/assets.ts`): the rifles in a pack animated for an AK and the submachine guns in one
+animated for an SMG (their own draw, firing movement, reload and inspection); pistols, shotguns,
+the AWP and the knife in packs by one artist; the .50 and the twin guns in that artist's packs
+made for them (their own firing, reload, action and draw), which are skeletons only and wear the
+arms of his sniper pack. The guns are shot over their own sights: nothing is fitted to a gun that
+did not come with it.
 
 **Handling.** The arm packs' clips move the hands; `src/client/moves.ts` carries the gun where
 the eye can follow it and says when each moment is heard. A rifle is rolled on its side for the
@@ -61,10 +66,11 @@ and settles as the left hand takes hold. Other players show the same handling: t
 down out of the shoulder for a reload while the left hand goes to the magazine, the pouch and
 the action, and it is raised from the hip when drawn.
 
-**Sound.** `tools/build-sounds.mjs` builds every sound from CC0 sources. A gunshot is designed
-in layers from two recordings of one real gun (crack, body, a low thump, the muzzle blast, the
-range's echo, the action), balanced by energy, soft-clipped and levelled; reload and handling
-sounds, footsteps and impacts are layered from recorded impacts.
+**Sound.** Every gunshot, reload, rack and bolt is a recording of a real gun (Snake's Authentic
+Gun Sounds, packs 1 and 2: see CREDITS.md), cut at the shot by `tools/build-sounds.mjs`, played
+a little faster or slower where one calibre stands in for another, faded and levelled; each
+weapon family has its own handling sounds. Footsteps and impacts are built from Kenney's CC0
+impact recordings.
 
 **Suppressors.** The Osprey, Lumen, Hornet and Breaker take one. Right click (ZOOM on touch) fits it or
 takes it off, which takes 1.7 seconds and both hands. Fitted, the gun is quiet (heard from less

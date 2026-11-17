@@ -219,6 +219,23 @@ const defs: WeaponDef[] = [
     pattern: spray(10, 5.0, 3, 0.6, [[3, 0.4], [6, -0.5], [9, 0.3]], 52), penetration: 2.5, kick: 3.4, range: 300,
     spreadUnscoped: 0.06, scopedSpeed: 2.2, scopeFov: [40, 12],
   },
+  {
+    // A machine pistol in each hand: the fastest fire in the game, fifty rounds between them,
+    // and little idea where they are going past a few metres.
+    id: 'vipers', name: 'Viper Twins', kind: 'smg', slot: 0, price: 1400, killReward: 600, team: 0,
+    damage: 23, armorPen: 0.5, rangeMod: 0.78, headMult: 4, rpm: 900, auto: true, pellets: 1,
+    magSize: 50, reserve: 100, reloadTime: 2.2, drawTime: 0.6, maxSpeed: 5.9,
+    spreadStand: 0.016, spreadCrouch: 0.013, spreadMove: 0.02, spreadAir: 0.12, spreadPerShot: 0.0022, spreadDecay: 5,
+    pattern: spray(50, 5.6, 14, 0.7, [[10, -0.9], [20, 1.5], [32, -1.7], [44, 1.1], [49, -0.4]], 61), penetration: 0.2, kick: 0.5, range: 100,
+  },
+  {
+    // The defenders' pair: slower, steadier, forty rounds.
+    id: 'wrens', name: 'Wren Twins', kind: 'smg', slot: 0, price: 1500, killReward: 600, team: 1,
+    damage: 25, armorPen: 0.55, rangeMod: 0.8, headMult: 4, rpm: 780, auto: true, pellets: 1,
+    magSize: 40, reserve: 80, reloadTime: 2.2, drawTime: 0.6, maxSpeed: 5.9,
+    spreadStand: 0.013, spreadCrouch: 0.0105, spreadMove: 0.02, spreadAir: 0.12, spreadPerShot: 0.002, spreadDecay: 5.2,
+    pattern: spray(40, 4.6, 13, 0.5, [[9, 0.7], [18, -1.2], [28, 1.3], [39, -0.6]], 62), penetration: 0.25, kick: 0.5, range: 100,
+  },
 ];
 
 export const WEAPONS: Record<string, WeaponDef> = Object.fromEntries(defs.map((d) => [d.id, d]));

@@ -33,6 +33,11 @@ export interface PackInfo {
   skinned?: boolean;
   /** this pack's arms have no textures of their own: borrow them from another pack by the same maker */
   armsFrom?: string;
+  /**
+   * This pack is a skeleton and its animation only: the arms of this other pack, by the same
+   * maker and on the same rig, are put onto its joints.
+   */
+  armsOf?: string;
   /** meshes of the pack's own gun, hidden when another gun is mounted in its place */
   ownGun?: string[];
   /** how much of the firing movement's travel is shown (it is drawn for a heavier kick than this game's) */
@@ -61,6 +66,8 @@ export interface GunMount {
   hide?: string[];
   /** a second magazine shown in the hand during reloads: [joint it hangs on, joint it is placed by] */
   spare?: [string, string];
+  /** a pair of guns, one in each hand: the joints the second one's pieces ride on */
+  twin?: Record<string, string>;
   /** fine placement in the gun's own space */
   nudge?: V3;
   /** drawn at this fraction of its own size (hands sized for another gun) */
@@ -77,6 +84,9 @@ export interface GunMount {
 /** Which joint of the rifle pack and of the submachine-gun pack each piece of a gun rides on. */
 const AK_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', safety: 'Safety_061', trigger: 'Trigger_060', mag: 'Pmag_062' };
 const SMG_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', trigger: 'Trigger_060', mag: 'Pmag_061' };
+/** The joints of the two-gun pack: the right hand's gun, and the left's. */
+const TWIN_RIGHT = { base: 'base', bolt: 'bolt', trigger: 'trigger', mag: 'mag' };
+const TWIN_LEFT = { base: 'base_2', bolt: 'bolt_2', trigger: 'trigger_2', mag: 'mag_2' };
 /** Which joint of the pistol pack each piece of a mounted gun rides on. */
 const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag', hammer: 'hammer' };
 /** The same for the long-gun pack (its magazine joint is called "clip"). */
@@ -105,6 +115,27 @@ export const PACKS: Record<string, PackInfo> = {
     hold: [0.07, -0.215, -0.02],
     frame: [0.0052278, 0.0347936, -0.3424975, 0, 0, 0.342537, 0.0347977, 0, 0.3442603, -0.0005284, 0.005201, 0, -0.1702436, -0.0486295, -0.0435524, 1],
     skinned: true,
+  },
+  // The .50 rifle's own pack and the pack for a gun in each hand: skeletons and animation only,
+  // by the maker of the pistol, sniper and knife packs, so the sniper pack's arms go on them.
+  sniper50: {
+    file: 'sniper50_fp.glb', fps: 30,
+    clips: { fire: [0, 14], bolt: [16, 50], reload: [62, 118], inspect: [120, 164] },
+    view: [-0.01, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, -0.01, 0, 0, 0, 0, 1],
+    hold: [0.14, -0.22, -0.36],
+    frame: [0, 0, -0.01, 0, 0, 0.01, 0, 0, 0.01, 0, 0, 0, 0.1433733, -0.0110513, 0.0008269, 1],
+    armsOf: 'sniper',
+  },
+  dual: {
+    file: 'dualsmg_fp.glb', fps: 30,
+    // (as the movement itself reads, joint by joint: both guns fire, are thrown up to drop their
+    // magazines and taken down out of sight for new ones, are put away and brought out again, and
+    // stand still; its last second is a blow with the right-hand gun, which is not used)
+    clips: { fire: [0, 10], reload: [12, 54], draw: [64, 76], idle: [76, 102] },
+    view: [-0.01, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, -0.01, 0, 0, 0, 0, 1],
+    hold: [0.0, -0.13, -0.4],
+    frame: [0, 0, -0.01, 0, 0, 0.01, 0, 0, 0.01, 0, 0, 0, 0.0168823, -0.0022367, -0.1298198, 1],
+    armsOf: 'sniper',
   },
   m9: {
     file: 'm9_fp.glb', fps: 30,
@@ -161,6 +192,8 @@ export interface WeaponLook {
   rackPull?: number;
   /** where shells are pushed into a tube magazine (the gun's own space) */
   loadAt?: V3;
+  /** the pack's own movements are played as they were drawn (no carrying of the gun by moves.ts, no hand-worked action) */
+  authored?: boolean;
   /**
    * where the left hand holds this gun, relative to where it holds the pack's own
    * (the gun's own space: x towards the muzzle, y up, z to the right; metres)
@@ -211,9 +244,20 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
     pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt', 'reload'],
     mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.33, 0.011, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
   },
+  // (in the .50 rifle's own pack: its firing movement, reload, the working of its action and its inspection)
   colossus: {
-    pack: 'sniper', world: 'barrett', skip: ['bolt'], rack: true,
-    mount: { file: 'barrett.glb', ride: LONG_JOINTS, nudge: [-0.287, -0.005, -0.017] },
+    pack: 'sniper50', world: 'barrett', skip: ['bolt'], rack: true, authored: true,
+    // (seated so its bolt handle and trigger are where the pack's own rifle has them)
+    mount: { file: 'barrett.glb', ride: { base: 'base', mag: 'mag', bolt: 'bolt' }, nudge: [0.05, 0.01, 0.005] },
+  },
+  // A machine pistol in each hand.
+  vipers: {
+    pack: 'dual', world: 'dualmac', authored: true,
+    mount: { file: 'dualmac.glb', ride: TWIN_RIGHT, twin: TWIN_LEFT, hide: ['silencer'], nudge: [-0.007, 0.011, 0] },
+  },
+  wrens: {
+    pack: 'dual', world: 'dualsmg', authored: true,
+    mount: { file: 'dualsmg.glb', ride: TWIN_RIGHT, twin: TWIN_LEFT },
   },
   maul: { pack: 'm9', world: 'deagle', mount: { file: 'desert_eagle.glb', ride: PISTOL_JOINTS, size: 0.94, nudge: [-0.012, 0.008, 0] } },
   breaker: {
@@ -284,6 +328,7 @@ function filesFor(look: WeaponLook): string[] {
   const out = [info.file];
   if (look.mount) out.push(look.mount.file);
   if (info.armsFrom) out.push(PACKS[info.armsFrom]!.file);
+  if (info.armsOf) out.push(PACKS[info.armsOf]!.file);
   return out;
 }
 
@@ -298,7 +343,7 @@ export function getWeapon(id: string): WeaponFiles | null {
   return {
     pack,
     gun: look.mount ? files.get(look.mount.file) ?? null : null,
-    arms: info.armsFrom ? files.get(PACKS[info.armsFrom]!.file) ?? null : null,
+    arms: files.get(PACKS[info.armsFrom ?? info.armsOf ?? '']?.file ?? '') ?? null,
   };
 }
 
@@ -309,7 +354,7 @@ export function loadWeapon(id: string): Promise<unknown> {
 
 // ---- third-person characters ---------------------------------------------------------
 
-export type Carry = 'rifle' | 'smg' | 'pistol' | 'knife';
+export type Carry = 'rifle' | 'smg' | 'pistol' | 'knife' | 'dual';
 
 /** A weapon as other players see it: a low-poly model whose +x runs along the barrel. */
 export interface WorldGun {
@@ -345,6 +390,9 @@ const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   ak: { file: 'world/ak_lod1.glb', carry: 'rifle', trigger: [-0.145, 0.024], muzzle: [0.455, 0.03, 0.01] },
   ar15: { file: 'ar15_lod1.glb', carry: 'rifle', trigger: [-0.127, 0.02], muzzle: [0.373, 0.03, 0.01], hide: ['sight'] },
   smg: { file: 'world/smg_lod1.glb', carry: 'smg', trigger: [0.059, 0.018], fore: 0.12, muzzle: [0.25, 0.03, 0] },
+  // (one of the pair: the other hand's is a copy of it)
+  dualmac: { file: 'world/dualmac_lod1.glb', carry: 'dual', trigger: [0.071, 0.011], muzzle: [0.21, 0.058, 0], hide: ['silencer'] },
+  dualsmg: { file: 'world/dualsmg_lod1.glb', carry: 'dual', trigger: [0.064, 0.022], muzzle: [0.273, 0.07, 0] },
   mp7: { file: 'world/mp7a1_lod1.glb', carry: 'smg', trigger: [0.026, 0.046], fore: 0.2, muzzle: [0.466, 0.03, 0], hide: ['sight'] },
   m9: { file: 'world/m9_lod1.glb', carry: 'pistol', trigger: [0.077, 0.031], muzzle: [0.218, 0.06, 0] },
   colt: { file: 'world/colt_1911_lod1.glb', carry: 'pistol', trigger: [0.067, 0.031], muzzle: [0.181, 0.06, 0] },

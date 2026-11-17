@@ -11,6 +11,7 @@ const W = 384, H = 192;
 const SS = 3;
 /** How different two neighbouring surface directions must be to count as an edge (0..765). */
 const CREASE = 96;
+const _box = new THREE.Box3();
 
 export class Thumbs {
   private done = new Map<string, string>();
@@ -70,7 +71,14 @@ export class Thumbs {
     // In profile, in the middle of the frame, as large as fits.
     this.pivot.add(obj);
     this.pivot.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(this.pivot);
+    // (framed on what is drawn: a suppressor left off is not part of the picture)
+    const box = new THREE.Box3();
+    obj.traverseVisible((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      box.union(_box.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld));
+    });
     const mid = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     const halfW = Math.max(size.x / 2, (size.y / 2) * (W / H)) * 1.08;
     this.cam.left = mid.x - halfW;
@@ -97,6 +105,54 @@ export class Thumbs {
       r.setRenderTarget(before);
       r.setClearColor(clear, alpha);
       this.pivot.remove(obj);
+    }
+
+    // Specks standing apart from the gun are taken out: where a thin part (a barrel's end) was lost
+    // when the model was simplified, what is left of it floats free of the rest.
+    const label = new Int32Array(w * h).fill(-1), sizes: number[] = [];
+    const stack: number[] = [];
+    for (let s = 0; s < w * h; s++) {
+      if (label[s] !== -1 || px[s * 4 + 3]! <= 127) continue;
+      const id = sizes.length;
+      let n = 0;
+      label[s] = id;
+      stack.push(s);
+      while (stack.length) {
+        const i = stack.pop()!;
+        n++;
+        const x = i % w;
+        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+          if (j < 0 || j >= w * h || label[j] !== -1 || px[j * 4 + 3]! <= 127) continue;
+          label[j] = id;
+          stack.push(j);
+        }
+      }
+      sizes.push(n);
+    }
+    // (a small piece inside the gun's own outline, a trigger in its guard, is kept)
+    const most = Math.max(0, ...sizes), main = sizes.indexOf(most);
+    let x0 = w, x1 = 0, y0 = h, y1 = 0;
+    const cx = new Float64Array(sizes.length), cy = new Float64Array(sizes.length);
+    for (let i = 0; i < w * h; i++) {
+      const l = label[i]!;
+      if (l < 0) continue;
+      const x = i % w, y = (i - x) / w;
+      cx[l]! += x;
+      cy[l]! += y;
+      if (l === main) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    const stray = sizes.map((n, l) => {
+      if (l === main || n >= most * 0.1) return false;
+      const mx = cx[l]! / n, my = cy[l]! / n;
+      return n < most * 0.004 || mx < x0 || mx > x1 || my < y0 || my > y1;
+    });
+    let fx0 = w, fx1 = 0, fy0 = h, fy1 = 0;
+    for (let i = 0; i < w * h; i++) {
+      const l = label[i]!;
+      if (l < 0) continue;
+      if (stray[l]) { px[i * 4 + 3] = 0; continue; }
+      const x = i % w, y = (i - x) / w;
+      if (x < fx0) fx0 = x; if (x > fx1) fx1 = x; if (y < fy0) fy0 = y; if (y > fy1) fy1 = y;
     }
 
     // Where the picture goes from gun to nothing: the outline. Where the surface turns sharply: an edge.
@@ -153,7 +209,14 @@ export class Thumbs {
     out.height = H;
     const og = out.getContext('2d')!;
     og.imageSmoothingQuality = 'high';
-    og.drawImage(big, 0, 0, W, H);
+    // (fitted again to what is left, in the middle, with the same margin)
+    if (fx1 > fx0 && fy1 > fy0) {
+      const pad = 3 * SS, bw = fx1 - fx0 + 1 + 2 * pad, bh = fy1 - fy0 + 1 + 2 * pad;
+      const s = Math.min((W * 0.93) / bw, (H * 0.93) / bh);
+      // (the picture is upside down in `px`: rows were flipped as they were laid into `big`)
+      const top = h - 1 - fy1 - pad;
+      og.drawImage(big, fx0 - pad, top, bw, bh, (W - bw * s) / 2, (H - bh * s) / 2, bw * s, bh * s);
+    } else og.drawImage(big, 0, 0, W, H);
     return out.toDataURL('image/png');
   }
 }

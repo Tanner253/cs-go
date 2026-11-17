@@ -271,6 +271,8 @@ const SHOTS = {
   maul: ['308', true, 1.12, 1.2],
   stinger: ['9mm', true, 1.14, 0.9],
   wasp: ['9mm', false, 1.05, 1.1],
+  vipers: ['9mm', true, 1.1, 0.8],
+  wrens: ['9mm', true, 0.96, 0.9],
   hornet: ['556', true, 1.12, 0.9],
   hammerhead: ['762x39', false, 1, 1.6],
   mako: ['762x39', true, 1.07, 1.0],

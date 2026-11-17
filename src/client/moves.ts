@@ -170,6 +170,18 @@ export const INSPECT_PISTOL: Move = {
   cues: [[0.03, 'cloth', 0], [0.46, 'cloth', 0], [0.9, 'catch', 0.2]],
 };
 
+/** A gun in each hand: the pair brought up and turned one way, then the other, each showing a side in turn. */
+const PAIR_LEFT: Carry = [0.03, 0.05, -0.02, 0.2, 0.3, -0.22, 0];
+const PAIR_RIGHT: Carry = [-0.03, 0.05, -0.02, 0.2, -0.3, 0.22, 0];
+export const INSPECT_PAIR: Move = {
+  seconds: 3.0,
+  keys: [
+    [0, REST], [0.17, PAIR_LEFT], [0.3, plus(PAIR_LEFT, { 3: 0.05, 5: -0.1 })], [0.42, PAIR_LEFT],
+    [0.58, PAIR_RIGHT], [0.7, plus(PAIR_RIGHT, { 3: 0.05, 5: 0.1 })], [0.82, PAIR_RIGHT], [1, REST],
+  ],
+  cues: [[0.03, 'cloth', 0], [0.48, 'cloth', 0], [0.9, 'catch', 0.2]],
+};
+
 /** The knife, turned over to show both flats of the blade. */
 const FLAT: Carry = [-0.04, 0.05, 0.03, 0.2, 0.5, -0.9, 1];
 const OTHER_FLAT: Carry = [-0.02, 0.06, 0.03, 0.3, -0.35, 0.8, 1];

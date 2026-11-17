@@ -9,22 +9,31 @@ No sounds come from ZONA.
 
 - "animated pistol" (https://skfb.ly/ooPqJ) by DJMaesen is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/m9_fp.glb`.
-  Changes made: its one long animation cut into the movements the game plays; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold the other pistols and both submachine guns.
+  Changes made: its one long animation cut into the movements the game plays; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold the other pistols and the machine pistol.
 - "sniper animated" (https://sketchfab.com/3d-models/sniper-animated-b48999a250b2433da59f705c371a49b2) by DJMaesen is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/sniper_fp.glb`.
-  Changes made: scaled to metres; its one long animation cut into movements; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold both rifles and the shotgun.
+  Changes made: scaled to metres; its one long animation cut into movements; textures re-encoded as WebP; geometry compressed. Its arms and animation also hold both shotguns; its arms are also bound to the .50 rifle's and the dual submachine guns' skeletons (below).
 - This work is based on "knife Animated" (https://sketchfab.com/3d-models/knife-animated-f3140db917cc43389c14b5b2536c1dc8) by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/knife_fp.glb`.
   Changes made: scaled to metres; its one long animation cut into movements; its arms drawn with the textures of the same maker's sniper pack; textures re-encoded as WebP; geometry compressed.
+- This work is based on "sniper animated" (https://sketchfab.com/3d-models/sniper-animated-eae1ba5b43ae4bc89b0647fb5d8a2d27) by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/sniper50_fp.glb`.
+  Changes made: the skeleton and its animation only (its own arms left out; the arms of the same maker's other sniper pack are bound to it); its one animation cut into movements; geometry compressed. Holds the Colossus (the M82 below).
+- This work is based on "dual smgs" (https://sketchfab.com/3d-models/dual-smgs-faf517bf83fd4029b4814f28f09881bb) by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/dualsmg_fp.glb`, `dualsmg.glb`, `world/dualsmg_lod1.glb`.
+  Changes made: the skeleton and its animation (its own arms left out, as above), and its gun set in rigid pieces; its one animation cut into movements (the blow at its end is not used); textures re-encoded as WebP; geometry compressed. Holds both pairs: the Wren Twins and the Viper Twins.
+- This work is based on "Dual MAC-10 SMG - Animated" by DJMaesen (https://sketchfab.com/bumstrum) licensed under CC-BY-4.0, and on "Dual Mac10 SMG - Animated" (https://sketchfab.com/3d-models/dual-mac10-smg-animated-9a98526e69894b80a99ef328e889080f) by user77 (https://sketchfab.com/user77) licensed under CC-BY-4.0.
+  Files: `public/assets/weapons/dualmac.glb`, `world/dualmac_lod1.glb`.
+  Changes made: the gun set in rigid pieces (its suppressor left off); textures re-encoded as WebP; geometry compressed. Held in the dual submachine guns pack, one in each hand.
 
 - This work is based on "FPS AK-74m animations" (https://sketchfab.com/3d-models/fps-ak-74m-animations-94be8385c402474cacd39bc096c6ca14) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
   Files: `public/assets/weapons/ak.glb`, `world/ak_lod1.glb`.
-  Changes made: only the rifle is used: taken off its skeleton in pieces (rifle, bolt, trigger, safety, magazine) and scaled to metres; its arms and animation are left out; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
+  Changes made: scaled to metres, the rifle in pieces on its joints; textures re-encoded as WebP; geometry compressed. Its own arms and animations (draw, fire, reload, inspection) hold the Hammerhead, and the Mako, Lumen and Osprey in its place.
 - This work is based on "SMG FPS Animations" (https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/smg.glb`, `world/smg_lod1.glb`.
-  Changes made: as above. Held in the arms of the pistol pack.
+  Changes made: as above. Its own arms and animations hold the Wasp, and the Hornet in its place.
 - This work is based on "AR-15" (https://sketchfab.com/3d-models/ar-15-33e225811b404192b89dcd4096603fbe) by wafla (https://sketchfab.com/wafla) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/ar15_lod1.glb`. Changes made: scaled to metres and set in separate pieces (rifle, magazine, brake, sight and unused attachments); reduced in detail; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
+  Files: `public/assets/weapons/ar15_lod1.glb`. Changes made: scaled to metres and set in separate pieces (rifle, magazine, brake, sight and unused attachments); reduced in detail; textures re-encoded as WebP; geometry compressed. Held in the arms of the AK pack.
 - This work is based on "Colt 1911" (https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553) by AlexChuchvaga (https://sketchfab.com/AlexChuchvaga) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/colt_1911.glb`, `world/colt_1911_lod1.glb`. Changes made: taken off its skeleton and set in rigid pieces (frame, slide, hammer, magazine), scaled to metres; its own animation is not used; textures re-encoded as WebP; geometry compressed. Held in the arms of the pistol pack.
 - This work is based on "Desert Eagle" (https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95) by ELIZION (https://sketchfab.com/ELIZION) licensed under CC-BY-4.0.
@@ -32,16 +41,16 @@ No sounds come from ZONA.
 - This work is based on "Benelli M3 Tactical" (https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd) by Amapsis (https://sketchfab.com/Amapsis) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/benelli_m3.glb`, `world/benelli_m3_lod1.glb`. Changes made: set in rigid pieces and laid along the barrel; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
 - This work is based on "MP7A1 Animations" (https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc) by TheParaziT (https://sketchfab.com/TheParaziT) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the pistol pack.
+  Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the SMG pack.
 
 - This work is based on "Scorpion | First Person Animations (2026 Remake)" (https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4) by 1Matzh (https://sketchfab.com/1Matzh) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/scorpion.glb`, `world/scorpion_lod1.glb`. Changes made: only the gun is used, taken off its skeleton and set in rigid pieces; its own arms and animation are left out; textures re-encoded as WebP; geometry compressed. Held in the arms of the pistol pack.
 - This work is based on "Animated AKs-74u" (https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/aks74u.glb`, `world/aks74u_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the sniper pack.
+  Files: `public/assets/weapons/aks74u.glb`, `world/aks74u_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the AK pack.
 - This work is based on "9A-91 Assault Rifle Gameready Lowpoly" (https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda) by valterjherson1 (https://sketchfab.com/valterjherson1) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/a91.glb`, `world/a91_lod1.glb`. Changes made: set in rigid pieces (the rifle, its stock and butt plate, its magazine, trigger and suppressor, its round); textures re-encoded as WebP at no more than 1024 a side; geometry compressed. Held in the arms of the sniper pack.
+  Files: `public/assets/weapons/a91.glb`, `world/a91_lod1.glb`. Changes made: set in rigid pieces (the rifle, its stock and butt plate, its magazine, trigger and suppressor, its round); textures re-encoded as WebP at no more than 1024 a side; geometry compressed. Held in the arms of the AK pack.
 - This work is based on "Barrett-M82 (Optimized)" (https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87) by Gintoki1234 (https://sketchfab.com/Gintoki1234) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/barrett.glb`, `world/barrett_lod1.glb`. Changes made: set in rigid pieces; textures at 1024; geometry compressed. Held in the arms of the sniper pack.
+  Files: `public/assets/weapons/barrett.glb`, `world/barrett_lod1.glb`. Changes made: set in rigid pieces; textures at 1024; geometry compressed. Held in the .50 sniper pack.
 - This work is based on "Shotgun animation set" (https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/db12.glb`, `world/db12_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; geometry compressed. Held in the arms of the sniper pack.
 
