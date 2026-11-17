@@ -3,8 +3,8 @@
 //
 //   node tools/build-sounds.mjs
 //
-// Gunshots are designed from The Free Firearm Sound Library (see "sound design" below);
-// reload and handling sounds, footsteps and impacts are built from Kenney's impact pack.
+// Gunshots and gun handling are recordings of real guns (Snake's Authentic Gun Sounds),
+// used as recorded; footsteps and impacts are built from Kenney's impact pack.
 // Kenney's Ogg files are decoded to WAV so every browser (Safari included) can play them.
 
 import fs from 'node:fs';
@@ -140,16 +140,7 @@ function cut(x, rate, start, len) {
   return y;
 }
 
-// ---- sound design: the tools ----------------------------------------------------------
-//
-// A raw recording of a gunshot is a crack and very little else: measured, the shots in the
-// library have almost nothing under 250 Hz and have fallen 20 dB within a fiftieth of a
-// second. Played as they are they sound like cap guns. Each weapon's shot is therefore built
-// here in layers: the recording's own crack and what body it has, a thump (a sine falling in
-// pitch) for the weight of it, a bark (a band of noise) for the muzzle blast, the far
-// microphone's take of the same gun for the echo of the range, a wash of noise dying away
-// behind that, and the click of the action. The sum is driven into a soft clip, which is what
-// gives a shot its density, and levelled.
+// ---- tools --------------------------------------------------------------------------------
 
 const SR = 48000;
 const lcg = (seed) => { let s = (seed * 2654435761) >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); };
@@ -179,19 +170,6 @@ function shape(x, attack, tau) {
   for (let i = 0; i < x.length; i++) { const t = i / SR; x[i] *= (1 - Math.exp(-t / attack)) * Math.exp(-t / tau); }
   return x;
 }
-/** A sine falling from f0 to f1 (the fall has time constant `drop`), dying away with `tau`. */
-function thump(n, f0, f1, drop, tau) {
-  const y = new Float32Array(n);
-  let ph = 0;
-  for (let i = 0; i < n; i++) {
-    const t = i / SR;
-    ph += (2 * Math.PI * (f1 + (f0 - f1) * Math.exp(-t / drop))) / SR;
-    y[i] = Math.sin(ph) * Math.exp(-t / tau) * (1 - Math.exp(-t / 0.0008));
-  }
-  return y;
-}
-/** Soft clip in place (expects a peak near 1): quiet parts come up, peaks stay put. */
-function drive(x, d) { const k = Math.tanh(d); for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * d) / k; return x; }
 function mix(out, x, g, atSec = 0) {
   const at = Math.floor(atSec * SR);
   for (let i = 0; i < x.length && at + i < out.length; i++) out[at + i] += x[i] * g;
@@ -209,149 +187,162 @@ function fadeOut(x, part = 0.3) {
   for (let i = 0; i < n; i++) x[x.length - 1 - i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / n);
   return x;
 }
-/** A wash of noise that darkens as it dies away: the air after the shot. */
-function wash(n, rnd, tau, from = 3600, to = 420) {
-  const y = new Float32Array(n);
-  let lp = 0;
-  for (let i = 0; i < n; i++) {
-    const t = i / SR, fc = to + (from - to) * Math.exp(-t / (tau * 0.7));
-    lp += ((rnd() * 2 - 1) - lp) * (1 - Math.exp((-2 * Math.PI * fc) / SR));
-    y[i] = lp * Math.exp(-t / tau) * (1 - Math.exp(-t / 0.015));
-  }
-  return y;
-}
 /** A click of metal on metal made of nothing but a ringing band of noise (for where no recording is layered). */
 function clack(rnd, f = 3200, tau = 0.006) {
   return shape(filt(noise(Math.floor(SR * 0.05), rnd), 'bp', f, 3.5), 0.0003, tau);
 }
 
-// ---- gunshots: The Free Firearm Sound Library, designed -----------------------------------
+// ---- gunshots and gun handling: Snake's Authentic Gun Sounds, as recorded -------------------
+//
+// Every shot, reload, rack and bolt in the game is a recording of a real gun from the two
+// "Snake's Authentic Gun Sounds" packs (f8studios.itch.io): nothing here is synthesised or
+// layered. A recording is cut at the shot, played a little faster or slower where one calibre
+// stands in for a neighbour, faded at its end and levelled; that is all.
 
-const LIB = path.join(SRC, 'firearm-library', 'Prepared SFX Library');
-const takesCache = new Map();
-/** Every separate shot in a recording, from its onset, at SR, each peaking at 1. */
-function takesOf(rel, len) {
-  const key = `${rel}|${len}`;
-  if (takesCache.has(key)) return takesCache.get(key);
-  const file = path.join(LIB, rel);
-  if (!fs.existsSync(file)) { console.warn(`missing ${file}`); takesCache.set(key, []); return []; }
-  const { rate, x } = readWav(file);
-  const factor = rate % SR === 0 ? rate / SR : 1;
-  const out = onsets(x, rate).map((s) => {
-    const y = decimate(cut(x, rate, s, len), factor);
-    return normalise(factor === 1 && rate !== SR ? repitch(y, 1, rate) : y, 0);
-  });
-  takesCache.set(key, out);
+const SNAKE1 = path.join(SRC, 'snake1', 'files', "Snake's Authentic Gun Sounds");
+const SNAKE2 = path.join(SRC, 'snake2', 'files', "Snake's SECOND Authentic Gun Sounds");
+/** Where each calibre's recordings are: [pack, folder, file prefix]. */
+const CALIBRES = {
+  '9mm': [2, '9mm', '9mm'],
+  '308': [2, '.308 (7.62x51)', '308'],
+  '20ga': [2, '20 Gauge', '20 Gauge'],
+  '22': [1, '.22LR', '22LR'],
+  '556': [1, '5.56', '556'],
+  '762x39': [1, '7.62x39', '762x39'],
+  '762x54': [1, '7.62x54R', '762x54r'],
+};
+/** @param dry the recording without the range's own echo; @param take 'Single' | 'Double Tap' | 'Burst' */
+function calibreFile(cal, dry, take) {
+  const [pack, folder, prefix] = CALIBRES[cal];
+  return pack === 1
+    ? path.join(SNAKE1, dry ? 'Isolated' : 'Full Sound', folder, 'WAV', `${prefix} ${take}${dry ? ' Isolated' : ''} WAV.wav`)
+    : path.join(SNAKE2, dry ? 'Isolated' : 'Full Sounds', folder, 'WAV', `${prefix} ${take}${dry ? ' Isolated' : ''}.wav`);
+}
+const recordings = new Map();
+/** A recording at SR, mono. */
+function recording(file) {
+  if (!recordings.has(file)) {
+    if (!fs.existsSync(file)) { console.warn(`missing ${file}`); recordings.set(file, new Float32Array(SR)); }
+    else { const { rate, x } = readWav(file); recordings.set(file, rate === SR ? x : repitch(x, 1, rate)); }
+  }
+  return recordings.get(file);
+}
+/** Where each shot in a recording begins (samples), shots as close together as a burst's. */
+function shotStarts(x) {
+  const block = Math.floor(SR * 0.002);
+  const env = [];
+  for (let i = 0; i + block <= x.length; i += block) { let m = 0; for (let j = i; j < i + block; j++) m = Math.max(m, Math.abs(x[j])); env.push(m); }
+  const peak = Math.max(...env), thr = peak * 0.35;
+  const out = [];
+  let last = -1e9, dipped = true;
+  for (let i = 0; i < env.length; i++) {
+    if (env[i] < thr * 0.5) dipped = true;
+    if (env[i] > thr && dipped && (i - last) * 0.002 > 0.06) {
+      let s = i;
+      while (s > 0 && i - s < 8 && env[s - 1] > thr * 0.1) s--;
+      out.push(s * block);
+      last = i;
+      dipped = false;
+    }
+  }
   return out;
+}
+/** One shot out of a recording: from its start (the last shot in the file, so its tail is whole), `sec` long at most. */
+function shotFrom(file, speed, sec, which = -1) {
+  const x = recording(file);
+  const starts = shotStarts(x);
+  const at = Math.max(0, (starts.at(which) ?? 0) - Math.floor(SR * 0.003));
+  let y = x.slice(at, Math.min(x.length, at + Math.floor(SR * sec * speed)));
+  if (speed !== 1) y = repitch(y, speed);
+  const fin = Math.floor(SR * 0.001);
+  for (let i = 0; i < fin && i < y.length; i++) y[i] *= i / fin;
+  return normalise(fadeOut(y, 0.25));
 }
 
 /**
- * Each weapon's shot. `near`/`mid`: the close and far microphones' recordings of the gun it is
- * built on; `rate`: played faster or slower; `thump`: [from Hz, to Hz, seconds]; `bark`: [Hz,
- * seconds]; `air`: seconds the wash of noise lasts; `heavy`: decibels of weight added to the
- * thump and taken off the crack; `mech`: seconds after the shot the action is heard (omitted:
- * worked by hand later); `drive`: how hard the sum is pushed into the soft clip.
+ * Each weapon's shot: the calibre it is recorded from (the gun's own, or its nearest
+ * neighbour in the packs), whether with the range's echo or without, the speed it is played
+ * at, and how long it rings. Three takes each: the single shot, and the last of a double tap
+ * and of a burst.
  */
 const SHOTS = {
-  kite: { near: 'Walther PPQ/X_39P.wav', mid: 'Walther PPQ/X_31P.wav', len: 0.7, thump: [210, 95, 0.028], bark: [950, 0.026], air: 0.13, heavy: -1, mech: 0.045, drive: 2.1 },
-  tern: { near: '1911/A_42P.wav', mid: '1911/A_34P.wav', len: 0.8, thump: [175, 78, 0.036], bark: [760, 0.034], air: 0.16, heavy: 0.5, mech: 0.05, drive: 2.1 },
-  maul: { near: '1911/A_42P.wav', mid: '1911/A_34P.wav', rate: 0.8, len: 1.1, thump: [140, 55, 0.06], bark: [540, 0.055], air: 0.3, heavy: 2.5, mech: 0.07, drive: 1.9 },
-  stinger: { near: 'Bersa/F_47P.wav', mid: 'Bersa/F_41P.wav', rate: 1.06, len: 0.6, thump: [235, 110, 0.022], bark: [1100, 0.02], air: 0.1, heavy: -1.5, mech: 0.035, drive: 2.0 },
-  wasp: { near: 'Carl Gustav M45/G_31P.wav', mid: 'Carl Gustav M45/G_20P.wav', len: 0.65, thump: [200, 92, 0.028], bark: [900, 0.026], air: 0.12, heavy: -1, mech: 0.04, drive: 2.1 },
-  hornet: { near: 'PPSh/P_30P.wav', mid: 'PPSh/P_16P.wav', rate: 1.08, len: 0.65, thump: [225, 105, 0.024], bark: [1200, 0.022], air: 0.11, heavy: -1.5, mech: 0.036, drive: 2.0 },
-  hammerhead: { near: 'AK-47/C_28P.wav', mid: 'AK-47/C_31P.wav', len: 1.0, thump: [155, 62, 0.05], bark: [620, 0.046], air: 0.26, heavy: 1.5, mech: 0.055, drive: 1.8 },
-  mako: { near: 'SKS/U_14P.wav', mid: 'SKS/U_19P.wav', rate: 1.05, len: 0.9, thump: [170, 72, 0.042], bark: [780, 0.042], air: 0.22, heavy: 0.5, mech: 0.05, drive: 1.9 },
-  lumen: { near: 'AR-15/D_32P.wav', mid: 'AR-15/D_24P.wav', len: 0.9, thump: [180, 78, 0.038], bark: [920, 0.036], air: 0.22, heavy: -0.5, mech: 0.045, drive: 2.0 },
-  osprey: { near: 'Marlin 336/I_22P.wav', mid: 'Marlin 336/I_17P.wav', rate: 0.96, len: 0.9, thump: [160, 66, 0.046], bark: [660, 0.042], air: 0.23, heavy: 1, mech: 0.055, drive: 2.0 },
-  breaker: { near: 'Nova/O_21P.wav', mid: 'Nova/O_17P.wav', len: 1.3, thump: [130, 52, 0.07], bark: [500, 0.07], air: 0.36, heavy: 3, drive: 2.0 },
-  thresher: { near: 'Model 12/K_22P.wav', mid: 'Model 12/K_17P.wav', rate: 0.92, len: 1.4, thump: [120, 46, 0.08], bark: [450, 0.08], air: 0.42, heavy: 3.5, drive: 2.1 },
-  longsight: { near: 'Tikka/W_29P.wav', mid: 'Tikka/W_24P.wav', rate: 0.9, len: 1.7, thump: [125, 44, 0.09], bark: [540, 0.066], air: 0.55, heavy: 3, drive: 2.0 },
-  colossus: { near: 'Mosin Nagant/M_21P.wav', mid: 'Mosin Nagant/M_26P.wav', rate: 0.8, len: 1.9, thump: [110, 38, 0.11], bark: [440, 0.09], air: 0.68, heavy: 4, mech: 0.09, drive: 2.2 },
+  kite: ['9mm', false, 1, 1.3],
+  tern: ['9mm', false, 0.88, 1.4],
+  maul: ['308', true, 1.12, 1.2],
+  stinger: ['9mm', true, 1.14, 0.9],
+  wasp: ['9mm', false, 1.05, 1.1],
+  hornet: ['556', true, 1.12, 0.9],
+  hammerhead: ['762x39', false, 1, 1.6],
+  mako: ['762x39', true, 1.07, 1.0],
+  lumen: ['556', false, 1, 1.6],
+  osprey: ['762x39', false, 0.9, 1.6],
+  breaker: ['20ga', false, 0.92, 1.8],
+  thresher: ['20ga', false, 0.82, 2.0],
+  longsight: ['308', false, 0.92, 2.2],
+  colossus: ['762x54', false, 0.8, 2.4],
 };
-const SHOT_TAKES = 3;
-const energy = (x) => { let e = 0; for (let i = 0; i < x.length; i++) e += x[i] * x[i]; return e; };
-/** Scale in place so the layer carries `share` of the shot's energy (decibels below the whole). */
-function share(x, db) {
-  const e = energy(x);
-  const g = e > 0 ? Math.sqrt(Math.pow(10, db / 10) / e) : 0;
-  for (let i = 0; i < x.length; i++) x[i] *= g;
-  return x;
-}
-
-function designShot(id, p, k) {
-  const rnd = lcg(id.length * 97 + id.charCodeAt(0) * 13 + k * 7919 + 5);
-  const n = Math.floor(SR * p.len);
-  const out = new Float32Array(n);
-  const near = takesOf(p.near, 0.7), mid = takesOf(p.mid, p.len + 0.3);
-  if (near.length === 0) return null;
-  const rate = (p.rate ?? 1) * (1 + (rnd() - 0.5) * 0.03);
-  const a = repitch(near[k % near.length], rate);
-  const heavy = p.heavy ?? 0;
-  // The layers are balanced by the energy each carries, so every gun has the same build
-  // (crack, body, weight) in its own proportions, however its recording happened to be made.
-  // The recording: its crack kept whole, and its low half as it is.
-  mix(out, share(shape(filt(a, 'hp', 1200), 0.0002, 0.1), -6.5 - heavy * 0.4), 1);
-  mix(out, share(filt(filt(a, 'lp', 1200), 'hp', 130), -8.5), 1);
-  // The muzzle blast.
-  const [bf, bs] = p.bark;
-  mix(out, share(shape(filt(filt(noise(Math.floor(SR * Math.min(p.len, bs * 9)), rnd), 'bp', bf, 0.75), 'lp', bf * 3.2), 0.001, bs), -6.5), 1, 0.0015);
-  // The weight of the shot, a little dirtied so it is heard on small speakers too.
-  const [f0, f1, sec] = p.thump;
-  mix(out, share(filt(drive(thump(Math.floor(SR * Math.min(p.len, sec * 8)), f0 * (1 + (rnd() - 0.5) * 0.05), f1, 0.02, sec), 1.6), 'lp', 1100), -4.5 + heavy), 1, 0.0015);
-  // The range answering: the far microphone, darkened, and the air dying away behind it.
-  if (mid.length > 0) mix(out, share(filt(filt(repitch(mid[k % mid.length], rate), 'lp', 3600), 'hp', 160), -15), 1, 0.014);
-  mix(out, share(wash(n, rnd, p.air), -17), 1);
-  // The action.
-  if (p.mech) mix(out, share(clack(rnd, 2800 + rnd() * 900), -24), 1, p.mech);
-  let y = filt(out, 'hp', 40);
-  y = filt(y, 'peak', 3200, 0.9, 2);
-  normalise(y, 0);
-  drive(y, p.drive);
-  y = filt(y, 'hp', 32);
-  return normalise(fadeOut(y, 0.3));
-}
-
-/** A suppressed shot: no blast, a hiss and a cough, and the action heard over both. */
-const QUIET = {
-  osprey: { near: 'Savage 10 .300 Blackout/T_27P.wav', hiss: 1900, pop: [150, 70, 0.04], rate: 0.95 },
-  lumen: { near: 'Savage 10 .300 Blackout/T_27P.wav', hiss: 2400, pop: [175, 82, 0.034], rate: 1.05 },
-  hornet: { near: 'Savage 10 .300 Blackout/T_27P.wav', hiss: 2900, pop: [200, 95, 0.028], rate: 1.18 },
-};
-function designQuiet(id, p, k) {
-  const rnd = lcg(id.length * 71 + k * 5113 + 9);
-  const n = Math.floor(SR * 0.55);
-  const out = new Float32Array(n);
-  const near = takesOf(p.near, 0.5);
-  if (near.length > 0) mix(out, filt(filt(repitch(near[k % near.length], p.rate), 'lp', 2600), 'hp', 200), 0.4);
-  mix(out, shape(filt(noise(Math.floor(SR * 0.3), rnd), 'bp', p.hiss, 0.7), 0.0012, 0.03), 2.0, 0.001);
-  const [f0, f1, sec] = p.pop;
-  mix(out, drive(thump(Math.floor(SR * 0.3), f0, f1, 0.02, sec), 1.5), 0.55, 0.001);
-  mix(out, clack(rnd, 2600 + rnd() * 600, 0.008), 1.6, 0.034);
-  mix(out, clack(rnd, 3600 + rnd() * 600, 0.005), 0.9, 0.062);
-  mix(out, wash(n, rnd, 0.11, 2400, 500), 0.25);
-  let y = filt(out, 'hp', 60);
-  normalise(y, 0);
-  drive(y, 1.8);
-  return normalise(fadeOut(y, 0.35));
-}
-
 const manifest = {};
 const report = (name, y) => { manifest[name] = +loud100(y, SR).toFixed(1); };
-for (const [id, p] of Object.entries(SHOTS)) {
-  for (let k = 0; k < SHOT_TAKES; k++) {
-    const y = designShot(id, p, k);
-    if (!y) continue;
+for (const [id, [cal, dry, speed, sec]] of Object.entries(SHOTS)) {
+  ['Single', 'Double Tap', 'Burst'].forEach((take, k) => {
+    const y = shotFrom(calibreFile(cal, dry, take), speed, sec);
     writeWav(`shot_${id}_${k + 1}`, y, SR);
     report(`shot_${id}_${k + 1}`, y);
-  }
+  });
 }
-for (const [id, p] of Object.entries(QUIET)) {
-  for (let k = 0; k < 2; k++) {
-    const y = designQuiet(id, p, k);
+// With a suppressor: the same gun's dry recording with the muzzle blast taken off the top (what
+// a suppressor does), since neither pack has a suppressed gun. The one thing here that is not
+// simply a recording.
+const QUIET = { osprey: ['762x39', 0.9], lumen: ['556', 1], hornet: ['556', 1.12], breaker: ['20ga', 0.92] };
+for (const [id, [cal, speed]] of Object.entries(QUIET)) {
+  ['Single', 'Double Tap'].forEach((take, k) => {
+    let y = shotFrom(calibreFile(cal, true, take), speed, 0.7);
+    y = filt(filt(filt(y, 'lp', 2400), 'lp', 2400), 'hp', 160);
+    normalise(fadeOut(y, 0.3));
     writeWav(`shot_${id}_q_${k + 1}`, y, SR);
     report(`shot_${id}_q_${k + 1}`, y);
-  }
+  });
 }
+
+// Handling: the packs' own recordings of each movement.
+const MECH1 = path.join(SNAKE1, 'Reloads, Cycling & More', 'WAV');
+const MECH2 = path.join(SNAKE2, '& More');
+/** A handling sound: its silence trimmed off the front, levelled. */
+function handling(name, file, peakDb = -3) {
+  const x = recording(file);
+  let peak = 0;
+  for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+  let a = 0;
+  while (a < x.length && Math.abs(x[a]) < peak * 0.02) a++;
+  const y = x.slice(Math.max(0, a - Math.floor(SR * 0.004)));
+  normalise(fadeOut(y, 0.2), peakDb);
+  writeWav(name, y, SR);
+  report(name, y);
+}
+for (const [name, file] of [
+  ['fol_ak_magout', path.join(MECH1, 'AK Reload Part 1 WAV.wav')],
+  ['fol_ak_magin', path.join(MECH1, 'AK Reload Part 2 WAV.wav')],
+  ['fol_ak_rack', path.join(MECH1, 'AK Rack WAV.wav')],
+  ['fol_ar_magout', path.join(MECH1, 'AR Reload Part 1 WAV.wav')],
+  ['fol_ar_magin', path.join(MECH1, 'AR Reload Part 2 WAV.wav')],
+  ['fol_ar_release', path.join(MECH1, 'AR Bolt Release WAV.wav')],
+  ['fol_ar_charge', path.join(MECH1, 'AR Charging Handle WAV.wav')],
+  ['fol_bolt_magout', path.join(MECH1, '308 Magazine Part 1 WAV.wav')],
+  ['fol_bolt_magin', path.join(MECH1, '308 Magazine Part 2 WAV.wav')],
+  ['fol_bolt_cycle_1', path.join(MECH1, '308 Bolt Cycle WAV.wav')],
+  ['fol_bolt_cycle_2', path.join(MECH1, 'Mosin Bolt Cycle WAV.wav')],
+  ['fol_pump_back', path.join(MECH1, 'Pump Reload Part 1 WAV.wav')],
+  ['fol_pump_fwd', path.join(MECH1, 'Pump Reload Part 2 WAV.wav')],
+  ['fol_pump_shell', path.join(MECH1, 'Pump Shell Load WAV.wav')],
+  ['fol_break_open', path.join(MECH1, 'Single Shot Reload Part 1 WAV.wav')],
+  ['fol_break_close', path.join(MECH1, 'Single Shot Reload Part 2 WAV.wav')],
+  ['fol_break_shell', path.join(MECH2, 'Mag Pack', 'WAV', 'Single Shotgun Load.wav')],
+  ['fol_pistol_magout', path.join(MECH2, 'Pistol', 'WAV', '9mm Pistol Reload 1.wav')],
+  ['fol_pistol_magin', path.join(MECH2, 'Pistol', 'WAV', '9mm Pistol Reload 2.wav')],
+  ['fol_pistol_rack', path.join(MECH2, 'Pistol', 'WAV', '9mm Pistol Rack Full.wav')],
+  ['fol_pistol_release', path.join(MECH2, 'Pistol', 'WAV', '9mm Pistol Slide Release.wav')],
+  ['fol_pistol_dry', path.join(MECH2, 'Pistol', 'WAV', '9mm Pistol Dry Fire.wav')],
+]) handling(name, file);
 
 // ---- Kenney packs (Ogg -> WAV) -----------------------------------------------------------
 
@@ -380,12 +371,7 @@ for (const f of ['click_002', 'confirmation_001', 'confirmation_002', 'error_004
 }
 for (const [i, k] of seq(3).entries()) await ogg('kenney-scifi', `explosionCrunch_${k}`, `explosion_${i + 1}`);
 await ogg('kenney-scifi', 'lowFrequency_explosion_000', 'explosion_low');
-// ---- handling sounds: built from Kenney's impact recordings ----------------------------------
-//
-// Each moment of a reload (a magazine leaving, one seating, a bolt drawn and let go, a shell
-// pushed home) is its own short sound, played when the animation reaches it, instead of one
-// recording of somebody else's reload stretched to fit. Each is a few real impacts of metal,
-// pitched and laid over one another, with a scrape of noise where metal slides on metal.
+// ---- from Kenney's impact recordings: footsteps, impacts, a hand catching a gun ---------------
 
 /** One of Kenney's recordings, at SR, peaking at 1. */
 async function kenney(pack, file) {
@@ -402,12 +388,6 @@ for (const name of ['impactMetal_light', 'impactMetal_medium', 'impactMetal_heav
   K[name] = [];
   for (const k of seq(5)) K[name].push(await kenney('kenney-impact', `${name}_${k}`));
 }
-/** Metal sliding on metal: a band of noise swelling and dying over `sec`. */
-function scrape(rnd, sec, f) {
-  const y = filt(filt(noise(Math.floor(SR * sec), rnd), 'bp', f, 1.1), 'hp', 500);
-  for (let i = 0; i < y.length; i++) y[i] *= Math.sin((Math.PI * i) / y.length) ** 1.5;
-  return y;
-}
 /** [recording or made sound, speed, level, at seconds] laid over one another. */
 function foley(name, sec, layers, peakDb = -3) {
   const out = new Float32Array(Math.floor(SR * sec));
@@ -417,21 +397,7 @@ function foley(name, sec, layers, peakDb = -3) {
   report(name, y);
 }
 for (let v = 0; v < 2; v++) {
-  const rnd = lcg(4000 + v * 31);
-  const j = () => 1 + (rnd() - 0.5) * 0.08; // a little off pitch each time
-  const n = `_${v + 1}`;
-  foley(`fol_magout_pistol${n}`, 0.22, [[K.impactMetal_light[v], 1.3 * j(), 0.7, 0], [scrape(rnd, 0.05, 3000), 1, 0.25, 0.008]]);
-  foley(`fol_magin_pistol${n}`, 0.26, [[scrape(rnd, 0.045, 2600), 1, 0.22, 0], [K.impactPlate_light[v + 1], 1.2 * j(), 0.8, 0.045], [K.impactMetal_light[v + 2], 0.9 * j(), 0.5, 0.05]]);
-  foley(`fol_magout_rifle${n}`, 0.3, [[K.impactMetal_medium[v], 1.05 * j(), 0.7, 0], [scrape(rnd, 0.075, 2200), 1, 0.28, 0.012], [K.impactPlate_light[v], 0.8 * j(), 0.3, 0.065]]);
-  foley(`fol_magin_rifle${n}`, 0.34, [[scrape(rnd, 0.06, 2000), 1, 0.24, 0], [K.impactPlate_medium[v + 1], 1.0 * j(), 0.9, 0.06], [K.impactMetal_medium[v + 2], 0.8 * j(), 0.6, 0.066], [K.impactGeneric_light[v], 0.9, 0.4, 0.06]]);
-  foley(`fol_boltback${n}`, 0.3, [[K.impactMetal_light[v + 3], 0.9 * j(), 0.6, 0], [scrape(rnd, 0.09, 1800), 1, 0.32, 0.006], [K.impactMetal_medium[v + 3], 0.85 * j(), 0.7, 0.092]]);
-  foley(`fol_boltfwd${n}`, 0.28, [[scrape(rnd, 0.03, 2400), 1, 0.2, 0], [K.impactMetal_heavy[v], 1.15 * j(), 0.9, 0.03], [K.impactPlate_light[v + 2], 1.0 * j(), 0.4, 0.033]]);
-  foley(`fol_tap${n}`, 0.2, [[K.impactSoft_medium[v], 1.1, 0.55, 0], [K.impactMetal_light[v + 1], 1.1 * j(), 0.5, 0.006]]);
-  foley(`fol_shell${n}`, 0.3, [[K.impactTin_medium[v], 1.3 * j(), 0.32, 0], [scrape(rnd, 0.065, 1500), 1, 0.3, 0.012], [K.impactMetal_light[v + 2], 0.8 * j(), 0.6, 0.075]]);
-  foley(`fol_open${n}`, 0.3, [[K.impactMetal_medium[v + 1], 0.9 * j(), 0.8, 0], [K.impactPlate_medium[v], 0.8 * j(), 0.5, 0.02]]);
-  foley(`fol_close${n}`, 0.32, [[K.impactMetal_heavy[v + 2], 1.0 * j(), 1, 0], [K.impactPlate_heavy[v], 1.1 * j(), 0.5, 0.005], [K.impactGeneric_light[v + 1], 0.8, 0.5, 0]]);
-  foley(`fol_pump${n}`, 0.3, [[scrape(rnd, 0.085, 1200), 1, 0.42, 0], [K.impactMetal_medium[v + 2], 0.8 * j(), 0.8, 0.082], [K.impactPlate_light[v + 3], 0.9, 0.3, 0.086]]);
-  foley(`fol_catch${n}`, 0.2, [[K.impactSoft_medium[v + 2], 1.25, 0.6, 0], [K.impactGeneric_light[v + 2], 1.1, 0.25, 0.004]]);
+  foley(`fol_catch_${v + 1}`, 0.2, [[K.impactSoft_medium[v + 2], 1.25, 0.6, 0], [K.impactGeneric_light[v + 2], 1.1, 0.25, 0.004]]);
 }
 
 // Footsteps: the recording is a soft thud with nothing above 800 Hz, which is lost under

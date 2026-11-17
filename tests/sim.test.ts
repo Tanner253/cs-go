@@ -261,6 +261,89 @@ describe('gunplay', () => {
   });
 });
 
+describe('snipers and shotguns', () => {
+  /** A player of `team` with `id` bought, standing eight metres from an armoured enemy down a clear lane. */
+  const facing = (team: Team, id: string) => {
+    const t = soloSim(false, team);
+    const { sim, me, step } = t;
+    const enemy = sim.players.find((p) => p.team !== team)!;
+    sim.phase = 'freeze';
+    me.money = 16000;
+    const bought = sim.tryBuy(me, id);
+    sim.phase = 'live';
+    me.pos.x = -26; me.pos.z = 24; me.pos.y = 0.002;
+    enemy.pos.x = -26; enemy.pos.z = 16; enemy.pos.y = 0.002;
+    enemy.armor = 100; enemy.helmet = true;
+    step({ yaw: 0, pitch: 0 }, 80);
+    return { ...t, enemy, bought };
+  };
+
+  it('each side has its own sniper, and either kills an armoured player with one shot to the chest', () => {
+    expect(facing(ATK, 'longsight').bought).toBe(false);
+    expect(facing(DEF, 'colossus').bought).toBe(false);
+    for (const [team, id] of [[ATK, 'colossus'], [DEF, 'longsight']] as const) {
+      const { me, step, enemy, bought } = facing(team, id);
+      expect(bought, id).toBe(true);
+      const chest = Math.atan2(1.3 - 1.63, 8);
+      step({ yaw: 0, pitch: chest, buttons: BTN_ALT });
+      step({ yaw: 0, pitch: chest }, 20);
+      expect(me.scope, id).toBe(1);
+      step({ yaw: 0, pitch: chest, buttons: BTN_FIRE });
+      expect(enemy.alive, id).toBe(false);
+    }
+    // A leg is not a kill.
+    const { step, enemy } = facing(ATK, 'colossus');
+    const leg = Math.atan2(0.4 - 1.63, 8);
+    step({ yaw: 0, pitch: leg, buttons: BTN_ALT });
+    step({ yaw: 0, pitch: leg }, 20);
+    step({ yaw: 0, pitch: leg, buttons: BTN_FIRE });
+    expect(enemy.alive).toBe(true);
+    expect(enemy.hp).toBeLessThan(40);
+  });
+
+  it('a shotgun throws every pellet into the same cone, thickest in the middle, standing or running', () => {
+    const spreadOf = (running: boolean) => {
+      const { sim, me, step, seen, bought } = facing(DEF, 'breaker');
+      expect(bought).toBe(true);
+      const cone = WEAPONS['breaker']!.spreadStand;
+      let widest = 0, inner = 0, pellets = 0, offAim = 0;
+      for (let shot = 0; shot < 12; shot++) {
+        me.weapons[0]!.mag = 7;
+        step({ yaw: 0, pitch: 0, fwd: running ? 1 : 0 }, 70);
+        seen.length = 0;
+        const from = { x: me.pos.x, y: me.pos.y + 1.63, z: me.pos.z };
+        step({ yaw: 0, pitch: 0, fwd: running ? 1 : 0, buttons: BTN_FIRE });
+        const e = seen.find((ev) => ev.type === 'shot');
+        if (!e || e.type !== 'shot') throw new Error('no shot');
+        const dirs: [number, number][] = [];
+        for (let i = 0; i < e.hitKinds.length; i++) {
+          const dx = e.ends[i * 6]! - from.x, dy = e.ends[i * 6 + 1]! - from.y, dz = e.ends[i * 6 + 2]! - from.z;
+          dirs.push([Math.atan2(dx, -dz), Math.atan2(dy, Math.hypot(dx, dz))]);
+        }
+        expect(dirs.length).toBe(9);
+        const cx = dirs.reduce((a, d) => a + d[0], 0) / 9, cy = dirs.reduce((a, d) => a + d[1], 0) / 9;
+        offAim = Math.max(offAim, Math.hypot(cx, cy));
+        for (const d of dirs) {
+          const r = Math.hypot(d[0] - cx, d[1] - cy);
+          widest = Math.max(widest, r);
+          if (r < cone / 2) inner++;
+          pellets++;
+        }
+        void sim;
+      }
+      return { widest, inner: inner / pellets, offAim, cone };
+    };
+    const still = spreadOf(false), run = spreadOf(true);
+    // The cone is the same size either way (measured about each shot's own middle)...
+    expect(still.widest).toBeLessThan(still.cone * 1.6);
+    expect(run.widest).toBeLessThan(run.cone * 1.6);
+    // ...with well over a quarter of the pellets in its inner half (an even scatter would put a quarter there)...
+    expect(still.inner).toBeGreaterThan(0.38);
+    // ...and it is the whole pattern that running throws off the aim.
+    expect(run.offAim).toBeGreaterThan(still.offAim);
+  });
+});
+
 describe('suppressors', () => {
   /** A defender holding `id`, drawn and ready, the enemy standing `far` metres in front. */
   const armed = (id: string, far = 8) => {
@@ -284,7 +367,7 @@ describe('suppressors', () => {
     expect(armed('osprey').gun.quiet).toBe(true);
     expect(armed('lumen').gun.quiet).toBe(false);
     expect(armed('hornet').gun.quiet).toBe(false);
-    const { me, step, seen } = armed('breaker');
+    const { me, step, seen } = armed('longsight');
     step({ buttons: BTN_ALT });
     step({}, fitTicks);
     expect(me.fitTimer).toBe(0);

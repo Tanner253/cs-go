@@ -128,7 +128,7 @@ const defs: WeaponDef[] = [
   },
   {
     // A machine pistol for the sidearm slot: sprays, runs dry fast, weak past a few metres.
-    id: 'stinger', name: 'Stinger MP', kind: 'pistol', slot: 1, price: 500, killReward: 300, team: -1,
+    id: 'stinger', name: 'Stinger MP', kind: 'pistol', slot: 1, price: 500, killReward: 300, team: 0,
     damage: 24, armorPen: 0.6, rangeMod: 0.82, headMult: 4, rpm: 600, auto: true, pellets: 1,
     magSize: 20, reserve: 60, reloadTime: 2.4, drawTime: 0.5, maxSpeed: 6.0,
     spreadStand: 0.009, spreadCrouch: 0.007, spreadMove: 0.03, spreadAir: 0.2, spreadPerShot: 0.006, spreadDecay: 5,
@@ -152,18 +152,19 @@ const defs: WeaponDef[] = [
     suppressor: { fitted: false },
   },
   {
-    id: 'breaker', name: 'Breaker', kind: 'shotgun', slot: 0, price: 1100, killReward: 900, team: -1,
+    id: 'breaker', name: 'Breaker', kind: 'shotgun', slot: 0, price: 1100, killReward: 900, team: 1,
     damage: 22, armorPen: 0.5, rangeMod: 0.6, headMult: 2, rpm: 68, auto: false, pellets: 9,
     magSize: 7, reserve: 28, reloadTime: 3.0, drawTime: 0.7, maxSpeed: 5.6,
-    spreadStand: 0.045, spreadCrouch: 0.04, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.01, spreadDecay: 4,
+    spreadStand: 0.045, spreadCrouch: 0.04, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.004, spreadDecay: 4,
     pattern: spray(7, 6.0, 3, 0.5, [[3, 0.5], [6, -0.6]], 31), penetration: 0, kick: 2.2, range: 60,
+    suppressor: { fitted: false },
   },
   {
     // Two barrels, two shells: the hardest single hit in the game, then a reload.
-    id: 'thresher', name: 'Thresher DB', kind: 'shotgun', slot: 0, price: 1300, killReward: 900, team: -1,
+    id: 'thresher', name: 'Thresher DB', kind: 'shotgun', slot: 0, price: 1300, killReward: 900, team: 0,
     damage: 26, armorPen: 0.45, rangeMod: 0.5, headMult: 2, rpm: 200, auto: false, pellets: 10,
     magSize: 2, reserve: 24, reloadTime: 2.3, drawTime: 0.6, maxSpeed: 5.9,
-    spreadStand: 0.06, spreadCrouch: 0.055, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.01, spreadDecay: 4,
+    spreadStand: 0.06, spreadCrouch: 0.055, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.004, spreadDecay: 4,
     pattern: spray(2, 4.5, 1, 0, [[1, 0.4]], 32), penetration: 0, kick: 2.6, range: 45,
   },
   {
@@ -200,7 +201,8 @@ const defs: WeaponDef[] = [
     suppressor: { fitted: false },
   },
   {
-    id: 'longsight', name: 'Longsight', kind: 'sniper', slot: 0, price: 4750, killReward: 100, team: -1,
+    // The defenders' sniper: a bolt-action in the AWP's class. One shot to the body or head kills.
+    id: 'longsight', name: 'Longsight AWP', kind: 'sniper', slot: 0, price: 4750, killReward: 100, team: 1,
     damage: 115, armorPen: 0.975, rangeMod: 0.99, headMult: 4, rpm: 41, auto: false, pellets: 1,
     magSize: 5, reserve: 30, reloadTime: 3.6, drawTime: 1.0, maxSpeed: 5.08,
     spreadStand: 0.0008, spreadCrouch: 0.0005, spreadMove: 0.16, spreadAir: 0.4, spreadPerShot: 0.05, spreadDecay: 3,
@@ -208,10 +210,11 @@ const defs: WeaponDef[] = [
     spreadUnscoped: 0.055, scopedSpeed: 2.5, scopeFov: [40, 12],
   },
   {
-    // A .50 self-loader: two to the body or one to the head, ten rounds, and very heavy.
-    id: 'colossus', name: 'Colossus .50', kind: 'sniper', slot: 0, price: 5200, killReward: 100, team: -1,
-    damage: 82, armorPen: 0.98, rangeMod: 0.99, headMult: 4, rpm: 110, auto: false, pellets: 1,
-    magSize: 10, reserve: 30, reloadTime: 3.9, drawTime: 1.1, maxSpeed: 4.7,
+    // The attackers' sniper: a .50 self-loader. One shot to the body or head kills, as the AWP's
+    // does; it needs no bolt worked between shots, and pays for that in weight, kick and a slow second shot.
+    id: 'colossus', name: 'Colossus .50', kind: 'sniper', slot: 0, price: 5200, killReward: 100, team: 0,
+    damage: 120, armorPen: 0.98, rangeMod: 0.99, headMult: 4, rpm: 56, auto: false, pellets: 1,
+    magSize: 5, reserve: 20, reloadTime: 3.9, drawTime: 1.1, maxSpeed: 4.7,
     spreadStand: 0.001, spreadCrouch: 0.0006, spreadMove: 0.18, spreadAir: 0.4, spreadPerShot: 0.06, spreadDecay: 2.4,
     pattern: spray(10, 5.0, 3, 0.6, [[3, 0.4], [6, -0.5], [9, 0.3]], 52), penetration: 2.5, kick: 3.4, range: 300,
     spreadUnscoped: 0.06, scopedSpeed: 2.2, scopeFov: [40, 12],

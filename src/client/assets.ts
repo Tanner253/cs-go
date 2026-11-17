@@ -26,6 +26,11 @@ export interface PackInfo {
   hold: V3;
   /** pack space -> the space gun models are authored in (x along the barrel, y up), column-major */
   frame?: number[];
+  /**
+   * The pack's gun was drawn on the skeleton with the arms, so a joint's place is taken from
+   * the file as loaded rather than from the first frame of animation.
+   */
+  skinned?: boolean;
   /** this pack's arms have no textures of their own: borrow them from another pack by the same maker */
   armsFrom?: string;
   /** meshes of the pack's own gun, hidden when another gun is mounted in its place */
@@ -54,6 +59,8 @@ export interface GunMount {
    * (a `silencer` is left to the weapon: fitted and taken off in play where it takes one, see `suppressor` in weapons.ts)
    */
   hide?: string[];
+  /** a second magazine shown in the hand during reloads: [joint it hangs on, joint it is placed by] */
+  spare?: [string, string];
   /** fine placement in the gun's own space */
   nudge?: V3;
   /** drawn at this fraction of its own size (hands sized for another gun) */
@@ -67,6 +74,9 @@ export interface GunMount {
   pump?: { piece: string; travel: number };
 }
 
+/** Which joint of the rifle pack and of the submachine-gun pack each piece of a gun rides on. */
+const AK_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', safety: 'Safety_061', trigger: 'Trigger_060', mag: 'Pmag_062' };
+const SMG_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', trigger: 'Trigger_060', mag: 'Pmag_061' };
 /** Which joint of the pistol pack each piece of a mounted gun rides on. */
 const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag', hammer: 'hammer' };
 /** The same for the long-gun pack (its magazine joint is called "clip"). */
@@ -77,6 +87,25 @@ const LONG_JOINTS = { base: 'base', mag: 'clip' };
 // space, the pistol pack's at [0.077, 0.031, 0.004].)
 
 export const PACKS: Record<string, PackInfo> = {
+  // The automatic weapons are held in the two packs that were animated for one: each has its
+  // own draw, firing movement, reload, reload from empty and (the submachine gun) inspection.
+  ak: {
+    file: 'ak_fp.glb', fps: 30,
+    clips: { idle: [0, 59.45], draw: [61.45, 80.9], fire: [82.9, 92.35], reload: [94.35, 173.8], reloadEmpty: [175.8, 280.75], reloadAlt: [282.75, 367.2], walk: [369.2, 398.65], run: [400.65, 412.6] },
+    view: [-0.3419853, 0, 0, 0, 0, 0.3419853, 0, 0, 0, 0, -0.3419853, 0, 0, 0, 0, 1],
+    hold: [0.05, -0.17, -0.12],
+    frame: [0.0083554, 0.0369341, -0.3398824, 0, 0, 0.3399839, 0.0369451, 0, 0.3418833, -0.0009026, 0.0083065, 0, -0.2204215, -0.0081636, -0.041764, 1],
+    skinned: true,
+  },
+  smg: {
+    file: 'smg_fp.glb', fps: 30,
+    clips: { idle: [0, 49.45], draw: [51.45, 70.9], fire: [72.9, 82.35], reload: [84.35, 202.8], reloadEmpty: [204.8, 336.75], inspect: [338.75, 556.7], walk: [558.7, 580.65], run: [582.65, 597.1] },
+    view: [-0.3443, 0, 0, 0, 0, 0.3443, 0, 0, 0, 0, -0.3443, 0, 0, 0, 0, 1],
+    // (close in: further out, the left elbow hangs in the corner of the view)
+    hold: [0.07, -0.215, -0.02],
+    frame: [0.0052278, 0.0347936, -0.3424975, 0, 0, 0.342537, 0.0347977, 0, 0.3442603, -0.0005284, 0.005201, 0, -0.1702436, -0.0486295, -0.0435524, 1],
+    skinned: true,
+  },
   m9: {
     file: 'm9_fp.glb', fps: 30,
     // (its draw, frames 187-233, racks the slide on the way up: too much to fit in a half-second
@@ -154,27 +183,26 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   kite: { pack: 'm9', world: 'm9' },
   // (automatic guns in the pistol pack leave out its firing movement: a pistol's muzzle flip, repeated
   // thirteen times a second, throws the gun about; the spring layer carries their recoil instead)
-  wasp: { pack: 'm9', world: 'smg', hold: SMG_HOLD, skip: ['fire'], mount: { file: 'smg.glb', ride: PISTOL_JOINTS, nudge: [0.018, 0.013, 0.007] } },
+  wasp: { pack: 'smg', world: 'smg', mount: { file: 'smg.glb', ride: SMG_JOINTS, spare: ['Pmag_2_062', 'Pmag_061'] } },
   // (the long-gun pack's bolt-action cycle is not for a self-loading rifle, and its firing movement is a
   // single heavy shot's: repeated ten times a second it threw the rifle 5 cm a round. The spring layer
   // carries an automatic's recoil.)
-  hammerhead: { pack: 'sniper', world: 'ak', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'ak.glb', ride: LONG_JOINTS, nudge: [-0.116, -0.033, -0.017] } },
-  mako: { pack: 'sniper', world: 'aks74u', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'aks74u.glb', ride: LONG_JOINTS, nudge: [-0.317, -0.038, -0.018] } },
+  hammerhead: { pack: 'ak', world: 'ak', mount: { file: 'ak.glb', ride: AK_JOINTS, spare: ['Pmag2_063', 'Pmag_062'] } },
+  // (seated so the top of its magazine is where the pack's own rifle has its magazine: the hands change it there)
+  mako: { pack: 'ak', world: 'aks74u', mount: { file: 'aks74u.glb', ride: AK_JOINTS, nudge: [-0.21, -0.014, -0.002], spare: ['Pmag2_063', 'Pmag_062'] } },
   // ---- defenders ----
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS, nudge: [0.01, 0, 0] } },
   hornet: {
-    pack: 'm9', world: 'mp7', hold: SMG_HOLD, skip: ['fire'],
+    pack: 'smg', world: 'mp7', hold: [0.08, -0.23, -0.05],
     // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
     // the stock is left off too: extended, its rails run past the camera)
-    mount: { file: 'mp7a1.glb', ride: PISTOL_JOINTS, hide: ['foregrip', 'sight', 'stock'], nudge: [0.051, -0.015, 0.003] },
+    mount: { file: 'mp7a1.glb', ride: SMG_JOINTS, hide: ['foregrip', 'sight', 'stock'], spare: ['Pmag_2_062', 'Pmag_061'] },
   },
   lumen: {
-    // (its bolt is let go by a release on the left of the receiver: tapped, not drawn)
-    pack: 'sniper', world: 'ar15', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, rackPull: 0,
-    // (this model has no separate trigger to measure: seated by eye)
-    mount: { file: 'ar15_lod1.glb', ride: LONG_JOINTS, hide: ['foregrip', 'light', 'sight'], nudge: [-0.134, -0.029, -0.017] },
+    pack: 'ak', world: 'ar15',
+    mount: { file: 'ar15_lod1.glb', ride: { base: AK_JOINTS.base, mag: AK_JOINTS.mag }, hide: ['foregrip', 'light', 'sight'], spare: ['Pmag2_063', 'Pmag_062'] },
   },
-  osprey: { pack: 'sniper', world: 'a91', hold: LONG_HOLD, skip: ['bolt', 'fire'], rack: true, mount: { file: 'a91.glb', ride: LONG_JOINTS, hide: ['bullet'], nudge: [-0.162, -0.018, -0.016] } },
+  osprey: { pack: 'ak', world: 'a91', mount: { file: 'a91.glb', ride: { base: AK_JOINTS.base, mag: AK_JOINTS.mag, trigger: AK_JOINTS.trigger }, hide: ['bullet'], spare: ['Pmag2_063', 'Pmag_062'] } },
   // ---- both sides ----
   // (the model is larger than life: drawn at seven tenths, here and in other players' hands)
   stinger: { pack: 'm9', world: 'scorpion', skip: ['fire'], mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
@@ -191,7 +219,8 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   breaker: {
     // (pumped by the left hand: the pack's bolt movement, a right hand leaving the grip for a bolt handle, is not a shotgun's)
     pack: 'sniper', world: 'benelli', hold: LONG_HOLD, skip: ['bolt'],
-    mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['silencer'], nudge: [0.08, -0.012, 0], pump: { piece: 'forend', travel: 0.075 } },
+    // (its ghost-ring sight on a rail is left off; its suppressor is fitted in play)
+    mount: { file: 'benelli_m3.glb', ride: { base: 'base' }, hide: ['sight'], nudge: [0.08, -0.012, 0], pump: { piece: 'forend', travel: 0.075 } },
     loadAt: [-0.27, 0.0, 0],
   },
   longsight: { pack: 'sniper', world: 'sniper', rack: true },
@@ -321,7 +350,7 @@ const WORLD_GUNS: Record<string, Omit<WorldGun, 'scene'> & { file: string }> = {
   colt: { file: 'world/colt_1911_lod1.glb', carry: 'pistol', trigger: [0.067, 0.031], muzzle: [0.181, 0.06, 0] },
   deagle: { file: 'world/desert_eagle_lod1.glb', carry: 'pistol', trigger: [0.095, 0.024], muzzle: [0.263, 0.06, 0] },
   sniper: { file: 'world/sniper_lod1.glb', carry: 'rifle', trigger: [-0.261, -0.009], wrist: true, muzzle: [0.726, 0.03, 0] },
-  benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', trigger: [-0.31, -0.005], fore: 0.34, muzzle: [0.83, 0.03, 0] },
+  benelli: { file: 'world/benelli_m3_lod1.glb', carry: 'rifle', trigger: [-0.31, -0.005], fore: 0.34, muzzle: [0.83, 0.03, 0], hide: ['sight'] },
   // (drawn at seven tenths: these are the model's own figures, before that)
   scorpion: { file: 'world/scorpion_lod1.glb', carry: 'smg', trigger: [0.079, 0.013], fore: 0.14, muzzle: [0.396, 0.03, 0] },
   aks74u: { file: 'world/aks74u_lod1.glb', carry: 'rifle', trigger: [0.056, 0.029], muzzle: [0.473, 0.03, 0.01] },

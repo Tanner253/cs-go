@@ -32,16 +32,23 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
 
 | | Attackers | Defenders |
 |---|---|---|
-| Sidearm | Kite-9 (M9) | Tern P7 (1911) |
+| Sidearm | Kite-9 (M9), Stinger MP (Škorpion, automatic) | Tern P7 (1911) |
 | SMG | Wasp SMG | Hornet PDW (MP7) |
+| Shotgun | Thresher DB (sawn-off double barrel) | Breaker (M3 pump) |
 | Budget rifle | Mako Carbine (AKS-74U) | Osprey SD (9A-91, comes suppressed) |
 | Rifle | Hammerhead AR (AK) | Lumen AR (AR-15) |
-| Both sides | Stinger MP (machine pistol), Maul .50 (Desert Eagle), Breaker (pump shotgun), Thresher DB (sawn-off), Longsight (bolt-action sniper, AWP class), Colossus .50 (semi-auto sniper), Edge knife | |
+| Sniper | Colossus .50 (M82, semi-automatic) | Longsight AWP (bolt-action) |
+| Both sides | Maul .50 (Desert Eagle), Edge knife | |
+
+Either sniper kills with one shot to the body or head. A shotgun's pellets fill a cone of
+fixed size, thickest in the middle; moving and jumping throw the whole cone off the aim.
 
 Each has its own model, sound, stats and painted skin (`src/client/skins.ts`): a pattern with
 light-emitting lines that flare as the gun heats up, and a magazine that glows as an ammo
 gauge. Every gun is held by the same pair of arms: the gun model is mounted piece by piece on
-the joints of one of three animated arm packs by the same artist (`src/client/assets.ts`).
+the joints of an animated arm pack (`src/client/assets.ts`): the automatic weapons in the two packs
+that were animated for a rifle and for a submachine gun (their own draw, firing movement, reload,
+reload from empty and inspection), pistols, shotguns, snipers and the knife in three by one artist.
 The guns are shot over their own sights: nothing is fitted to a gun that did not come with it.
 
 **Handling.** The arm packs' clips move the hands; `src/client/moves.ts` carries the gun where
@@ -59,7 +66,7 @@ in layers from two recordings of one real gun (crack, body, a low thump, the muz
 range's echo, the action), balanced by energy, soft-clipped and levelled; reload and handling
 sounds, footsteps and impacts are layered from recorded impacts.
 
-**Suppressors.** The Osprey, Lumen and Hornet take one. Right click (ZOOM on touch) fits it or
+**Suppressors.** The Osprey, Lumen, Hornet and Breaker take one. Right click (ZOOM on touch) fits it or
 takes it off, which takes 1.7 seconds and both hands. Fitted, the gun is quiet (heard from less
 than half as far, by players and bots alike), shows no tracer and almost no flash, and climbs
 15% less; its rounds lose 1.5% more of their damage with every 10 m. The Osprey comes with

@@ -621,10 +621,20 @@ export class Sim {
 
     const ends: number[] = [];
     const kinds: number[] = [];
+    // A shotgun's pellets fill a cone that is always the same size and thickest in the middle;
+    // moving, jumping and rapid fire throw the whole cone off the aim rather than opening it.
+    const shot = def.pellets > 1;
+    const cone = shot ? Math.min(spread, p.ducked ? def.spreadCrouch : def.spreadStand) : spread;
+    let cx = 0, cy = 0;
+    if (shot && spread > cone) {
+      const a = rng.next() * Math.PI * 2, r = (spread - cone) * rng.next();
+      cx = Math.cos(a) * r;
+      cy = Math.sin(a) * r;
+    }
     for (let i = 0; i < def.pellets; i++) {
       const a = rng.next() * Math.PI * 2;
-      const r = spread * (def.pellets > 1 ? Math.sqrt(rng.next()) : rng.next());
-      const sx = Math.cos(a) * r, sy = Math.sin(a) * r;
+      const r = cone * rng.next();
+      const sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
       let dx = fwd.x + rx * sx + ux * sy;
       let dy = fwd.y + uy * sy;
       let dz = fwd.z + rz * sx + uz * sy;

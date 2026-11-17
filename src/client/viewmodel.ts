@@ -76,6 +76,7 @@ const _v = new THREE.Vector3();
 const _fq = new THREE.Quaternion();
 const _swing = new THREE.Matrix4(), _turn = new THREE.Matrix4(), _back = new THREE.Matrix4();
 const _box = new THREE.Box3();
+const STILL = [0, 0, 0, 0, 0, 0, 0] as const;
 const _carried = new THREE.Vector3();
 const _turned = new THREE.Euler();
 const UNIT = new THREE.Vector2(0, 1);
@@ -168,7 +169,9 @@ class Rig {
   /** The right wrist at rest, in `root` space: what the gun is turned about when a movement carries it. */
   readonly pivot = new THREE.Vector3(0.12, -0.16, -0.28);
   /** How this gun is loaded, which decides the movements it is shown with (see moves.ts). */
-  readonly style: 'rifle' | 'bolt' | 'pistol' | 'pump' | 'break' | 'blade';
+  readonly style: 'rifle' | 'bolt' | 'pistol' | 'pump' | 'break' | 'blade' | 'own';
+  /** When, through each of the pack's own reloads, its moments are heard (found from how the joints move). */
+  private heard = new Map<string, Move>();
   /** The left arm is moved by the clips themselves (so it is not put back to its rest place before each pose). */
   private armDriven = false;
   /** Where the left arm goes to take the hand off the gun and out of view (the arm's own space). */
@@ -204,7 +207,9 @@ class Rig {
   ) {
     this.skip = new Set(look.skip ?? []);
     const mounted = look.mount;
-    this.style = look.pack === 'knife' ? 'blade' : mounted?.pump ? 'pump' : mounted?.hinge ? 'break' : look.pack === 'm9' ? 'pistol' : mounted ? 'rifle' : 'bolt';
+    // ('own': an automatic in a pack that was animated for one; its clips carry the gun themselves)
+    this.style = look.pack === 'knife' ? 'blade' : mounted?.pump ? 'pump' : mounted?.hinge ? 'break' : look.pack === 'm9' ? 'pistol'
+      : info.skinned ? 'own' : mounted ? 'rifle' : 'bolt';
     this.handRack = this.style === 'rifle' && !!look.rack;
     this.rack = !!look.rack && 'bolt' in info.clips;
     const scene = SkeletonUtils.clone(files.pack.scene);
@@ -219,9 +224,14 @@ class Rig {
     if (look.scale) holder.matrix.premultiply(new THREE.Matrix4().makeScale(look.scale, look.scale, look.scale));
     holder.matrix.premultiply(new THREE.Matrix4().makeTranslation(hold[0], hold[1], hold[2]));
 
+    // Where every joint stands in the file as loaded, in the pack's own space.
+    scene.updateMatrixWorld(true);
+    const sceneInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
     const joints = new Map<string, THREE.Object3D>();
+    const filed = new Map<THREE.Object3D, THREE.Matrix4>();
     scene.traverse((o) => {
       if (!joints.has(o.name)) joints.set(o.name, o);
+      filed.set(o, new THREE.Matrix4().copy(sceneInv).multiply(o.matrixWorld));
     });
 
     this.mixer = new THREE.AnimationMixer(scene);
@@ -286,11 +296,13 @@ class Rig {
           for (const c of o.children) strip(c);
         });
       }
-      // A joint's place is where the first frame of the animation puts it.
-      this.mixer.setTime(0);
-      scene.updateMatrixWorld(true);
+      if (!info.skinned) {
+        // Rigid packs: a joint's place is where the first frame of the animation puts it.
+        this.mixer.setTime(0);
+        scene.updateMatrixWorld(true);
+      }
       const placeOf = (joint: THREE.Object3D): THREE.Matrix4 =>
-        new THREE.Matrix4().copy(scene.matrixWorld).invert().multiply(joint.matrixWorld);
+        info.skinned ? filed.get(joint)! : new THREE.Matrix4().copy(scene.matrixWorld).invert().multiply(joint.matrixWorld);
 
       const gun = files.gun.scene.clone(true);
       const size = mount.size ?? 1;
@@ -301,14 +313,15 @@ class Rig {
       const gunSpace = new THREE.Matrix4().fromArray(info.frame).invert().multiply(seat);
       const swings = new Set(mount.hinge?.pieces ?? []);
       if (mount.hinge) this.hinge = { at: new THREE.Vector3(...mount.hinge.at), angle: mount.hinge.angle };
-      const hang = (piece: THREE.Object3D, on: string): void => {
-        const j = joints.get(on);
-        if (!j) return;
+      const hang = (piece: THREE.Object3D, on: string, by = on): void => {
+        const n = joints.get(on), j = joints.get(by);
+        if (!n || !j) return;
         const h = new THREE.Group();
         h.matrixAutoUpdate = false;
         h.matrix.copy(placeOf(j)).invert().multiply(gunSpace);
         h.add(piece);
-        j.add(h);
+        n.add(h);
+        if (by !== on) return;
         const name = pieceOf(piece.name);
         if (swings.has(name)) this.hinged.push({ holder: h, closed: h.matrix.clone() });
         else if (mount.pump && name === mount.pump.piece) this.pumped.push({ holder: h, closed: h.matrix.clone() });
@@ -325,6 +338,12 @@ class Rig {
         const joint = mount.ride[name] ?? mount.ride['base']!;
         piece.updateMatrix();
         onGun.set(piece, { toGun: piece.matrix.clone(), role: roleOf(name) });
+        if (name === 'mag' && mount.spare) {
+          // The fresh magazine the left hand brings up.
+          const spare = piece.clone(true);
+          onGun.set(spare, onGun.get(piece)!);
+          hang(spare, mount.spare[0], mount.spare[1]);
+        }
         hang(piece, joint);
         if (name === 'silencer') {
           canMeshes.add(piece);
@@ -358,6 +377,38 @@ class Rig {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
       if (m && !Array.isArray(m) && isArms(m) && (m as THREE.MeshStandardMaterial).map) borrowedArms = m;
     });
+
+    // The pack's own reloads: when the magazine leaves and comes back, and when the bolt is
+    // drawn and let go, read off the joints, so the sounds follow whatever the clip does.
+    if (this.style === 'own' && mount) {
+      const base = joints.get(mount.ride['base'] ?? ''), mag = joints.get(mount.ride['mag'] ?? ''), bolt = joints.get(mount.ride['bolt'] ?? '');
+      for (const name of ['reload', 'reloadEmpty']) {
+        const range = info.clips[name];
+        if (!range || !base) continue;
+        const N = 80;
+        const magAt: number[] = [], boltAt: number[] = [];
+        const inv = new THREE.Matrix4();
+        for (let i = 0; i <= N; i++) {
+          this.mixer.setTime((range[0] + ((range[1] - range[0]) * i) / N) / info.fps);
+          scene.updateMatrixWorld(true);
+          inv.copy(base.matrixWorld).invert();
+          const scale = base.getWorldScale(_v).x || 1;
+          magAt.push(mag ? mag.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).length() * scale : 0);
+          boltAt.push(bolt ? bolt.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).length() * scale : 0);
+        }
+        const cues: [number, Foley, number][] = [[0.02, 'cloth', 0]];
+        const moved = (at: number[], by: number): [number, number] | null => {
+          let first = -1, last = -1;
+          for (let i = 0; i <= N; i++) if (Math.abs(at[i]! - at[0]!) > by) { if (first < 0) first = i; last = i; }
+          return first < 0 ? null : [first / N, Math.min(1, (last + 1) / N)];
+        };
+        const m = moved(magAt, 0.02), b = moved(boltAt, 0.008);
+        if (m) cues.push([m[0], 'magout', 0.3], [m[1], 'magin', 0.6]);
+        if (b) cues.push([b[0], 'boltback', 0.3]);
+        cues.sort((p, q) => p[0] - q[0]);
+        this.heard.set(name, { keys: [[0, STILL], [1, STILL]], cues });
+      }
+    }
 
     this.pose('idle', 0);
     for (const node of this.driven) {
@@ -752,18 +803,19 @@ class Rig {
       case 'pump': return PUMP_RELOAD;
       case 'break': return BREAK_RELOAD;
       case 'rifle': return this.rackPull > 0 ? RIFLE_RELOAD : RIFLE_RELOAD_TAP;
+      case 'own': return this.heard.get(empty && this.has('reloadEmpty') ? 'reloadEmpty' : 'reload') ?? PISTOL_RELOAD;
       case 'bolt': return BOLT_RELOAD;
       default: return empty && this.has('reloadEmpty') ? PISTOL_RELOAD_EMPTY : PISTOL_RELOAD;
     }
   }
   /** The movement it is brought up with (null: the pack's own clip is used). */
   get drawMove(): Move | null {
-    if (this.has('draw')) return null;
+    if (this.has('draw') && (this.style === 'own' || this.style === 'blade')) return null;
     return this.style === 'pistol' ? DRAW_PISTOL : this.style === 'bolt' ? DRAW_HEAVY : DRAW_RIFLE;
   }
   /** The movement it is looked over with (null: the pack's own clip is used). */
   get inspectMove(): Move | null {
-    if (this.style === 'bolt' && this.has('inspect')) return null;
+    if ((this.style === 'bolt' || this.style === 'own') && this.has('inspect')) return null;
     return this.style === 'blade' ? INSPECT_KNIFE : this.style === 'pistol' ? INSPECT_PISTOL : INSPECT_RIFLE;
   }
   /**

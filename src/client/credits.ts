@@ -12,12 +12,12 @@ export const CREDITS: Credit[] = [
   {
     title: 'FPS AK-74m animations', author: 'Cransh', license: 'CC BY 4.0',
     url: 'https://sketchfab.com/3d-models/fps-ak-74m-animations-94be8385c402474cacd39bc096c6ca14',
-    note: 'Attacker rifle: the gun only, held in the arms of the sniper pack. Scaled to metres, set in pieces, textures re-encoded, geometry compressed.',
+    note: 'Rifle arms and animations (draw, fire, reload, reload from empty) and the attacker rifle. The Mako, Lumen and Osprey are held in the same arms. Scaled to metres, set in pieces, textures re-encoded, geometry compressed.',
   },
   {
     title: 'SMG FPS Animations', author: 'Cransh', license: 'CC BY 4.0',
     url: 'https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23',
-    note: 'Attacker submachine gun: the gun only, held in the arms of the pistol pack. Same processing as above.',
+    note: 'Submachine-gun arms and animations (draw, fire, reload, reload from empty, inspection) and the attacker SMG. The Hornet is held in the same arms. Scaled to metres, set in pieces, textures re-encoded, geometry compressed.',
   },
   {
     title: 'animated pistol', author: 'DJMaesen', license: 'CC BY 4.0',
@@ -55,9 +55,9 @@ export const CREDITS: Credit[] = [
   { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Heavy sniper rifle. Set in rigid pieces, held in the arms of the sniper pack.' },
   { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun: the gun only, held in the arms of the sniper pack.' },
   {
-    title: 'The Free Firearm Sound Library', author: 'Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney', license: 'CC0 1.0',
-    url: 'https://opengameart.org/content/the-free-firearm-sound-library',
-    note: 'Every gunshot: one clean shot cut per take, no layering or effects.',
+    title: "Snake's Authentic Gun Sounds (packs 1 and 2)", author: 'Snake / F8 Studios', license: 'Free for commercial use',
+    url: 'https://f8studios.itch.io/snakes-authentic-gun-sounds',
+    note: 'Every gunshot, reload, rack, slide and bolt: recordings of real guns, used as recorded.',
   },
   {
     title: 'Impact Sounds, Interface Sounds, Sci-Fi Sounds', author: 'Kenney', license: 'CC0 1.0',

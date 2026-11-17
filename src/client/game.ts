@@ -105,7 +105,7 @@ export class GameApp {
     this.input.onToggleBuy = () => this.toggleBuy();
     this.input.onScoreboard = (show) => { if (this.mode !== 'menu') this.hud.setBoardOpen(show); };
     this.input.onInspect = () => { if (this.mode !== 'menu') this.vm.onInspect(); };
-    this.vm.onFoley = (sound, def) => this.audio.foley(sound, def.kind);
+    this.vm.onFoley = (sound, def) => this.audio.foley(sound, def.id);
     this.input.onEscape = () => {
       if (this.mode === 'menu') return;
       if (this.hud.buyOpen) this.toggleBuy();
@@ -435,7 +435,7 @@ export class GameApp {
           // (your own reload is heard moment by moment, from the viewmodel: see `onFoley`)
           const p = sim.players[e.player]!;
           const w = WEAPONS[e.weapon]!;
-          if (p !== view) this.audio.reloadHeard(p.pos.x, p.pos.y + 1.2, p.pos.z, w.kind, w.reloadTime);
+          if (p !== view) this.audio.reloadHeard(p.pos.x, p.pos.y + 1.2, p.pos.z, w.id, w.reloadTime);
           break;
         }
         case 'dry':
