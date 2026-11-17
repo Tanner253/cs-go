@@ -392,7 +392,9 @@ const RIM_GLSL = /* glsl */ `
     npWorn = smoothstep(0.35, 0.85, npWorn * npWearAmt * 1.6) * (npRole > 1.5 ? 0.35 : 1.0);
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.44, 0.47) * clamp(npRelG, 0.6, 1.3), npWorn);
     metalnessFactor = mix(metalnessFactor, 1.0, npWorn);
-    roughnessFactor = mix(roughnessFactor, 0.3, npWorn);
+    // (paint is never mirror-smooth, however polished the metal under it was drawn: the model's
+    // own roughness map is kept for its detail but held above a floor; worn steel is polished)
+    roughnessFactor = mix(max(roughnessFactor, 0.42), 0.3, npWorn);
     totalEmissiveRadiance += npEmit * (1.0 - npWorn);
   #endif
 }`;
