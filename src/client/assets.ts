@@ -32,6 +32,8 @@ export interface PackInfo {
   ownGun?: string[];
   /** how much of the firing movement's travel is shown (it is drawn for a heavier kick than this game's) */
   fireTravel?: number;
+  /** how much of the firing movement's turn is shown (its muzzle flip is a magnum's) */
+  fireTurn?: number;
   /**
    * where this pack's left wrist sits against the middle of a suppressor the hand is holding
    * (the gun's own space: along the barrel, up, to the right; metres)
@@ -83,7 +85,8 @@ export const PACKS: Record<string, PackInfo> = {
     view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1],
     hold: [0.1, -0.19, -0.09],
     // (as drawn, each shot brings the hand 10 cm back towards the eye)
-    fireTravel: 0.4,
+    fireTravel: 0.65,
+    fireTurn: 0.55,
     canGrip: [-0.06, -0.03, -0.01],
     frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.1514388, -0.0360554, 0.0042332, 1],
     ownGun: ['base', 'stopper', 'mag', 'hammer', 'trigger', 'slide'],

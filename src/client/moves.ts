@@ -110,6 +110,40 @@ export const BREAK_RELOAD: Move = {
   cues: [[0.03, 'cloth', 0], [0.13, 'open', 0.5], [0.4, 'shell', 0.3], [0.6, 'shell', 0.3], [0.845, 'close', 0.9]],
 };
 
+// ---- bringing a gun up ---------------------------------------------------------------------
+// (`k` runs with the weapon's own draw time. The gun is in view from the first frame: it comes up
+// muzzle-down from the hip, a little past level, and settles as the left hand takes hold.)
+
+export const DRAW_RIFLE: Move = {
+  keys: [
+    [0, [0.04, -0.08, 0.05, -0.45, 0.3, 0.45, 1]],
+    [0.5, [0, 0.014, -0.012, 0.09, -0.03, 0.08, 0.55]],
+    [0.78, [0, -0.006, 0.006, -0.03, 0.01, -0.02, 0]],
+    [1, REST],
+  ],
+  cues: [[0.6, 'catch', 0.25]],
+};
+/** A heavy rifle: the same, slower to arrive and heavier in the hands. */
+export const DRAW_HEAVY: Move = {
+  keys: [
+    [0, [0.05, -0.09, 0.06, -0.5, 0.34, 0.5, 1]],
+    [0.56, [0, 0.016, -0.014, 0.07, -0.03, 0.07, 0.5]],
+    [0.84, [0, -0.008, 0.008, -0.035, 0.01, -0.02, 0]],
+    [1, REST],
+  ],
+  cues: [[0.66, 'catch', 0.35]],
+};
+/** A handgun: out of the holster and punched out to the line of sight. */
+export const DRAW_PISTOL: Move = {
+  keys: [
+    [0, [0.03, -0.07, 0.06, -0.4, 0.12, -0.3, 1]],
+    [0.5, [0, 0.012, -0.015, 0.12, -0.02, 0.05, 0.5]],
+    [0.8, [0, -0.004, 0.004, -0.03, 0, 0, 0]],
+    [1, REST],
+  ],
+  cues: [[0.68, 'catch', 0.15]],
+};
+
 // ---- looking the gun over ------------------------------------------------------------------
 
 /** A long gun: across the body to show its left side, then tipped up and rolled the other way to show the right. */

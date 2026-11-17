@@ -49,7 +49,10 @@ the eye can follow it and says when each moment is heard. A rifle is rolled on i
 magazine change and its action is then worked by the left hand; the pump shotgun is fed shell
 by shell and pumped; the break-action is turned side on and broken open; an empty pistol has
 its slide let go. Every gun and the knife can be looked over (F). Each moment of a reload is
-its own sound, played as the hands reach it.
+its own sound, played as the hands reach it. A gun is brought up muzzle-down from the hip
+and settles as the left hand takes hold. Other players show the same handling: the gun comes
+down out of the shoulder for a reload while the left hand goes to the magazine, the pouch and
+the action, and it is raised from the hip when drawn.
 
 **Sound.** `tools/build-sounds.mjs` builds every sound from CC0 sources. A gunshot is designed
 in layers from two recordings of one real gun (crack, body, a low thump, the muzzle blast, the

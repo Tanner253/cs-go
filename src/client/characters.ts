@@ -8,8 +8,9 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { Player } from '../sim/types';
 import { lerp } from '../sim/math';
 import { eyeHeight } from '../sim/movement';
-import { WEAPONS } from '../sim/weapons';
+import { SUPPRESSOR_TIME, WEAPONS } from '../sim/weapons';
 import { WEAPON_LOOK, getCharacters, type CharacterAssets, type WorldGun } from './assets';
+import { PUMP_LOADING, PUMP_SHELLS } from './moves';
 import { WORLD_GUN_FINISH, applyFinish, roleOf, tagGunSpace, type Role } from './finish';
 import { SKINS } from './skins';
 
@@ -192,6 +193,8 @@ const _t = new THREE.Vector3();
 const _pole = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _aimQ = new THREE.Quaternion();
+const _gunQ = new THREE.Quaternion();
+const _chestAt = new THREE.Vector3();
 const _groupQ = new THREE.Quaternion();
 /** How far (radians from upright) a torso may lean before the posture pass straightens it. */
 const UPRIGHT = 0.3;
@@ -286,6 +289,11 @@ export class CharacterView {
   private flinch = 0;
   private flinchSide = 1;
   private flinchHead = false;
+  /** How far the gun is lowered for what the hands are doing with it (a reload, a suppressor, the charge), eased. */
+  private low = 0;
+  /** Seconds since this player last fired (for the pump that follows a shot), and how far into a knife swing (1 -> 0). */
+  private sinceShot = 9;
+  private slash = 0;
   private waist: THREE.Object3D | null = null;
   private head: THREE.Object3D | null = null;
   private legs: { chain: Arm; knee: THREE.Vector3; foot: THREE.Vector3; turn: THREE.Quaternion }[] = [];
@@ -621,19 +629,45 @@ export class CharacterView {
     const quiet = p.weapons[p.active]?.quiet === true;
     for (const can of (this.guns.get(this.gunKey)?.userData['cans'] as THREE.Object3D[] | undefined) ?? []) can.visible = quiet;
     this.kick *= Math.exp(-dt * 16);
+    this.sinceShot += dt;
+    this.slash = Math.max(0, this.slash - dt / 0.36);
+
+    // ---- what the hands are doing with it -------------------------------------------------
+    // Nobody reloads with the gun in the shoulder: it comes down and across, muzzle low, while
+    // the left hand goes to the magazine and the pouch; it is brought up from the hip when drawn.
+    const step = THREE.MathUtils.smoothstep;
+    const span = (k: number, a: number, b: number, c: number, d: number): number => step(k, a, b) * (1 - step(k, c, d));
+    const look = def ? WEAPON_LOOK[def.id] : undefined;
+    const reloading = !!def && def.reloadTime > 0 && p.reloadTimer > 0 ? Math.max(1e-3, 1 - p.reloadTimer / def.reloadTime) : 0;
+    const fitting = p.fitTimer > 0 ? Math.max(1e-3, 1 - p.fitTimer / SUPPRESSOR_TIME) : 0;
+    const drawing = def && p.drawTimer > 0 ? Math.min(1, p.drawTimer / def.drawTime) ** 2 : 0;
+    const busy = p.useTime > 0 ? 1 : 0;
+    let low = busy;
+    if (reloading > 0) low = Math.max(low, span(reloading, 0, 0.12, 0.86, 1));
+    if (fitting > 0) low = Math.max(low, span(fitting, 0, 0.15, 0.82, 1));
+    this.low += (low - this.low) * Math.min(1, dt * 12);
+    const down = this.low;
+
     if (gun && this.chest) {
       const obj = this.guns.get(this.gunKey)!;
       // Aim frame in the group's space: gun +x maps onto the group's forward (-Z).
       _e.set(this.pitch + this.kick * 0.045, 0, 0);
       const aimQ = _aimQ.setFromEuler(_e);
+      // The gun itself: along the aim, or turned down out of it by what the hands are doing.
+      _e.set(-0.5 * down - 1.0 * drawing, 0.32 * down + 0.2 * drawing, -0.32 * down);
+      const gunQ = _gunQ.copy(aimQ).multiply(_q2.setFromEuler(_e));
       this.chest.getWorldPosition(_a);
       this.group.worldToLocal(_a);
-      obj.quaternion.copy(aimQ).multiply(gun.blade ? _BLADE : _HALF_PI_Y);
+      // (kept apart: the arm solver borrows the scratch vectors)
+      const chest = _chestAt.copy(_a);
+      obj.quaternion.copy(gunQ).multiply(gun.blade ? _BLADE : _HALF_PI_Y);
       _fwd.set(0, 0, -1).applyQuaternion(aimQ).applyQuaternion(groupQ);
       if (gun.blade || !this.armR || !this.armL) {
         // One-handed: the grip out to the right of the chest.
         const at = gun.grip ?? [0, 0, 0];
-        _b.set(KNIFE_CARRY[0], KNIFE_CARRY[1], KNIFE_CARRY[2]).applyQuaternion(aimQ).add(_a);
+        // (a swing takes the hand out across the body and back)
+        const cut = Math.sin(Math.PI * (1 - this.slash)) * (this.slash > 0 ? 1 : 0);
+        _b.set(KNIFE_CARRY[0] - 0.26 * cut, KNIFE_CARRY[1] + 0.06 * cut, KNIFE_CARRY[2] - 0.3 * cut).applyQuaternion(aimQ).add(_a);
         obj.position.set(at[0], at[1], at[2]).applyQuaternion(obj.quaternion).negate().add(_b);
         obj.updateMatrixWorld(true);
         if (this.armR) {
@@ -654,7 +688,7 @@ export class CharacterView {
         const reachR = (this.armR.l1 + this.armR.l2) * 0.96 + 0.055, reachL = (this.armL.l1 + this.armL.l2) * 0.96 + 0.055;
         let z = want;
         for (let i = 0; i < 4; i++) {
-          _b.set(lineX, lineY, z + this.kick * 0.035).applyQuaternion(aimQ).add(_a);
+          _b.set(lineX, lineY - (pistol ? 0.14 : 0.1) * down - 0.24 * drawing, z + this.kick * 0.035 + (pistol ? 0.16 : 0.05) * down).applyQuaternion(aimQ).add(_a);
           obj.position.copy(hold.grip).multiplyScalar(size).applyQuaternion(obj.quaternion).negate().add(_b);
           obj.updateMatrixWorld(true);
           // Pull it in until both hands can reach where they hold it.
@@ -670,13 +704,58 @@ export class CharacterView {
         _t.copy(hold.grip);
         obj.localToWorld(_t);
         _pole.set(0.55, -1, 0.3).applyQuaternion(groupQ);
-        this.placeHand(this.armR, 1, _t, _hy.set(0, Math.sin(tip), -Math.cos(tip)), _hp.set(-1, 0, 0), aimQ, groupQ, _pole, pistol ? 0.5 : 0.62);
+        this.placeHand(this.armR, 1, _t, _hy.set(0, Math.sin(tip), -Math.cos(tip)), _hp.set(-1, 0, 0), gunQ, groupQ, _pole, pistol ? 0.5 : 0.62);
         // Left hand: under the fore-end with the palm up, or wrapped round the other on a pistol.
+        // (a pump-action's fore-end is drawn back and returned after every shot)
+        const pumped = look?.mount?.pump ? span(this.sinceShot, 0.2, 0.34, 0.38, 0.56) * look.mount.pump.travel : 0;
         _t.copy(hold.support);
+        _t.x -= pumped / size;
         obj.localToWorld(_t);
+
+        // Where else the left hand goes: to the magazine (or the loading port, or the breech),
+        // down to the pouch for the next one, to the action, and out to the muzzle for a suppressor.
+        let atMag = 0, atPouch = 0, atAction = 0;
+        const g = hold.grip, sup = hold.support;
+        const tube = !!look?.mount?.pump, hinged = !!look?.mount?.hinge;
+        if (reloading > 0) {
+          if (tube) {
+            // Shell by shell, as in first person.
+            const u = reloading / PUMP_LOADING;
+            if (u < 1) {
+              const ph = (u * PUMP_SHELLS) % 1;
+              const port = step(ph, 0.04, 0.44) * (1 - step(ph, 0.74, 1)), on = span(u, 0, 0.05, 0.95, 1);
+              atMag = port * on;
+              atPouch = (1 - port) * on;
+            }
+          } else if (hinged) {
+            atMag = span(reloading, 0.24, 0.36, 0.66, 0.78);
+          } else if (pistol) {
+            atPouch = span(reloading, 0.2, 0.3, 0.36, 0.48);
+            atMag = span(reloading, 0.08, 0.16, 0.52, 0.62) * (1 - atPouch);
+          } else {
+            atPouch = span(reloading, 0.19, 0.27, 0.3, 0.4);
+            atMag = span(reloading, 0.07, 0.16, 0.5, 0.6) * (1 - atPouch);
+            if (look?.rack && look.mount) atAction = span(reloading, 0.63, 0.72, 0.84, 0.93);
+          }
+        }
+        const atMuzzle = fitting > 0 ? span(fitting, 0.05, 0.3, 0.72, 0.95) : 0;
+        const atCharge = busy * down;
+        if (atMag > 0) {
+          if (tube) _c.set(g.x + 0.1 / size, g.y - 0.03 / size, g.z);
+          else if (hinged) _c.set(g.x + 0.1 / size, g.y + 0.04 / size, g.z);
+          else if (pistol) _c.set(g.x, g.y - 0.07 / size, g.z);
+          else _c.set(sup.x + (g.x - sup.x) * 0.6, Math.min(sup.y, g.y) - 0.07 / size, g.z);
+          _t.lerp(obj.localToWorld(_c), atMag);
+        }
+        if (atAction > 0) _t.lerp(obj.localToWorld(_c.set(g.x + 0.02 / size, g.y + 0.07 / size, g.z + 0.02 / size)), atAction);
+        if (atMuzzle > 0) _t.lerp(obj.localToWorld(_c.set(gun.muzzle[0] - 0.07 / size, gun.muzzle[1] - 0.02 / size, gun.muzzle[2])), atMuzzle);
+        // (the pouch on the left of the belt, and the ground in front for the charge: the body's own places)
+        if (atPouch > 0) _t.lerp(this.group.localToWorld(_c.set(chest.x - 0.17, chest.y - 0.34, chest.z - 0.06)), atPouch);
+        if (atCharge > 0) _t.lerp(this.group.localToWorld(_c.set(chest.x - 0.04, chest.y - 0.46, chest.z - 0.4)), atCharge);
+
         _pole.set(-0.5, -1, 0.15).applyQuaternion(groupQ);
-        if (pistol) this.placeHand(this.armL, -1, _t, _hy.set(0.2, 0.36, -0.91), _hp.set(1, 0.15, 0), aimQ, groupQ, _pole, 0.55);
-        else this.placeHand(this.armL, -1, _t, _hy.set(0.5, 0.1, -0.86), _hp.set(0.3, 1, 0), aimQ, groupQ, _pole, 0.8);
+        if (pistol) this.placeHand(this.armL, -1, _t, _hy.set(0.2, 0.36, -0.91), _hp.set(1, 0.15, 0), gunQ, groupQ, _pole, 0.55);
+        else this.placeHand(this.armL, -1, _t, _hy.set(0.5, 0.1, -0.86), _hp.set(0.3, 1, 0), gunQ, groupQ, _pole, 0.8);
       }
       this.muzzle.set(gun.muzzle[0], gun.muzzle[1], gun.muzzle[2]);
       obj.localToWorld(this.muzzle);
@@ -699,6 +778,12 @@ export class CharacterView {
   /** This player fired: their gun kicks. */
   shot(): void {
     this.kick = 1;
+    this.sinceShot = 0;
+  }
+
+  /** This player swung their knife. */
+  swing(): void {
+    this.slash = 1;
   }
 
   /**
