@@ -31,7 +31,7 @@ No sounds come from ZONA.
   Changes made: scaled to metres, the rifle in pieces on its joints; textures re-encoded as WebP; geometry compressed. Its own arms and animations (draw, fire, reload, inspection) hold the Hammerhead, and the Mako, Lumen and Osprey in its place.
 - This work is based on "SMG FPS Animations" (https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23) by Cransh (https://sketchfab.com/ccransh) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/smg.glb`, `world/smg_lod1.glb`.
-  Changes made: as above. Its own arms and animations hold the Wasp, and the Hornet in its place.
+  Changes made: as above. Its own arms and animations hold the Wasp; its arms are also posed after the MP7, AKS-74U, Scorpion and double-barrel packs below.
 - This work is based on "AR-15" (https://sketchfab.com/3d-models/ar-15-33e225811b404192b89dcd4096603fbe) by wafla (https://sketchfab.com/wafla) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/ar15_lod1.glb`. Changes made: scaled to metres and set in separate pieces (rifle, magazine, brake, sight and unused attachments); reduced in detail; textures re-encoded as WebP; geometry compressed. Held in the arms of the AK pack.
 - This work is based on "Colt 1911" (https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553) by AlexChuchvaga (https://sketchfab.com/AlexChuchvaga) licensed under CC-BY-4.0.
@@ -41,18 +41,18 @@ No sounds come from ZONA.
 - This work is based on "Benelli M3 Tactical" (https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd) by Amapsis (https://sketchfab.com/Amapsis) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/benelli_m3.glb`, `world/benelli_m3_lod1.glb`. Changes made: set in rigid pieces and laid along the barrel; textures re-encoded as WebP; geometry compressed. Held in the arms of the sniper pack.
 - This work is based on "MP7A1 Animations" (https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc) by TheParaziT (https://sketchfab.com/TheParaziT) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: only the gun is used, set in rigid pieces; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the SMG pack.
+  Files: `public/assets/weapons/mp7a1_fp.glb`, `mp7a1.glb`, `world/mp7a1_lod1.glb`. Changes made: the gun set in rigid pieces on its skeleton's joints; its animation (draw, fire, reload, reload from empty, inspection) played as drawn, with its own arms left out and the arms of the SMG pack above posed after its hands; textures re-encoded; geometry compressed.
 
 - This work is based on "Scorpion | First Person Animations (2026 Remake)" (https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4) by 1Matzh (https://sketchfab.com/1Matzh) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/scorpion.glb`, `world/scorpion_lod1.glb`. Changes made: only the gun is used, taken off its skeleton and set in rigid pieces; its own arms and animation are left out; textures re-encoded as WebP; geometry compressed. Held in the arms of the pistol pack.
+  Files: `public/assets/weapons/scorpion_fp.glb`, `scorpion.glb`, `world/scorpion_lod1.glb`. Changes made: the gun taken off its skeleton and set in rigid pieces on its joints; its animation (fire, reload, reload from empty, inspection; not its draw) played as drawn, with its own arms left out and the arms of the SMG pack above posed after its hands; textures re-encoded as WebP; geometry compressed.
 - This work is based on "Animated AKs-74u" (https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/aks74u.glb`, `world/aks74u_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; textures re-encoded; geometry compressed. Held in the arms of the AK pack.
+  Files: `public/assets/weapons/aks74u_fp.glb`, `aks74u.glb`, `world/aks74u_lod1.glb`. Changes made: its pieces parted by joint; its animation (draw, fire, reload, reload from empty) played as drawn, with its own arms left out and the arms of the SMG pack above posed after its hands; textures re-encoded; geometry compressed.
 - This work is based on "9A-91 Assault Rifle Gameready Lowpoly" (https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda) by valterjherson1 (https://sketchfab.com/valterjherson1) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/a91.glb`, `world/a91_lod1.glb`. Changes made: set in rigid pieces (the rifle, its stock and butt plate, its magazine, trigger and suppressor, its round); textures re-encoded as WebP at no more than 1024 a side; geometry compressed. Held in the arms of the AK pack.
 - This work is based on "Barrett-M82 (Optimized)" (https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87) by Gintoki1234 (https://sketchfab.com/Gintoki1234) licensed under CC-BY-4.0.
   Files: `public/assets/weapons/barrett.glb`, `world/barrett_lod1.glb`. Changes made: set in rigid pieces; textures at 1024; geometry compressed. Held in the .50 sniper pack.
 - This work is based on "Shotgun animation set" (https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636) by Vlasov Daniil (https://sketchfab.com/dan741vlasov) licensed under CC-BY-4.0.
-  Files: `public/assets/weapons/db12.glb`, `world/db12_lod1.glb`. Changes made: only the gun is used, its pieces parted by joint; its own arms and animation are left out; geometry compressed. Held in the arms of the sniper pack.
+  Files: `public/assets/weapons/db12_fp.glb`, `db12.glb`, `world/db12_lod1.glb`. Changes made: its pieces parted by joint, its barrels cut down to a sawn-off's on load; its animation (draw, fire, reload) played as drawn, with its own arms left out and the arms of the SMG pack above posed after its hands; geometry compressed.
 
 
 Every gun and the arms are repainted in game (`src/client/finish.ts`, `skins.ts`): the models' own colours are replaced by a pattern and light-emitting lines drawn by a shader.

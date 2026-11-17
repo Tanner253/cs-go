@@ -38,6 +38,18 @@ export interface PackInfo {
    * maker and on the same rig, are put onto its joints.
    */
   armsOf?: string;
+  /**
+   * This pack is a skeleton and its animation only, by another maker on another rig: the arms of
+   * this pack (ours, the rifle and submachine-gun packs' arms) are posed after it every frame
+   * (see worn-arms.ts).
+   */
+  wears?: string;
+  /**
+   * where those arms' shoulders are put from where their own pack has them (eye space, metres):
+   * forward for a pack that holds its gun further out, so the arms reach it without their cut
+   * tops being drawn into the picture, and down to keep those tops under its bottom edge
+   */
+  shoulders?: V3;
   /** meshes of the pack's own gun, hidden when another gun is mounted in its place */
   ownGun?: string[];
   /** how much of the firing movement's travel is shown (it is drawn for a heavier kick than this game's) */
@@ -87,6 +99,13 @@ const SMG_JOINTS = { base: 'PBody_058', bolt: 'Rif_059', trigger: 'Trigger_060',
 /** The joints of the two-gun pack: the right hand's gun, and the left's. */
 const TWIN_RIGHT = { base: 'base', bolt: 'bolt', trigger: 'trigger', mag: 'mag' };
 const TWIN_LEFT = { base: 'base_2', bolt: 'bolt_2', trigger: 'trigger_2', mag: 'mag_2' };
+/** The joints of the AKS-74U's, the MP7's and the Scorpion's own packs. */
+const AKS_JOINTS = { base: 'wpn_body_068', bolt: 'wpn_zatvor_069', trigger: 'wpn_trigger_070', mag: 'wpn_magazine_072' };
+const MP7_JOINTS = {
+  base: 'body_0161', stock: 'stock_0162', foregrip: 'foregrip_0170', mag: 'mag_0167', bolt: 'bolt_handle_0172', trigger: 'trigger_0164',
+  safety: 'fire_switch_0156', silencer: 'silencer_0173', sightF: 'front_scope_0174', sightR: 'back_scope_0175',
+};
+const SCORPION_JOINTS = { base: 'Weapon_0725', bolt: 'Changing_handle_0726', trigger: 'Trigger_0728', safety: 'Firemode_0727', mag: 'Magazine_0730' };
 /** Which joint of the pistol pack each piece of a mounted gun rides on. */
 const PISTOL_JOINTS = { base: 'base', slide: 'slide', bolt: 'slide', mag: 'mag', hammer: 'hammer' };
 /** The same for the long-gun pack (its magazine joint is called "clip"). */
@@ -136,6 +155,47 @@ export const PACKS: Record<string, PackInfo> = {
     hold: [0.0, -0.13, -0.4],
     frame: [0, 0, -0.01, 0, 0, 0.01, 0, 0, 0.01, 0, 0, 0, 0.0168823, -0.0022367, -0.1298198, 1],
     armsOf: 'sniper',
+  },
+  // Packs that were animated for one gun each, with its own draw, reload, reload from empty and
+  // (the MP7's and the Scorpion's) inspection, on other makers' skeletons and without arms: our
+  // own arms are posed after them (`wears`).
+  aks: {
+    file: 'aks74u_fp.glb', fps: 30,
+    clips: { idle: [0, 0], fire: [0, 9], draw: [11, 41], reload: [69, 166.5], reloadEmpty: [168.5, 307] },
+    view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.0197951, 0.0110954, -0.1250948, 1],
+    hold: [0.05, -0.02, 0.08],
+    frame: [-0.0627211, -0.1043793, 0.9925578, 0, 0.0470137, 0.9931029, 0.1074075, 0, -0.9969232, 0.0534005, -0.0573812, 0, -0.2096751, 0.1900904, -0.1051202, 1],
+    skinned: true,
+    wears: 'smg',
+  },
+  mp7: {
+    file: 'mp7a1_fp.glb', fps: 30,
+    clips: { idle: [0, 200], draw: [202, 227], fire: [229, 245.5], reload: [247.5, 317], reloadEmpty: [319, 400.5], inspect: [402.5, 486.5] },
+    view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, -0.0141506, -1.5177068, 0.1212546, 1],
+    hold: [0.05, -0.02, -0.1],
+    frame: [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -0.394084, -1.3480601, -0.0878857, 1],
+    skinned: true,
+    wears: 'smg',
+  },
+  scorpion: {
+    file: 'scorpion_fp.glb', fps: 30,
+    clips: { idle: [0, 208.9], draw: [210.9, 310.8], fire: [312.8, 325.7], reload: [327.7, 432.6], reloadEmpty: [434.6, 555.5], inspect: [557.5, 857.4] },
+    view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, -1.5942093, 0.022107, 1],
+    hold: [0.05, -0.02, 0],
+    frame: [0.0367723, 0.0540062, -0.9978633, 0, 0.0498619, 0.9971957, 0.0558075, 0, 0.9980789, -0.0518076, 0.0339764, 0, -0.3201873, -1.4299187, -0.1482716, 1],
+    skinned: true,
+    wears: 'smg',
+  },
+  db12: {
+    file: 'db12_fp.glb', fps: 30,
+    clips: { idle: [0, 0], fire: [0, 10], draw: [12, 43], reload: [79.5, 177] },
+    view: [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1],
+    // (it holds the gun well out, by a long stock: our shorter arms come up to it from under the picture)
+    hold: [0.03, -0.01, -0.15],
+    shoulders: [0, -0.2, -0.18],
+    frame: [0, 0, -0.8096517, 0, 0, 0.8096517, 0, 0, 0.8096517, 0, 0, 0, -0.0687075, 0.1422778, -0.1189769, 1],
+    skinned: true,
+    wears: 'smg',
   },
   m9: {
     file: 'm9_fp.glb', fps: 30,
@@ -222,14 +282,15 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   // carries an automatic's recoil.)
   hammerhead: { pack: 'ak', world: 'ak', mount: { file: 'ak.glb', ride: AK_JOINTS, spare: ['Pmag2_063', 'Pmag_062'] } },
   // (seated so the top of its magazine is where the pack's own rifle has its magazine: the hands change it there)
-  mako: { pack: 'ak', world: 'aks74u', mount: { file: 'aks74u.glb', ride: AK_JOINTS, nudge: [-0.21, -0.014, -0.002], spare: ['Pmag2_063', 'Pmag_062'] } },
+  // (in its own pack: its own draw, reload and reload from empty, the new magazine brought in by the left hand)
+  mako: { pack: 'aks', world: 'aks74u', mount: { file: 'aks74u.glb', ride: AKS_JOINTS, spare: ['wpn_magazine_2_074', 'wpn_magazine_072'] } },
   // ---- defenders ----
   tern: { pack: 'm9', world: 'colt', mount: { file: 'colt_1911.glb', ride: PISTOL_JOINTS, nudge: [0.01, 0, 0] } },
   hornet: {
-    pack: 'smg', world: 'mp7', hold: [0.08, -0.23, -0.05],
-    // (its optic's lens is painted as a solid orange disc: left off, the iron sights stay;
-    // the stock is left off too: extended, its rails run past the camera)
-    mount: { file: 'mp7a1.glb', ride: SMG_JOINTS, hide: ['foregrip', 'sight', 'stock'], spare: ['Pmag_2_062', 'Pmag_061'] },
+    // (in its own pack: its own draw, reload, reload from empty and inspection; its optic's lens
+    // is painted as a solid orange disc, so that is left off and its own iron sights stay)
+    pack: 'mp7', world: 'mp7',
+    mount: { file: 'mp7a1.glb', ride: MP7_JOINTS, hide: ['sight'] },
   },
   lumen: {
     pack: 'ak', world: 'ar15',
@@ -238,11 +299,12 @@ export const WEAPON_LOOK: Record<string, WeaponLook> = {
   osprey: { pack: 'ak', world: 'a91', mount: { file: 'a91.glb', ride: { base: AK_JOINTS.base, mag: AK_JOINTS.mag, trigger: AK_JOINTS.trigger }, hide: ['bullet'], spare: ['Pmag2_063', 'Pmag_062'] } },
   // ---- both sides ----
   // (the model is larger than life: drawn at seven tenths, here and in other players' hands)
-  stinger: { pack: 'm9', world: 'scorpion', skip: ['fire'], mount: { file: 'scorpion.glb', ride: PISTOL_JOINTS, size: 0.7, nudge: [0.022, 0.022, 0.01] } },
+  // (in its own pack: its own reloads and its long inspection; its draw, three seconds of it, is not used)
+  stinger: { pack: 'scorpion', world: 'scorpion', skip: ['draw'], mount: { file: 'scorpion.glb', ride: SCORPION_JOINTS, spare: ['Magazine_2_0732', 'Magazine_0730'] } },
   thresher: {
-    // (no magazine to change: the pack's reload is left out and the gun is simply broken open)
-    pack: 'sniper', world: 'db12', hold: LONG_HOLD, skip: ['bolt', 'reload'],
-    mount: { file: 'db12.glb', ride: { base: 'base' }, nudge: [-0.33, 0.011, -0.01], hinge: { pieces: ['barrels', 'shells'], at: [0.2, -0.012, 0], angle: 0.55 } },
+    // (in its own pack: broken open, both shells drawn out and fresh ones put in by its own hands)
+    pack: 'db12', world: 'db12',
+    mount: { file: 'db12.glb', ride: { base: 'stock_049', barrels: 'barrels_050', shells: 'shells_052' } },
   },
   // (in the .50 rifle's own pack: its firing movement, reload, the working of its action and its inspection)
   colossus: {
@@ -288,7 +350,7 @@ const RESHAPE: Record<string, [piece: string, scale: number, about: number][]> =
 };
 
 /** Models drawn at other than the size they came. */
-const RESIZE: Record<string, number> = { 'world/scorpion_lod1.glb': 0.7 };
+const RESIZE: Record<string, number> = {};
 
 function reshape(name: string, g: GLTF): void {
   const size = RESIZE[name];
@@ -329,6 +391,7 @@ function filesFor(look: WeaponLook): string[] {
   if (look.mount) out.push(look.mount.file);
   if (info.armsFrom) out.push(PACKS[info.armsFrom]!.file);
   if (info.armsOf) out.push(PACKS[info.armsOf]!.file);
+  if (info.wears) out.push(PACKS[info.wears]!.file);
   return out;
 }
 
@@ -343,7 +406,7 @@ export function getWeapon(id: string): WeaponFiles | null {
   return {
     pack,
     gun: look.mount ? files.get(look.mount.file) ?? null : null,
-    arms: files.get(PACKS[info.armsFrom ?? info.armsOf ?? '']?.file ?? '') ?? null,
+    arms: files.get(PACKS[info.armsFrom ?? info.armsOf ?? info.wears ?? '']?.file ?? '') ?? null,
   };
 }
 

@@ -17,7 +17,7 @@ export const CREDITS: Credit[] = [
   {
     title: 'SMG FPS Animations', author: 'Cransh', license: 'CC BY 4.0',
     url: 'https://sketchfab.com/3d-models/smg-fps-animations-ca37ea9148dc4fcc9cc632175d311b23',
-    note: 'Submachine-gun arms and animations (draw, fire, reload, reload from empty, inspection) and the attacker SMG. The Hornet is held in the same arms. Scaled to metres, set in pieces, textures re-encoded, geometry compressed.',
+    note: 'Submachine-gun arms and animations (draw, fire, reload, reload from empty, inspection) and the attacker SMG. The same arms are posed after the MP7, AKS-74U, Scorpion and double-barrel packs. Scaled to metres, set in pieces, textures re-encoded, geometry compressed.',
   },
   {
     title: 'animated pistol', author: 'DJMaesen', license: 'CC BY 4.0',
@@ -63,12 +63,12 @@ export const CREDITS: Credit[] = [
   { title: 'Colt 1911', author: 'AlexChuchvaga', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/colt-1911-561fccb5b3314feda06da315b8d36553', note: 'Defender pistol. Set in rigid pieces, held in the arms of the pistol pack.' },
   { title: 'Desert Eagle', author: 'ELIZION', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/desert-eagle-cabde59f5cf24effaf80536e35d04e95', note: 'Heavy pistol. Set in rigid pieces, held in the arms of the pistol pack.' },
   { title: 'Benelli M3 Tactical', author: 'Amapsis', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/benelli-m3-tactical-1eaea0239fdf43ad92eb276fbf9c60dd', note: 'Shotgun. Set in rigid pieces, held in the arms of the sniper pack.' },
-  { title: 'MP7A1 Animations', author: 'TheParaziT', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc', note: 'Defender SMG: the gun only, held in the arms of the SMG pack.' },
-  { title: 'Scorpion | First Person Animations (2026 Remake)', author: '1Matzh', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4', note: 'Machine pistol: the gun only, held in the arms of the pistol pack.' },
-  { title: 'Animated AKs-74u', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f', note: 'Attacker carbine: the gun only, held in the arms of the AK pack.' },
+  { title: 'MP7A1 Animations', author: 'TheParaziT', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/mp7a1-animations-0a55689855594f2496c2debdb7e6f5bc', note: 'Defender SMG and its own animations (draw, fire, reloads, inspection), worn by the arms of the SMG pack.' },
+  { title: 'Scorpion | First Person Animations (2026 Remake)', author: '1Matzh', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/scorpion-first-person-animations-2026-remake-f2bdfac775344004ad38d0318f0664a4', note: 'Machine pistol and its own animations (fire, reloads, inspection), worn by the arms of the SMG pack.' },
+  { title: 'Animated AKs-74u', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/animated-aks-74u-34220aaa62e44b34b7d5ac30701f2b5f', note: 'Attacker carbine and its own animations (draw, fire, reloads), worn by the arms of the SMG pack.' },
   { title: '9A-91 Assault Rifle Gameready Lowpoly', author: 'valterjherson1', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/9a-91-assault-rifle-gameready-lowpoly-788797a8a6284a29a04961cb09072eda', note: 'Defender suppressed rifle. Set in rigid pieces, held in the arms of the AK pack.' },
   { title: 'Barrett-M82 (Optimized)', author: 'Gintoki1234', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/barrett-m82-optimized-af16e974a47e463989311bcda6f51f87', note: 'Attacker sniper (Colossus). Set in rigid pieces, held in the .50 sniper pack.' },
-  { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun: the gun only, held in the arms of the sniper pack.' },
+  { title: 'Shotgun animation set', author: 'Vlasov Daniil', license: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/shotgun-animation-set-c24e049dccfe4a1d837b1b0ae1461636', note: 'Double-barrel shotgun (cut down to a sawn-off) and its own animations (draw, fire, reload), worn by the arms of the SMG pack.' },
   {
     title: "Snake's Authentic Gun Sounds (packs 1 and 2)", author: 'Snake / F8 Studios', license: 'Free for commercial use',
     url: 'https://f8studios.itch.io/snakes-authentic-gun-sounds',

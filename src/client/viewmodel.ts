@@ -9,6 +9,7 @@ import { PACKS, WEAPON_LOOK, getWeapon, loadWeapon, type PackInfo, type WeaponFi
 import { ARMS_FINISH, BLADE_FINISH, FINISH_TIME, applyFinish, gunFinish, roleOf, tagGunSpace, type Role, type Skin, type SkinWear } from './finish';
 import { SIDE_GLOW, SKINS, SUIT, SUIT_GLOW } from './skins';
 import { FLASH_KINDS, flashTexture } from './effects';
+import { WornArms } from './worn-arms';
 import {
   BOLT_RELOAD, BREAK_RELOAD, DRAW_HEAVY, DRAW_PISTOL, DRAW_RIFLE, INSPECT_KNIFE, INSPECT_PAIR, INSPECT_PISTOL, INSPECT_RIFLE, PISTOL_RELOAD, PISTOL_RELOAD_EMPTY, PUMP_LOADING, PUMP_RELOAD,
   PUMP_SHELLS, RIFLE_CLIP_ENDS, RIFLE_RACK, RIFLE_RELOAD, RIFLE_RELOAD_TAP, carryAt, type Foley, type Move,
@@ -195,6 +196,8 @@ class Rig {
   private loadAt = new THREE.Vector3();
   /** A break-action's breech, where the hand changes the shells. */
   private breechShift = new THREE.Vector3();
+  /** Our arms, posed after a pack's skeleton that came without any (see worn-arms.ts). */
+  private worn: WornArms | null = null;
   /** How far through each part of a reload (0 = not in it): working the action, feeding shells, at the open breech. */
   reloadRack = 0;
   reloadLoad = 0;
@@ -271,6 +274,37 @@ class Rig {
       }
     }
 
+    // A pack animated on another maker's skeleton, with no arms: ours are posed after it.
+    if (info.wears && files.arms) {
+      const by = PACKS[info.wears]!;
+      const ours = SkeletonUtils.clone(files.arms.scene);
+      // (only the arms: the gun that came in their file is left out)
+      const drop: THREE.Object3D[] = [];
+      ours.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh && !((mesh as THREE.SkinnedMesh).isSkinnedMesh && isArms(mesh.material as THREE.Material))) drop.push(mesh);
+      });
+      for (const o of drop) o.removeFromParent();
+      // (stood as their own pack stands them at rest, where it holds them)
+      const still = new THREE.AnimationMixer(ours);
+      still.clipAction(files.arms.animations[0]!).play();
+      still.setTime(0);
+      const place = new THREE.Group();
+      place.matrixAutoUpdate = false;
+      this.root.updateMatrixWorld(true);
+      place.matrix.copy(scene.matrixWorld).invert().multiply(this.root.matrixWorld)
+        .multiply(new THREE.Matrix4().makeTranslation(
+          by.hold[0] + (info.shoulders?.[0] ?? 0), by.hold[1] + (info.shoulders?.[1] ?? 0), by.hold[2] + (info.shoulders?.[2] ?? 0),
+        ))
+        .multiply(new THREE.Matrix4().fromArray(by.view));
+      place.add(ours);
+      scene.add(place);
+      this.root.updateMatrixWorld(true);
+      const worn = new WornArms(scene, ours, this.root);
+      if (worn.ok) this.worn = worn;
+      else console.warn(`arms could not be matched to the ${info.file} skeleton`);
+    }
+
     this.mixer = new THREE.AnimationMixer(scene);
     const clip = files.pack.animations[0]!;
     this.length = clip.duration;
@@ -287,7 +321,8 @@ class Rig {
         this.shownQ.push(node.quaternion.clone());
         this.aimP.push(node.position.clone());
         this.aimQ.push(node.quaternion.clone());
-        if (/^[LR]_wrist/.test(node.name)) this.wrists.push({ bone: node, was: new THREE.Vector3() });
+        // (the wrist by every name the packs give it: L_wrist, l_wrist, hand_l, DEF-hand.L)
+        if (/^([LR]_wrist|[lr]_wrist_\d|hand_[lr]_\d|DEF-hand[LR]_\d)/.test(node.name)) this.wrists.push({ bone: node, was: new THREE.Vector3() });
       }
     }
 
@@ -424,30 +459,47 @@ class Rig {
     // The pack's own reloads: when the magazine leaves and comes back, and when the bolt is
     // drawn and let go, read off the joints, so the sounds follow whatever the clip does.
     if (this.style === 'own' && mount) {
-      const base = joints.get(mount.ride['base'] ?? ''), mag = joints.get(mount.ride['mag'] ?? ''), bolt = joints.get(mount.ride['bolt'] ?? '');
+      const ride = mount.ride;
+      const base = joints.get(ride['base'] ?? ''), mag = joints.get(ride['mag'] ?? ''), bolt = joints.get(ride['bolt'] ?? '');
+      const barrels = joints.get(ride['barrels'] ?? ''), shells = joints.get(ride['shells'] ?? '');
       for (const name of ['reload', 'reloadEmpty']) {
         const range = info.clips[name];
         if (!range || !base) continue;
         const N = 80;
-        const magAt: number[] = [], boltAt: number[] = [];
-        const inv = new THREE.Matrix4();
+        const magAt: number[] = [], boltAt: number[] = [], shellAt: number[] = [], openBy: number[] = [];
+        const inv = new THREE.Matrix4(), baseQ = new THREE.Quaternion(), partQ = new THREE.Quaternion();
         for (let i = 0; i <= N; i++) {
           this.mixer.setTime((range[0] + ((range[1] - range[0]) * i) / N) / info.fps);
           scene.updateMatrixWorld(true);
           inv.copy(base.matrixWorld).invert();
           const scale = base.getWorldScale(_v).x || 1;
-          magAt.push(mag ? mag.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).length() * scale : 0);
-          boltAt.push(bolt ? bolt.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).length() * scale : 0);
+          const from = (j: THREE.Object3D | undefined): number => (j ? j.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).length() * scale : 0);
+          magAt.push(from(mag));
+          boltAt.push(from(bolt));
+          shellAt.push(from(shells));
+          // (how far the barrels are turned from the stock: a break-action broken open)
+          if (barrels) openBy.push(base.getWorldQuaternion(baseQ).angleTo(barrels.getWorldQuaternion(partQ)));
         }
         const cues: [number, Foley, number][] = [[0.02, 'cloth', 0]];
+        /** When a part first leaves where it starts, and when it last arrives where it ends up. */
         const moved = (at: number[], by: number): [number, number] | null => {
           let first = -1, last = -1;
-          for (let i = 0; i <= N; i++) if (Math.abs(at[i]! - at[0]!) > by) { if (first < 0) first = i; last = i; }
-          return first < 0 ? null : [first / N, Math.min(1, (last + 1) / N)];
+          for (let i = 0; i <= N; i++) if (Math.abs(at[i]! - at[0]!) > by) { first = i; break; }
+          for (let i = N; i >= 0; i--) if (Math.abs(at[i]! - at[N]!) > by) { last = i; break; }
+          return first < 0 || last < first ? null : [first / N, Math.min(1, (last + 1) / N)];
         };
         const m = moved(magAt, 0.02), b = moved(boltAt, 0.008);
         if (m) cues.push([m[0], 'magout', 0.3], [m[1], 'magin', 0.6]);
-        if (b) cues.push([b[0], 'boltback', 0.3]);
+        if (b) cues.push([b[0], 'boltback', 0.3], [b[1], 'boltfwd', 0.7]);
+        if (barrels && openBy.length) {
+          // (this pack breaks its gun open by only five degrees or so)
+          const o = moved(openBy, 0.04);
+          if (o) cues.push([o[0], 'open', 0.5], [o[1], 'close', 0.9]);
+          const sh = moved(shellAt, 0.02);
+          // (the spent shells come out once it is open, the fresh ones are heard going home before it shuts)
+          const out = sh ? Math.max(sh[0], (o?.[0] ?? 0) + 0.05) : 0;
+          if (sh) cues.push([out, 'shell', 0.25], [Math.max(out + 0.05, sh[1] - 0.06), 'shell', 0.3]);
+        }
         // (a reload that ends with the pack's bolt movement: the clip is the first part of it)
         const part = this.rack ? this.seconds(name) / (this.seconds(name) + this.seconds('bolt')) : 1;
         if (part < 1) {
@@ -623,7 +675,7 @@ class Rig {
       const a = new THREE.Vector3(), b = new THREE.Vector3();
       if (tip(right, a) && tip(left, b)) this.muzzles = [a, b];
     }
-    const grip = [...joints.values()].find((j) => /^R_wrist/.test(j.name));
+    const grip = [...joints.values()].find((j) => /^(R_wrist|hand_r|DEF-handR|r_wrist)_\d/.test(j.name)) ?? [...joints.values()].find((j) => /^R_wrist/.test(j.name));
     if (grip) this.root.worldToLocal(grip.getWorldPosition(this.pivot));
     // (a gun in each hand is turned about the middle of the pair)
     const other = this.muzzles && [...joints.values()].find((j) => /^L_wrist/.test(j.name));
@@ -740,6 +792,10 @@ class Rig {
     this.frame = dt;
     if (this.fade > 0) this.fade = Math.max(0, this.fade - dt);
     if (this.tame > this.tameTo) this.tame = Math.max(this.tameTo, this.tame - dt * 5);
+  }
+  /** Pose our arms after the pack's skeleton, where it came without any. Call once the frame's matrices are current. */
+  follow(): void {
+    this.worn?.follow();
   }
   /** Forget the last movement: the next pose is shown as it is (a weapon just brought out). */
   cut(): void {
@@ -1256,7 +1312,8 @@ export class Viewmodel {
       if (st.drawT <= 0 && !reloading && this.meleeT < 0 && this.fireT < 0) {
         if (this.inspectT >= 0) {
           const look = r.inspectMove;
-          this.inspectT += dt / (look?.seconds ?? Math.min(4.5, r.seconds('inspect')));
+          // (a pack's own inspection at the pace it was drawn: squeezed, the hands stop looking like hands)
+          this.inspectT += dt / (look?.seconds ?? r.seconds('inspect'));
           if (this.inspectT >= 1) this.inspectT = -1;
           else if (look) { r.pose('idle', 0); move = look; moveK = this.inspectT; }
           else r.pose('inspect', this.inspectT);
@@ -1350,6 +1407,7 @@ export class Viewmodel {
 
     // ---- muzzle flash ------------------------------------------------------------------
     h.updateMatrixWorld(true);
+    r?.follow();
     if (r) this.muzzleWorld.copy(r.muzzle);
     else this.muzzleWorld.set(0.1, -0.1, -0.6);
     h.localToWorld(this.muzzleWorld);

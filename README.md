@@ -53,7 +53,10 @@ gauge. Each gun model is mounted piece by piece on the joints of an animated arm
 animated for an SMG (their own draw, firing movement, reload and inspection); pistols, shotguns,
 the AWP and the knife in packs by one artist; the .50 and the twin guns in that artist's packs
 made for them (their own firing, reload, action and draw), which are skeletons only and wear the
-arms of his sniper pack. The guns are shot over their own sights: nothing is fitted to a gun that
+arms of his sniper pack. The Mako, Hornet, Stinger and Thresher play packs animated for those very
+guns by other makers, on other skeletons and without arms: the rifle pack's arms are posed after
+them every frame (`src/client/worn-arms.ts`: each hand turned and placed as theirs, every finger
+laid along theirs, the arm solved to reach it). The guns are shot over their own sights: nothing is fitted to a gun that
 did not come with it.
 
 **Handling.** The arm packs' clips move the hands; `src/client/moves.ts` carries the gun where

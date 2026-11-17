@@ -130,7 +130,7 @@ const defs: WeaponDef[] = [
     // A machine pistol for the sidearm slot: sprays, runs dry fast, weak past a few metres.
     id: 'stinger', name: 'Stinger MP', kind: 'pistol', slot: 1, price: 500, killReward: 300, team: 0,
     damage: 24, armorPen: 0.6, rangeMod: 0.82, headMult: 4, rpm: 600, auto: true, pellets: 1,
-    magSize: 20, reserve: 60, reloadTime: 2.4, drawTime: 0.5, maxSpeed: 6.0,
+    magSize: 20, reserve: 60, reloadTime: 2.9, drawTime: 0.5, maxSpeed: 6.0,
     spreadStand: 0.009, spreadCrouch: 0.007, spreadMove: 0.03, spreadAir: 0.2, spreadPerShot: 0.006, spreadDecay: 5,
     pattern: spray(20, 5.0, 7, 0.6, [[6, -0.5], [12, 1.3], [19, -1.1]], 14), penetration: 0.25, kick: 0.6, range: 120,
   },
@@ -146,7 +146,7 @@ const defs: WeaponDef[] = [
     // Defenders' SMG: dearer, tighter, better against armour.
     id: 'hornet', name: 'Hornet PDW', kind: 'smg', slot: 0, price: 1500, killReward: 600, team: 1,
     damage: 27, armorPen: 0.65, rangeMod: 0.86, headMult: 4, rpm: 650, auto: true, pellets: 1,
-    magSize: 30, reserve: 120, reloadTime: 3.0, drawTime: 0.6, maxSpeed: 5.6,
+    magSize: 30, reserve: 120, reloadTime: 3.0, drawTime: 0.7, maxSpeed: 5.6,
     spreadStand: 0.0075, spreadCrouch: 0.006, spreadMove: 0.03, spreadAir: 0.16, spreadPerShot: 0.0026, spreadDecay: 5.5,
     pattern: spray(30, 3.7, 10, 0.4, [[9, 0.35], [16, -0.9], [24, 0.8], [29, 0.2]], 22), penetration: 0.35, kick: 0.55, range: 120,
     suppressor: { fitted: false },
@@ -163,7 +163,7 @@ const defs: WeaponDef[] = [
     // Two barrels, two shells: the hardest single hit in the game, then a reload.
     id: 'thresher', name: 'Thresher DB', kind: 'shotgun', slot: 0, price: 1300, killReward: 900, team: 0,
     damage: 26, armorPen: 0.45, rangeMod: 0.5, headMult: 2, rpm: 200, auto: false, pellets: 10,
-    magSize: 2, reserve: 24, reloadTime: 2.3, drawTime: 0.6, maxSpeed: 5.9,
+    magSize: 2, reserve: 24, reloadTime: 2.8, drawTime: 0.8, maxSpeed: 5.9,
     spreadStand: 0.06, spreadCrouch: 0.055, spreadMove: 0.02, spreadAir: 0.1, spreadPerShot: 0.004, spreadDecay: 4,
     pattern: spray(2, 4.5, 1, 0, [[1, 0.4]], 32), penetration: 0, kick: 2.6, range: 45,
   },
@@ -171,7 +171,7 @@ const defs: WeaponDef[] = [
     // Attackers' budget rifle: a short carbine, wilder than the full rifle.
     id: 'mako', name: 'Mako Carbine', kind: 'rifle', slot: 0, price: 1800, killReward: 300, team: 0,
     damage: 31, armorPen: 0.72, rangeMod: 0.93, headMult: 4, rpm: 600, auto: true, pellets: 1,
-    magSize: 30, reserve: 90, reloadTime: 2.6, drawTime: 0.65, maxSpeed: 5.7,
+    magSize: 30, reserve: 90, reloadTime: 3.0, drawTime: 0.8, maxSpeed: 5.7,
     spreadStand: 0.0055, spreadCrouch: 0.0042, spreadMove: 0.1, spreadAir: 0.26, spreadPerShot: 0.0038, spreadDecay: 4.5,
     pattern: spray(30, 6.8, 8, 0.5, [[6, -0.7], [12, 2.2], [20, -2.4], [29, 1.6]], 43), penetration: 0.8, kick: 0.9, range: 200,
   },

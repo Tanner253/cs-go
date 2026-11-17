@@ -754,7 +754,8 @@ export class CharacterView {
         // down to the pouch for the next one, to the action, and out to the muzzle for a suppressor.
         let atMag = 0, atPouch = 0, atAction = 0;
         const g = hold.grip, sup = hold.support;
-        const tube = !!look?.mount?.pump, hinged = !!look?.mount?.hinge;
+        // (a break-action: one with barrels of its own, whether its pack or a hinge opens them)
+        const tube = !!look?.mount?.pump, hinged = !!look?.mount?.hinge || !!look?.mount?.ride['barrels'];
         if (reloading > 0) {
           if (tube) {
             // Shell by shell, as in first person.
