@@ -595,9 +595,11 @@ export class CharacterView {
     this.legYaw += (wantLeg - this.legYaw) * Math.min(1, dt * 10);
     this.rig.rotation.y = Math.PI + this.legYaw;
 
-    if (!p.onGround) this.play('air', 1, dt);
+    // Crouched in the air (a crouch-jump) the legs are drawn up under the body.
+    const tucked = !p.onGround && p.ducked;
+    if (!p.onGround && !tucked) this.play('air', 1, dt);
     else if (crouch > 0.5) {
-      if (speed > 0.4) this.play('crouchWalk', reverse * Math.min(1.8, Math.max(0.5, speed / 1.5)), dt);
+      if (speed > 0.4 && !tucked) this.play('crouchWalk', reverse * Math.min(1.8, Math.max(0.5, speed / 1.5)), dt);
       else this.play('crouchIdle', 1, dt);
     } else if (speed > 3.6) this.play('run', reverse * Math.min(1.5, Math.max(0.7, speed / 5.4)), dt);
     else if (speed > 0.4) this.play('walk', reverse * Math.min(1.8, Math.max(0.6, speed / 1.9)), dt);
@@ -607,7 +609,7 @@ export class CharacterView {
     this.spine?.quaternion.copy(this.spineRest);
     this.neck?.quaternion.copy(this.neckRest);
     this.mixer.update(dt);
-    if (p.onGround) this.posture(eyeHeight(p) - 0.03);
+    if (p.onGround || tucked) this.posture(eyeHeight(p) - 0.03);
 
     // ---- torso follows the aim -----------------------------------------------------
     this.group.updateMatrixWorld(true);

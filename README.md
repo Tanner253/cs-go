@@ -28,6 +28,26 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
   starts when two players are in one. First to 7 rounds, sides swap after 6.
 - **Practice** — the full round loop offline against bots, 1v1 up to 5v5.
 
+## Movement
+
+Counter-Strike's own numbers (`src/sim/movement.ts`): ground and air acceleration, friction and
+the stop speed, so counter-strafing and air-strafing work as they do there; each gun has its own
+run speed, and a scoped sniper is slower again. Walking (shift) and crouching are silent.
+
+- **Stamina.** A jump and a landing each cost stamina in proportion to the vertical speed (0.08
+  and 0.05 of it, to 80, bleeding off at 60 a second); while any is spent the player is slowed
+  on the ground and jumps lower. A running jump lands at about half speed and is back to full
+  in about half a second; a jump the moment the feet touch keeps its speed but goes lower.
+- **Crouch-jump.** Crouching in the air draws the legs up as far as it lowers the eyes: feet
+  clear 1.62 m instead of 1.39, enough for the 1.4 m crates a plain jump can't reach. Jump and
+  crouch pressed together work, as a crouch still on its way down finishes in the air.
+- **Crouch spam.** Each press of crouch slows the next; a fourth in a row takes nearly three times
+  as long, and the speed grows back over about three seconds.
+- **Tagging.** A hit cuts run speed to half (a heavy hit) or two thirds (a light one), growing
+  back over a second or less.
+- **Landing.** A landing throws the aim open by half the gun's in-air inaccuracy, bleeding off as
+  its spray does, so a jump-peek can't be shot accurately the moment the feet touch.
+
 ## Weapons
 
 | | Attackers | Defenders |

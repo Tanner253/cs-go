@@ -89,6 +89,12 @@ export interface Player {
   prevCrouchT: number;
   stepDist: number;
   fallSpeed: number;
+  /** Spent by jumping and landing (0..STAMINA_MAX); while any is spent the player is slowed. */
+  stamina: number;
+  /** Run speed left after being shot (1 = untouched), growing back over a second or so. */
+  tag: number;
+  /** How fast crouching and standing go (crouchT per second): spent by spamming crouch. */
+  duckSpeed: number;
   /** Wall-jumps used since last touching the ground, and the last wall normal used. */
   wallJumps: number;
   lastWallNx: number;

@@ -5,7 +5,7 @@ import { Rng, forwardFromAngles, v3, type Vec3 } from './math';
 import { World, newRayHit, newTrace } from './world';
 import { buildMap, inZone, type MapDef } from './map';
 import { Nav } from './nav';
-import { GRAVITY, endGrapple, eyeHeight, hullHeight, movePlayer } from './movement';
+import { DUCK_FULL, GRAVITY, JUMP_SPEED, TAG_HEAVY, TAG_LIGHT, endGrapple, eyeHeight, hullHeight, movePlayer } from './movement';
 import {
   DEFAULT_PISTOL, GEAR, NADES, NADE_CARRY, NADE_INDEX, SUPPRESSED_RANGE, SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt,
   type WeaponDef,
@@ -196,7 +196,7 @@ export class Sim {
       alive: false, hp: 100, armor: 0, helmet: false, kit: false, money: this.rules.startMoney,
       kills: 0, deaths: 0, hasCharge: false,
       pos: v3(), prevPos: v3(), vel: v3(), yaw: 0, pitch: 0,
-      onGround: true, ducked: false, crouchT: 0, prevCrouchT: 0, stepDist: 0, fallSpeed: 0,
+      onGround: true, ducked: false, crouchT: 0, prevCrouchT: 0, stepDist: 0, fallSpeed: 0, stamina: 0, tag: 1, duckSpeed: DUCK_FULL,
       wallJumps: 0, lastWallNx: 0, lastWallNz: 0,
       mantleT: -1, mantleFrom: v3(), mantleTo: v3(),
       grappleOn: false, grapplePoint: v3(), grappleTime: 0, grappleReadyAt: 0,
@@ -275,6 +275,9 @@ export class Sim {
       p.onGround = true;
       p.ducked = false;
       p.crouchT = p.prevCrouchT = 0;
+      p.stamina = 0;
+      p.tag = 1;
+      p.duckSpeed = DUCK_FULL;
       p.mantleT = -1;
       p.grappleOn = false;
       p.grappleReadyAt = 0;
@@ -1053,9 +1056,16 @@ export class Sim {
     }
     const dealt = Math.max(1, Math.round(dmg));
     v.hp -= dealt;
-    // "Tagging": getting hit slows you down.
-    v.vel.x *= 0.6;
-    v.vel.z *= 0.6;
+    // "Tagging": getting hit slows you down, at once and for a second or so after; a heavy hit
+    // more than a light one.
+    if (attacker) {
+      const tag = dealt >= 30 ? TAG_HEAVY : TAG_LIGHT;
+      if (tag < v.tag) v.tag = tag;
+      if (v.onGround) {
+        v.vel.x *= tag;
+        v.vel.z *= tag;
+      }
+    }
     this.events.push({ type: 'hit', victim: v.id, attacker: attacker ? attacker.id : -1, damage: dealt, head: group === HEAD, x, y, z });
     if (v.hp <= 0) this.kill(v, attacker, def, group === HEAD, wallbang);
   }
@@ -1305,6 +1315,12 @@ export class Sim {
 
     const busy = p.useTime > 0;
     const land = movePlayer(p, cmd, this.world, TICK, this.moveSpeed(p), frozenPhase || busy, this.time, this.events, this.rules.verticalKit);
+    // A landing unsettles the aim for a moment, as in Counter-Strike: half the gun's in-air
+    // inaccuracy after a full jump, bleeding off as fast as its spray does.
+    if (land > 0) {
+      const held = p.weapons[p.active];
+      if (held) p.fireSpread += held.def.spreadAir * 0.5 * Math.min(1, land / JUMP_SPEED);
+    }
     if (!this.predicting) {
       if (land > 14.7) {
         this.damage(p, null, null, (land - 14.7) * 9, LEGS, 0, p.pos.x, p.pos.y, p.pos.z, false);

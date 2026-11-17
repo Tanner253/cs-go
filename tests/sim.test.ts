@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
-import { ATK, BTN_ALT, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, DEF, TICK, emptyCmd, type Cmd, type Player, type SimEvent, type Team } from '../src/sim/types';
+import { ATK, BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_GRAPPLE, BTN_JUMP, DEF, TICK, emptyCmd, type Cmd, type Player, type SimEvent, type Team } from '../src/sim/types';
 import { SUPPRESSED_RECOIL, SUPPRESSOR_TIME, WEAPONS, patternAt } from '../src/sim/weapons';
 import { decodePlayer, encodePlayer } from '../src/net/protocol';
 
@@ -86,6 +86,95 @@ describe('movement', () => {
     expect(apex).toBeLessThan(1.55);
     expect(me.onGround).toBe(true);
     expect(Math.abs(me.pos.y - y0)).toBeLessThan(0.01);
+  });
+
+  it('a landing costs speed for a moment, and a jump straight after one is lower (stamina)', () => {
+    const { me, step } = soloSim();
+    me.pos.x = -17.5; me.pos.z = -14.5; me.pos.y = 0.002; // 30 m of open ground toward +X
+    const yaw = -Math.PI / 2;
+    step({ fwd: 1, yaw }, 50);
+    step({ fwd: 1, yaw, buttons: BTN_JUMP });
+    while (!me.onGround) step({ fwd: 1, yaw });
+    let slowest = 99;
+    for (let i = 0; i < 12; i++) { step({ fwd: 1, yaw }); slowest = Math.min(slowest, Math.hypot(me.vel.x, me.vel.z)); }
+    expect(slowest).toBeLessThan(6.1 * 0.65);
+    step({ fwd: 1, yaw }, 32);
+    expect(Math.hypot(me.vel.x, me.vel.z)).toBeGreaterThan(5.9);
+    expect(me.stamina).toBe(0);
+    // Jumping again the moment the feet touch: lower.
+    const y0 = me.pos.y;
+    const apex = (): number => {
+      step({ buttons: BTN_JUMP });
+      let top = 0;
+      for (let i = 0; i < 80 && !(me.onGround && i > 2); i++) { step({}); top = Math.max(top, me.pos.y - y0); }
+      return top;
+    };
+    me.vel.x = me.vel.z = 0;
+    step({}, 64);
+    const first = apex();
+    const second = apex();
+    expect(first).toBeGreaterThan(1.35);
+    expect(second).toBeLessThan(first * 0.8);
+  });
+
+  it('crouching in the air draws the legs up: a crouch-jump clears the crates a plain jump cannot', () => {
+    const { me, step } = soloSim();
+    const y0 = me.pos.y;
+    const eye = (): number => me.pos.y + 1.63 - 0.46 * me.crouchT;
+    let top = 0, lastEye = eye(), worstJerk = 0;
+    step({ buttons: BTN_JUMP | BTN_CROUCH });
+    for (let i = 0; i < 80; i++) {
+      step({ buttons: BTN_CROUCH });
+      top = Math.max(top, me.pos.y - y0);
+      worstJerk = Math.max(worstJerk, Math.abs(eye() - lastEye));
+      lastEye = eye();
+    }
+    expect(top).toBeGreaterThan(1.6); // 1.39 for a plain jump
+    expect(worstJerk).toBeLessThan(0.13); // the eyes never jump
+    expect(me.onGround).toBe(true);
+    // A 1.4 m crate at x 16..18, z -12.2..-10.8, run at from the east, jumping 2.2 m out.
+    const onto = (buttons: number): number => {
+      me.pos.x = 24.4; me.pos.z = -11.5; me.pos.y = 0.002; me.vel.x = me.vel.z = 0; me.stamina = 0; me.ducked = false; me.crouchT = 0;
+      const yaw = Math.PI / 2;
+      while (me.pos.x > 18.4 + 2.2) step({ fwd: 1, yaw });
+      step({ fwd: 1, yaw, buttons: BTN_JUMP | buttons });
+      step({ fwd: 1, yaw, buttons }, 60);
+      return me.pos.y;
+    };
+    expect(onto(0)).toBeLessThan(0.01);
+    expect(onto(BTN_CROUCH)).toBeGreaterThan(1.39);
+  });
+
+  it('crouch-spamming slows each crouch down, and the speed grows back', () => {
+    const { me, step } = soloSim();
+    const ticksToCrouch = (): number => {
+      let n = 0;
+      while (me.crouchT < 1 && n < 200) { step({ buttons: BTN_CROUCH }); n++; }
+      while (me.crouchT > 0) step({});
+      return n;
+    };
+    const fresh = ticksToCrouch();
+    ticksToCrouch(); ticksToCrouch();
+    const spammed = ticksToCrouch();
+    expect(fresh).toBeLessThanOrEqual(10);
+    expect(spammed).toBeGreaterThan(fresh * 2);
+    step({}, 64 * 3);
+    expect(ticksToCrouch()).toBe(fresh);
+  });
+
+  it('being shot slows you, more for a heavy hit, and wears off', () => {
+    const { sim, me, step } = soloSim();
+    const enemy = sim.players.find((p) => p !== me)!;
+    me.pos.x = -17.5; me.pos.z = -14.5; me.pos.y = 0.002;
+    const yaw = -Math.PI / 2;
+    step({ fwd: 1, yaw }, 40);
+    (sim as unknown as { damage: (...a: unknown[]) => void }).damage(me, enemy, WEAPONS.longsight, 10, 2, 0, 0, 0, 0, false);
+    expect(me.tag).toBeLessThan(0.66);
+    step({ fwd: 1, yaw }, 20);
+    expect(Math.hypot(me.vel.x, me.vel.z)).toBeLessThan(6.1 * 0.85);
+    step({ fwd: 1, yaw }, 60);
+    expect(me.tag).toBe(1);
+    expect(Math.hypot(me.vel.x, me.vel.z)).toBeGreaterThan(5.9);
   });
 
   it('never tunnels through walls at speed', () => {

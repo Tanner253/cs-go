@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import { SLOTS, type Charge, type Grenade, type Phase, type Player, type SimEvent, type Team, type WinReason } from '../sim/types';
 import { NADES, WEAPON_LIST } from '../sim/weapons';
 
-export const PROTOCOL = 12;
+export const PROTOCOL = 13;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -84,7 +84,7 @@ export function encodePlayer(p: Player): number[] {
   const out: number[] = [
     p.team, p.alive ? 1 : 0, p.hp, r4(p.armor), p.helmet ? 1 : 0, p.kit ? 1 : 0, p.money, p.kills, p.deaths, p.hasCharge ? 1 : 0,
     r4(p.pos.x), r4(p.pos.y), r4(p.pos.z), r4(p.vel.x), r4(p.vel.y), r4(p.vel.z), r4(p.yaw), r4(p.pitch),
-    p.onGround ? 1 : 0, p.ducked ? 1 : 0, r4(p.crouchT), r4(p.stepDist), r4(p.fallSpeed),
+    p.onGround ? 1 : 0, p.ducked ? 1 : 0, r4(p.crouchT), r4(p.stepDist), r4(p.fallSpeed), r4(p.stamina), r4(p.tag), r4(p.duckSpeed),
     p.wallJumps, p.lastWallNx, p.lastWallNz,
     r4(p.mantleT), r4(p.mantleFrom.x), r4(p.mantleFrom.y), r4(p.mantleFrom.z), r4(p.mantleTo.x), r4(p.mantleTo.y), r4(p.mantleTo.z),
     p.grappleOn ? 1 : 0, r4(p.grapplePoint.x), r4(p.grapplePoint.y), r4(p.grapplePoint.z), r4(p.grappleTime), r4(p.grappleReadyAt),
@@ -141,7 +141,7 @@ export function decodePlayer(p: Player, a: number[]): void {
   p.team = n() as Team; p.alive = n() === 1; p.hp = n(); p.armor = n(); p.helmet = n() === 1; p.kit = n() === 1;
   p.money = n(); p.kills = n(); p.deaths = n(); p.hasCharge = n() === 1;
   p.pos.x = n(); p.pos.y = n(); p.pos.z = n(); p.vel.x = n(); p.vel.y = n(); p.vel.z = n(); p.yaw = n(); p.pitch = n();
-  p.onGround = n() === 1; p.ducked = n() === 1; p.crouchT = n(); p.stepDist = n(); p.fallSpeed = n();
+  p.onGround = n() === 1; p.ducked = n() === 1; p.crouchT = n(); p.stepDist = n(); p.fallSpeed = n(); p.stamina = n(); p.tag = n(); p.duckSpeed = n();
   p.wallJumps = n(); p.lastWallNx = n(); p.lastWallNz = n();
   p.mantleT = n(); p.mantleFrom.x = n(); p.mantleFrom.y = n(); p.mantleFrom.z = n(); p.mantleTo.x = n(); p.mantleTo.y = n(); p.mantleTo.z = n();
   p.grappleOn = n() === 1; p.grapplePoint.x = n(); p.grapplePoint.y = n(); p.grapplePoint.z = n(); p.grappleTime = n(); p.grappleReadyAt = n();

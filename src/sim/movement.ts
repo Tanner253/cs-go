@@ -21,6 +21,31 @@ const STEP = 0.457;
 const CROUCH_MULT = 0.34;
 const WALK_MULT = 0.52;
 
+// Counter-Strike's stamina (sv_stamina*): a jump costs 0.08 and a landing 0.05 per unit of
+// vertical speed (inch/s), up to 80, bleeding off at 60 a second. While any is left, the
+// player is slowed on the ground (by the fraction of 80 used, per 1/70 s) and jumps lower,
+// which is what stops jump-spamming from being free and makes a landing cost a moment.
+export const STAMINA_MAX = 80;
+const STAMINA_JUMP = 0.08 / 0.0254;
+const STAMINA_LAND = 0.05 / 0.0254;
+const STAMINA_RECOVER = 60;
+
+// Being shot ("tagging"): run speed is cut to this fraction, and grows back by TAG_RECOVER a second.
+export const TAG_HEAVY = 0.5;
+export const TAG_LIGHT = 0.65;
+const TAG_RECOVER = 0.5;
+
+// Crouch speed (crouchT per second). Every press of crouch spends DUCK_SPAM of it, growing
+// back DUCK_REGROW a second, so the first crouch is quick and a spam of them slows to a crawl.
+export const DUCK_FULL = 10;
+const DUCK_RATE = 7;
+const DUCK_SPAM = 3;
+const DUCK_MIN = 1.5;
+const DUCK_REGROW = 3;
+
+/** Crouching in the air draws the feet up by half the difference and lowers the eyes by the other half. */
+const AIR_TUCK = (HEIGHT_STAND - HEIGHT_CROUCH) / 2;
+
 const WALLJUMP_UP = 7.0;
 const WALLJUMP_PUSH = 5.4;
 const MAX_WALLJUMPS = 2;
@@ -186,14 +211,36 @@ export function movePlayer(
     return 0;
   }
 
+  if (p.stamina > 0) p.stamina = Math.max(0, p.stamina - STAMINA_RECOVER * dt);
+  if (p.tag < 1) p.tag = Math.min(1, p.tag + TAG_RECOVER * dt);
+  const runSpeed = maxSpeed;
+  maxSpeed *= p.tag;
+
   // ---- crouch ------------------------------------------------------------------
+  // On the ground the head comes down. In the air the legs come up as much as the head comes
+  // down (the crouch-jump), so the feet clear AIR_TUCK more; crouchT is moved by as much as
+  // keeps the eyes where they were, and from there it settles as usual.
+  const air = !p.onGround;
+  if (p.duckSpeed < DUCK_FULL) p.duckSpeed = Math.min(DUCK_FULL, p.duckSpeed + DUCK_REGROW * dt);
+  if (pressed & BTN_CROUCH) p.duckSpeed = Math.max(DUCK_MIN, p.duckSpeed - DUCK_SPAM);
   if (buttons & BTN_CROUCH) {
+    if (!p.ducked && air) {
+      pos.y += AIR_TUCK;
+      p.crouchT = Math.min(1, p.crouchT + 0.5);
+    }
     p.ducked = true;
   } else if (p.ducked) {
-    if (!world.hullBlocked(pos.x, pos.y + HEIGHT_STAND / 2, pos.z, HULL_HALF, HEIGHT_STAND / 2, HULL_HALF)) p.ducked = false;
+    const drop = AIR_TUCK * p.crouchT;
+    if (air && drop > 0 && !world.hullBlocked(pos.x, pos.y - drop + HEIGHT_STAND / 2, pos.z, HULL_HALF, HEIGHT_STAND / 2, HULL_HALF)) {
+      pos.y -= drop;
+      p.crouchT *= 0.5;
+      p.ducked = false;
+    } else if (!world.hullBlocked(pos.x, pos.y + HEIGHT_STAND / 2, pos.z, HULL_HALF, HEIGHT_STAND / 2, HULL_HALF)) {
+      p.ducked = false;
+    }
   }
   const crouchTarget = p.ducked ? 1 : 0;
-  const cstep = dt * 7;
+  const cstep = dt * Math.min(DUCK_RATE, p.duckSpeed);
   p.crouchT = p.crouchT < crouchTarget ? Math.min(crouchTarget, p.crouchT + cstep) : Math.max(crouchTarget, p.crouchT - cstep);
 
   const hy = hullHeight(p) / 2;
@@ -262,7 +309,11 @@ export function movePlayer(
     if (p.onGround) {
       p.wallJumps = 0;
       if (pressed & BTN_JUMP) {
-        vel.y = JUMP_SPEED;
+        vel.y = JUMP_SPEED * (STAMINA_MAX - p.stamina) / STAMINA_MAX;
+        p.stamina = Math.min(STAMINA_MAX, p.stamina + STAMINA_JUMP * vel.y);
+        // A crouch still on its way down when the feet leave the ground is finished in the
+        // air, as a crouch-jump (so jump and crouch pressed together reach the full height).
+        if (p.ducked && p.crouchT < 0.999) p.ducked = false;
         p.onGround = false;
         jumped = true;
         events.push({ type: 'jump', player: p.id });
@@ -277,6 +328,11 @@ export function movePlayer(
           vel.x = vel.z = 0;
         }
         vel.y = 0;
+        if (p.stamina > 0) {
+          const keep = Math.pow((STAMINA_MAX - p.stamina) / STAMINA_MAX, dt * 70);
+          vel.x *= keep;
+          vel.z *= keep;
+        }
       }
     }
     if (p.onGround) {
@@ -354,13 +410,14 @@ export function movePlayer(
     landSpeed = p.fallSpeed;
     if (landSpeed > 3) events.push({ type: 'land', player: p.id, speed: landSpeed });
   }
+  if (landSpeed > 0) p.stamina = Math.min(STAMINA_MAX, p.stamina + STAMINA_LAND * landSpeed);
   p.fallSpeed = nowGround ? 0 : Math.max(0, -vel.y);
   if (!jumped) p.onGround = nowGround;
 
   // ---- footsteps (silent when walking or crouched) ---------------------------------
   if (p.onGround) {
     const speed = Math.hypot(vel.x, vel.z);
-    if (speed > maxSpeed * 0.6) {
+    if (speed > runSpeed * 0.6) {
       p.stepDist += speed * dt;
       if (p.stepDist > 2.5) {
         p.stepDist = 0;
