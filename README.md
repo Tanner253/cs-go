@@ -247,6 +247,12 @@ the lobby screen says so while it waits.
 | Throw a grenade | left click (overarm), right click (lob), both | FIRE / ZOOM |
 | Scoreboard / pause | Tab / Esc | II |
 
+Every key can be bound again in the settings (click an action, press its key; a key taken
+from another action leaves it), and the controls list shows the keys as bound. The crosshair
+is set as in Counter-Strike: colour, size, thickness, gap, opacity, outline, centre dot, a
+T-style and a static or dynamic style, with a preview beside the settings. The charge's
+carrier can throw it down (5) for a teammate to take.
+
 ## Architecture
 
 ```

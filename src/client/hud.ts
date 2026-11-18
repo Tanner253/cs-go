@@ -5,7 +5,7 @@ import type { Sim } from '../sim/game';
 import { ATK, DEF, type Player } from '../sim/types';
 import { GEAR, NADES, NADE_CARRY, NADE_INDEX, WEAPONS, WEAPON_LIST, type WeaponDef } from '../sim/weapons';
 import { eyeHeight } from '../sim/movement';
-import { onSettings } from './settings';
+import { keyName, onSettings, settings } from './settings';
 import { Radar } from './radar';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -143,7 +143,14 @@ export class Hud {
       const root = document.documentElement.style;
       root.setProperty('--cross', st.crosshairColor);
       root.setProperty('--cross-size', `${st.crosshairSize}px`);
-      this.el.cross.classList.toggle('nodot', !st.crosshairDot);
+      root.setProperty('--cross-th', `${st.crosshairThickness}px`);
+      root.setProperty('--cross-gap', `${st.crosshairGap}px`);
+      root.setProperty('--cross-alpha', String(st.crosshairAlpha));
+      for (const el of document.querySelectorAll('.xhair')) {
+        el.classList.toggle('nodot', !st.crosshairDot);
+        el.classList.toggle('outline', st.crosshairOutline);
+        el.classList.toggle('tee', st.crosshairT);
+      }
       this.el.fps.style.display = st.showFps ? '' : 'none';
     });
     this.el.buyGrid.addEventListener('click', (e) => {
@@ -425,7 +432,8 @@ export class Hud {
     const scoped = view.scope > 0;
     const def = view.weapons[view.active]?.def;
     const showCross = view.alive && !scoped && def?.kind !== 'sniper';
-    const g = Math.round(Math.min(60, 3 + gapPx));
+    // (a static crosshair keeps its gap whatever the gun's spread)
+    const g = settings.crosshairDynamic ? Math.round(Math.min(60, 3 + gapPx)) : 4;
     if (g !== this.gap) {
       this.gap = g;
       e.cross.style.setProperty('--gap', `${g}px`);
@@ -471,7 +479,7 @@ export class Hud {
 
     // Contextual hint + progress bar.
     let hint = '';
-    const useKey = touch ? 'USE' : 'E';
+    const useKey = touch ? 'USE' : keyName(settings.binds.use[0]);
     if (me && me.alive) {
       const loose = this.buyOpen || me.useTime > 0 || sim.canPlant(me) || sim.canDisarm(me) ? null : sim.dropInReach(me);
       if (this.buyOpen) hint = '';
@@ -481,11 +489,11 @@ export class Hud {
         const held = def.kind === 'grenade' ? null : me.weapons[def.slot];
         const empty = def.magSize > 0 && loose.weapon.mag + loose.weapon.reserve <= 0 ? ' <span class="dim">(empty)</span>' : '';
         hint = held ? `<b>${useKey}</b> Swap your ${held.def.name} for the ${def.name}${empty}` : `<b>${useKey}</b> Pick up the ${def.name}${empty}`;
-      } else if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : 'Press <b>B</b> to open the armory';
+      } else if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : `Press <b>${keyName(settings.binds.buy[0])}</b> to open the armory`;
       else if (me.useTime > 0) hint = '';
       else if (sim.canPlant(me)) hint = `Hold <b>${useKey}</b> to plant the charge`;
       else if (sim.canDisarm(me)) hint = `Hold <b>${useKey}</b> to disarm`;
-      else if (me.hasCharge && sim.phase === 'live' && sim.liveTime < 6) hint = 'You carry the charge — take it to site A or B';
+      else if (me.hasCharge && sim.phase === 'live' && sim.liveTime < 6) hint = touch ? 'You carry the charge — take it to site A or B' : `You carry the charge — take it to site A or B, or <b>${keyName(settings.binds.dropCharge[0])}</b> to drop it for a teammate`;
     }
     if (k.hint.v !== hint) {
       k.hint.v = hint;

@@ -1,9 +1,9 @@
 // Keyboard/mouse (pointer lock, raw input) and touch, both reduced to the same per-tick Cmd.
 
 import {
-  BTN_ALT, BTN_CROUCH, BTN_DROP, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, SLOT_LAST, type Cmd,
+  BTN_ALT, BTN_CROUCH, BTN_DROP, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, SLOT_CHARGE, SLOT_LAST, type Cmd,
 } from '../sim/types';
-import { settings } from './settings';
+import { onSettings, settings, type Action } from './settings';
 
 /** `Cmd.slot` as the input leaves it, before the game turns it into a slot: the next and previous weapon. */
 export const WHEEL_NEXT = 100;
@@ -38,6 +38,10 @@ export class Input {
   lookDY = 0;
 
   private keys = new Set<string>();
+  /** Which actions each key is bound to (from the settings). */
+  private bound = new Map<string, Action[]>();
+  /** While a key is being bound in the settings, every key press goes there instead. */
+  capture: ((code: string) => void) | null = null;
   private mouse = 0;
   private slot = -1;
   private buy = '';
@@ -68,6 +72,12 @@ export class Input {
   constructor(private canvas: HTMLElement, private touchRoot: HTMLElement) {
     this.touch = isTouchDevice();
 
+    onSettings((s) => {
+      this.bound.clear();
+      for (const [action, codes] of Object.entries(s.binds) as [Action, string[]][]) {
+        for (const c of codes) this.bound.set(c, [...(this.bound.get(c) ?? []), action]);
+      }
+    });
     document.addEventListener('keydown', (e) => this.key(e, true));
     document.addEventListener('keyup', (e) => this.key(e, false));
     window.addEventListener('blur', () => { this.keys.clear(); this.mouse = 0; });
@@ -154,27 +164,51 @@ export class Input {
   }
 
   private key(e: KeyboardEvent, down: boolean): void {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     const c = e.code;
+    if (this.capture) {
+      // Binding a key in the settings: this press is the key (Esc gives up).
+      if (down) {
+        const done = this.capture;
+        this.capture = null;
+        if (c !== 'Escape') done(c);
+        else done('');
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    const acts = this.bound.get(c) ?? [];
     if (down && !e.repeat) {
       this.onFirstGesture();
-      if (c.startsWith('Digit')) {
-        const d = Number(c.slice(5));
-        if (this.onMenuKey(d)) { e.preventDefault(); return; }
-        // (4 is the grenades: again, the next kind carried)
-        if (d >= 1 && d <= 4) this.slot = d - 1;
-      } else if (c === 'KeyQ') this.slot = SLOT_LAST;
-      else if (c === 'KeyB') this.onToggleBuy();
-      else if (c === 'KeyF') this.onInspect();
-      else if (c === 'Tab') this.onScoreboard(true);
-      else if (c === 'Space') this.jumpTap = true;
-      else if (c === 'Escape') this.onEscape();
+      // (the armory takes the number keys while it is open)
+      if (c.startsWith('Digit') && this.onMenuKey(Number(c.slice(5)))) { e.preventDefault(); return; }
+      if (c === 'Escape') this.onEscape();
+      for (const a of acts) {
+        // (the grenade key again: the next kind carried)
+        if (a === 'primary') this.slot = 0;
+        else if (a === 'secondary') this.slot = 1;
+        else if (a === 'knife') this.slot = 2;
+        else if (a === 'grenade') this.slot = 3;
+        else if (a === 'last') this.slot = SLOT_LAST;
+        else if (a === 'dropCharge') this.slot = SLOT_CHARGE;
+        else if (a === 'buy') this.onToggleBuy();
+        else if (a === 'inspect') this.onInspect();
+        else if (a === 'scoreboard') this.onScoreboard(true);
+        else if (a === 'jump') this.jumpTap = true;
+      }
     }
-    if (!down && c === 'Tab') this.onScoreboard(false);
+    if (!down && acts.includes('scoreboard')) this.onScoreboard(false);
     if (down) this.keys.add(c);
     else this.keys.delete(c);
     // Stop the browser acting on game keys (scrolling, tab focus, quick find...).
-    if (this.locked || c === 'Tab' || c === 'Space') e.preventDefault();
+    if (this.locked || c === 'Tab' || c === 'Space' || acts.length > 0) e.preventDefault();
+  }
+
+  /** Whether any key bound to this action is held. */
+  private held(a: Action): boolean {
+    for (const c of settings.binds[a]) if (this.keys.has(c)) return true;
+    return false;
   }
 
   queueBuy(item: string): void {
@@ -183,20 +217,19 @@ export class Input {
 
   /** Fill in the command for this tick. One-shot requests are consumed. */
   build(cmd: Cmd, active: boolean): void {
-    const k = this.keys;
     let fwd = 0, side = 0, buttons = 0;
     if (active) {
-      if (k.has('KeyW') || k.has('ArrowUp')) fwd += 1;
-      if (k.has('KeyS') || k.has('ArrowDown')) fwd -= 1;
-      if (k.has('KeyD') || k.has('ArrowRight')) side += 1;
-      if (k.has('KeyA') || k.has('ArrowLeft')) side -= 1;
+      if (this.held('forward')) fwd += 1;
+      if (this.held('back')) fwd -= 1;
+      if (this.held('right')) side += 1;
+      if (this.held('left')) side -= 1;
       buttons = this.mouse;
-      if (k.has('Space') || this.jumpTap) buttons |= BTN_JUMP;
-      if (k.has('ControlLeft') || k.has('KeyC')) buttons |= BTN_CROUCH;
-      if (k.has('ShiftLeft')) buttons |= BTN_WALK;
-      if (k.has('KeyR')) buttons |= BTN_RELOAD;
-      if (k.has('KeyE')) buttons |= BTN_USE;
-      if (k.has('KeyG')) buttons |= BTN_DROP;
+      if (this.held('jump') || this.jumpTap) buttons |= BTN_JUMP;
+      if (this.held('crouch')) buttons |= BTN_CROUCH;
+      if (this.held('walk')) buttons |= BTN_WALK;
+      if (this.held('reload')) buttons |= BTN_RELOAD;
+      if (this.held('use')) buttons |= BTN_USE;
+      if (this.held('drop')) buttons |= BTN_DROP;
       if (this.touch) {
         fwd += -this.stickY;
         side += this.stickX;

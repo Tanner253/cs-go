@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/game';
-import { BTN_DROP, BTN_USE, emptyCmd, type Cmd, type SimEvent } from '../src/sim/types';
+import { BTN_DROP, BTN_USE, SLOT_CHARGE, emptyCmd, type Cmd, type SimEvent } from '../src/sim/types';
 import { RULES_1V1, applySnapshot, takeSnapshot } from '../src/net/protocol';
 
 /** Two players on the open mid lane, the round live and endless, one of them with a rifle. */
@@ -206,5 +206,28 @@ describe('weapons on the floor', () => {
     applySnapshot(client, takeSnapshot(sim, [0, 0], []));
     expect(client.drops[0]).toBe(first);
     expect(first.pos.z).toBeCloseTo(sim.drops[0]!.pos.z, 3);
+  });
+});
+
+describe('the charge', () => {
+  it('can be thrown down by its carrier for a teammate, who walks over it to take it', () => {
+    const sim = new Sim({ teamSize: 2, bots: false, rules: { freezeTime: 0.02, roundTime: 9999 } });
+    const carrier = sim.players.find((p) => p.hasCharge)!;
+    const mate = sim.players.find((p) => p.team === carrier.team && p !== carrier)!;
+    const cmds = sim.players.map(() => emptyCmd());
+    const run = (n: number): void => { for (let i = 0; i < n; i++) { sim.tick((p) => cmds[p.id]!); for (const c of cmds) c.slot = -1; } };
+    run(3);
+    mate.pos.x = carrier.pos.x + 6; mate.pos.z = carrier.pos.z;
+    cmds[carrier.id]!.yaw = carrier.yaw;
+    cmds[carrier.id]!.slot = SLOT_CHARGE;
+    run(1);
+    expect(carrier.hasCharge).toBe(false);
+    expect(sim.charge.state).toBe('dropped');
+    // (not straight back into the hands it left)
+    run(30);
+    expect(sim.charge.state).toBe('dropped');
+    mate.pos.x = sim.charge.pos.x; mate.pos.z = sim.charge.pos.z; mate.pos.y = sim.charge.pos.y;
+    run(2);
+    expect(mate.hasCharge).toBe(true);
   });
 });

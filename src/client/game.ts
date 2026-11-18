@@ -182,6 +182,7 @@ export class GameApp {
     this.menu.onResume = () => { this.input.enterFullscreen(); this.setPaused(false); this.input.requestLock(); };
     this.menu.onLeave = () => this.leave();
     this.menu.onSoundTest = (name) => this.audio.test(name);
+    this.menu.onBind = (done) => { this.input.capture = done; };
 
     this.net.onStart = (r) => this.startOnline(r);
     this.net.onEvents = (ev) => { if (this.mode === 'online') this.handleEvents(ev); };

@@ -16,7 +16,7 @@ import {
 import { Bot, assignRoles } from './bot';
 import { DROP_R, MAX_DROPS, REACH, TOSS_SPEED, TOUCH_R, flyDrop, type Drop } from './drops';
 import {
-  ATK, BTN_ALT, BTN_DROP, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, SLOT_LAST, SLOT_NADE, TICK,
+  ATK, BTN_ALT, BTN_DROP, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, SLOT_CHARGE, SLOT_LAST, SLOT_NADE, TICK,
   emptyCmd,
   type Charge, type Cmd, type Grenade, type Phase, type Player, type SimEvent, type Team, type WeaponState, type WinReason,
 } from './types';
@@ -174,6 +174,9 @@ export class Sim {
   /** Who planted, and who disarmed, the charge this round. */
   private planter = -1;
   private disarmer = -1;
+  /** Whoever last threw the charge down, and until when (sim time) they cannot walk it back up. */
+  private chargeDropper = -1;
+  private chargeDropUntil = 0;
   /** Shared bot knowledge: where each team last saw the enemy push. */
   intel: [{ site: number; time: number }, { site: number; time: number }] = [{ site: -1, time: -99 }, { site: -1, time: -99 }];
   botSkill: number;
@@ -1469,6 +1472,24 @@ export class Sim {
     }
   }
 
+  /** The carrier throws the charge down a step ahead (at the feet if a wall is that close), for a teammate to take. */
+  private dropCharge(p: Player): void {
+    if (!p.hasCharge || this.predicting) return;
+    forwardFromAngles(p.yaw, 0, fwd);
+    const cy = p.pos.y + 0.5;
+    const ahead = this.world.lineOfSight(p.pos.x, cy, p.pos.z, p.pos.x + fwd.x * 1.2, cy, p.pos.z + fwd.z * 1.2) ? 0.9 : 0;
+    const c = this.charge;
+    p.hasCharge = false;
+    c.state = 'dropped';
+    c.carrier = -1;
+    c.pos.x = p.pos.x + fwd.x * ahead;
+    c.pos.z = p.pos.z + fwd.z * ahead;
+    c.pos.y = this.floorBelow(c.pos.x, p.pos.y + 0.3, c.pos.z);
+    this.chargeDropper = p.id;
+    this.chargeDropUntil = this.time + 1.5;
+    this.events.push({ type: 'chargeDrop', x: c.pos.x, y: c.pos.y, z: c.pos.z });
+  }
+
   private updateCharge(): void {
     const c = this.charge;
     if (c.state === 'carried') {
@@ -1476,7 +1497,7 @@ export class Sim {
       if (carrier) { c.pos.x = carrier.pos.x; c.pos.y = carrier.pos.y; c.pos.z = carrier.pos.z; }
     } else if (c.state === 'dropped') {
       for (const p of this.players) {
-        if (!p.alive || p.team !== ATK) continue;
+        if (!p.alive || p.team !== ATK || (p.id === this.chargeDropper && this.time < this.chargeDropUntil)) continue;
         if (Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) < 1.1 && Math.abs(p.pos.y - c.pos.y) < 1.6) {
           p.hasCharge = true;
           c.state = 'carried';
@@ -1633,6 +1654,7 @@ export class Sim {
     const pressed = cmd.buttons & ~p.prevButtons;
     if (!this.predicting && p.useTime <= 0) {
       if (pressed & BTN_DROP) this.dropHeld(p);
+      if (cmd.slot === SLOT_CHARGE) this.dropCharge(p);
       if (pressed & BTN_USE && !this.canPlant(p) && !this.canDisarm(p)) {
         const d = this.dropInReach(p);
         if (d) this.takeDrop(p, d, true);

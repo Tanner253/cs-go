@@ -42,6 +42,8 @@ export interface Cmd {
 
 /** `Cmd.slot`: back to the weapon held before this one. */
 export const SLOT_LAST = 8;
+/** `Cmd.slot`: throw the charge down (for a teammate to take). */
+export const SLOT_CHARGE = 9;
 /** `Cmd.slot`: SLOT_NADE + i takes out grenade NADES[i]. */
 export const SLOT_NADE = 16;
 /** Weapon slots: primary, secondary, melee, grenade. */

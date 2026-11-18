@@ -4,7 +4,7 @@ import type { Team } from '../sim/types';
 import type { NetClient } from './net';
 import { CREDITS } from './credits';
 import { GameAudio } from './audio';
-import { onSettings, setSetting, settings, type AspectSetting, type QualitySetting, type Settings } from './settings';
+import { ACTIONS, bindKey, keyName, onSettings, setSetting, settings, type Action, type AspectSetting, type QualitySetting, type Settings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -17,6 +17,8 @@ export class Menu {
   onResume: () => void = () => {};
   onLeave: () => void = () => {};
   onSoundTest: (name: string) => void = () => {};
+  /** Hand the next key pressed to `done` (its code, or '' if Esc gave up). */
+  onBind: (done: (code: string) => void) => void = () => {};
 
   private root = $('menu');
   private pause = $('pause');
@@ -28,7 +30,7 @@ export class Menu {
   private skill = 0.5;
   private lastArenas = '';
 
-  constructor(private net: NetClient, touch: boolean) {
+  constructor(private net: NetClient, private touch: boolean) {
     // Tabs.
     document.querySelectorAll<HTMLButtonElement>('#nav button').forEach((b) => {
       b.addEventListener('click', () => { this.onClick(); this.openTab(b.dataset['tab']!); });
@@ -59,16 +61,22 @@ export class Menu {
     this.buildSettings($('settings-form'), true);
     this.buildSettings($('pause-settings'), false);
 
-    const keys: [string, string][] = touch
-      ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim) · throw a grenade · knife: slash'], ['ZOOM', 'scope / suppressor · lob a grenade · knife: stab'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold) · pick up a gun'], ['DROP', 'throw down the gun in hand'], ['SWAP', 'next weapon or grenade'], ['BUY', 'armory'], ['II', 'pause']]
-      : [
-          ['W A S D', 'move'], ['Mouse', 'aim'], ['Left click', 'fire · throw a grenade · knife: slash'], ['Right click', 'scope / suppressor · lob a grenade · knife: stab'],
-          ['Both buttons', 'grenade: a middle throw'], ['Space', 'jump (crouch in the air to jump higher)'],
-          ['C / Ctrl', 'crouch'], ['Shift', 'walk (silent)'], ['R', 'reload'], ['E', 'plant / disarm (hold) · pick up the gun looked at'], ['G', 'drop the gun in hand'], ['F', 'inspect weapon'],
-          ['B', 'armory'], ['1 2 3', 'primary / sidearm / knife'], ['4', 'grenades (again: next kind)'], ['Q', 'last weapon'],
-          ['Wheel', 'cycle weapons'], ['Tab', 'scoreboard'], ['Esc', 'pause'],
-        ];
-    $('keys').innerHTML = keys.map(([k, v]) => `<div><b>${k}</b>${v}</div>`).join('');
+    // The controls list, in the keys this player has bound.
+    onSettings((s) => {
+      const k = (a: Action): string => (s.binds[a].length ? s.binds[a].map(keyName).join(' / ') : '—');
+      const keys: [string, string][] = touch
+        ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim) · throw a grenade · knife: slash'], ['ZOOM', 'scope / suppressor · lob a grenade · knife: stab'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold) · pick up a gun'], ['DROP', 'throw down the gun in hand'], ['SWAP', 'next weapon or grenade'], ['BUY', 'armory'], ['II', 'pause']]
+        : [
+            [[s.binds.forward[0], s.binds.left[0], s.binds.back[0], s.binds.right[0]].map(keyName).join(' '), 'move'], ['Mouse', 'aim'],
+            ['Left click', 'fire · throw a grenade · knife: slash'], ['Right click', 'scope / suppressor · lob a grenade · knife: stab'],
+            ['Both buttons', 'grenade: a middle throw'], [k('jump'), 'jump (crouch in the air to jump higher)'],
+            [k('crouch'), 'crouch'], [k('walk'), 'walk (silent)'], [k('reload'), 'reload'], [k('use'), 'plant / disarm (hold) · pick up the gun looked at'],
+            [k('drop'), 'drop the gun in hand'], [k('dropCharge'), 'drop the charge'], [k('inspect'), 'inspect weapon'],
+            [k('buy'), 'armory'], [`${k('primary')} ${k('secondary')} ${k('knife')}`, 'main gun / sidearm / knife'], [k('grenade'), 'grenades (again: next kind)'], [k('last'), 'last weapon'],
+            ['Wheel', 'cycle weapons'], [k('scoreboard'), 'scoreboard'], ['Esc', 'pause'],
+          ];
+      $('keys').innerHTML = keys.map(([key, v]) => `<div><b>${esc(key)}</b>${v}</div>`).join('');
+    });
     $('credits').innerHTML = CREDITS.map((c) =>
       `<div><b>${esc(c.title)}</b> by ${esc(c.author)} — <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.license)}</a>${c.note ? `<br>${esc(c.note)}` : ''}</div>`).join('');
 
@@ -193,10 +201,46 @@ export class Menu {
     sw.forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); this.onClick(); setSetting('crosshairColor', b.dataset['c']!); }));
     onSettings((s) => sw.forEach((b) => b.classList.toggle('on', b.dataset['c'] === s.crosshairColor)));
     root.appendChild(l);
+    // A preview of the crosshair as set, over a picture of the level's colours.
+    const pv = document.createElement('label');
+    pv.innerHTML = '<span>Preview</span><div class="xpreview"><div class="xhair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div></div>';
+    root.appendChild(pv);
+    const px = pv.querySelector<HTMLElement>('.xhair')!;
+    onSettings((s) => {
+      px.classList.toggle('nodot', !s.crosshairDot);
+      px.classList.toggle('outline', s.crosshairOutline);
+      px.classList.toggle('tee', s.crosshairT);
+    });
     range('Crosshair size', 'crosshairSize', 3, 16, 1, 0);
+    range('Thickness', 'crosshairThickness', 1, 5, 0.5, 1);
+    range('Gap', 'crosshairGap', -3, 10, 0.5, 1);
+    range('Opacity', 'crosshairAlpha', 0.3, 1, 0.05, 2);
+    choice<'crosshairDynamic'>('Style', 'crosshairDynamic', [['Dynamic', true], ['Static', false]]);
+    choice<'crosshairOutline'>('Outline', 'crosshairOutline', [['On', true], ['Off', false]]);
     choice<'crosshairDot'>('Centre dot', 'crosshairDot', [['On', true], ['Off', false]]);
+    choice<'crosshairT'>('T-style', 'crosshairT', [['Off', false], ['On', true]]);
     choice<'invertY'>('Invert Y', 'invertY', [['Off', false], ['On', true]]);
     choice<'showFps'>('FPS counter', 'showFps', [['On', true], ['Off', false]]);
+    if (!this.touch) {
+      // Controls: click an action, then press the key for it (Esc leaves it as it was).
+      const cl = document.createElement('label');
+      cl.innerHTML = `<span>Controls</span><div class="binds">${ACTIONS.map(([a, name]) => `<span>${name}</span><button data-a="${a}"></button>`).join('')}</div>`;
+      const buttons = [...cl.querySelectorAll<HTMLButtonElement>('button[data-a]')];
+      buttons.forEach((b) => b.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.onClick();
+        buttons.forEach((o) => o.classList.remove('wait'));
+        b.classList.add('wait');
+        b.textContent = 'press a key';
+        this.onBind((code) => {
+          b.classList.remove('wait');
+          if (code) bindKey(b.dataset['a'] as Action, code);
+          else b.textContent = keyName(settings.binds[b.dataset['a'] as Action][0]);
+        });
+      }));
+      onSettings((s) => buttons.forEach((b) => { if (!b.classList.contains('wait')) b.textContent = keyName(s.binds[b.dataset['a'] as Action][0]); }));
+      root.appendChild(cl);
+    }
     // Sound test: audition any cue, so a sound that is off can be named exactly.
     const st = document.createElement('label');
     st.innerHTML = `<span>Sound test</span><div class="row"><select>${GameAudio.cueNames().map((n) => `<option>${n}</option>`).join('')}</select><button class="btn alt">PLAY</button></div>`;
