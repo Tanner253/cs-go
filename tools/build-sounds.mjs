@@ -417,6 +417,17 @@ for (let i = 0; i < 5; i++) {
   }
 }
 
+// A gun thrown down: a heavy strike on steel for the body of the gun, and the lighter ring of a
+// plate for its smaller parts, both as recorded, laid together.
+for (let i = 0; i < 3; i++) {
+  const out = new Float32Array(Math.floor(SR * 0.45));
+  mix(out, K.impactMetal_medium[i + 1], 1);
+  mix(out, filt(K.impactPlate_light[i + 2], 'hp', 900), 0.3, 0.012);
+  const y = normalise(fadeOut(filt(out, 'hp', 140), 0.3));
+  writeWav(`gun_drop_${i + 1}`, y, SR);
+  report(`gun_drop_${i + 1}`, y);
+}
+
 decoder.free();
 
 // ---- grenades: field recordings from Freesound, every one CC0 (see CREDITS.md) -------------------

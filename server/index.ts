@@ -242,7 +242,7 @@ function onMessage(c: Client, raw: string): void {
       // An honest client only ever sends these within their ranges: anything else was made by hand.
       if (
         !whole(m.q, 0, 2 ** 31) || !within(m.f, -1, 1) || !within(m.s, -1, 1) || !within(m.y, -1e6, 1e6) || !within(m.p, -1.56, 1.56) ||
-        !whole(m.b, 0, 255) || !whole(m.w, -1, SLOT_NADE + NADES.length - 1) || !within(m.v, -60, 1e9) || typeof m.u !== 'string' || (m.u !== '' && validItem(m.u) === '')
+        !whole(m.b, 0, 511) || !whole(m.w, -1, SLOT_NADE + NADES.length - 1) || !within(m.v, -60, 1e9) || typeof m.u !== 'string' || (m.u !== '' && validItem(m.u) === '')
       ) {
         c.monitor.violation('a command outside what the game can send');
         police(c);
@@ -257,7 +257,7 @@ function onMessage(c: Client, raw: string): void {
       c.queue.push({
         fwd: num(m.f, -1, 1), side: num(m.s, -1, 1),
         yaw: num(m.y, -1e6, 1e6), pitch: num(m.p, -1.56, 1.56),
-        buttons: num(m.b, 0, 255) | 0, slot: num(m.w, -1, SLOT_NADE + NADES.length - 1) | 0,
+        buttons: num(m.b, 0, 511) | 0, slot: num(m.w, -1, SLOT_NADE + NADES.length - 1) | 0,
         buy: validItem(m.u), seq, lag: 0,
       });
       c.viewTimes.push(num(m.v, 0, 1e9));

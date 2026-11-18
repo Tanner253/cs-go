@@ -141,6 +141,19 @@ bot's head against the real level, so it banks off walls and lobs over cover onl
 works: smokes and a flash on a site they are taking, HE and fire at enemies known to be behind
 cover, fire on the charge when defenders close on it; they turn away from their own flashbangs.
 
+**Weapons on the floor** (`src/sim/drops.ts`), as in Counter-Strike. G throws down the gun in
+hand (or one grenade of the kind in hand; never the knife), ahead and a little up from the aim;
+it falls under full gravity, clatters (a recorded strike on steel) and slides to a stop, keeping
+its magazine, reserve and suppressor. The dead let fall their best gun (a pistol only when they
+had no main gun) and the grenade in hand. Buying a gun for a slot already filled sets the old one
+down at the buyer's feet, so a gun can be bought for a teammate in the freeze. Walking over a gun
+fills an empty slot (whoever threw it down only after a second) and takes it up if it is better
+than what is in hand; E takes the gun looked at within 2.4 m, or the one stood on, trading the gun
+in that slot for it. Either side may carry the other's guns. Bots go over and take a much better
+gun lying close by when nothing presses. Whatever is on the floor is cleared when the next round
+starts. The guns lie on their side with the models and skins the players carry
+(`src/client/drops-view.ts`), and the server sends them to clients like grenades.
+
 **Explosions** (`src/client/blast.ts`) are made in layers, as the ZONA project's are: the flash,
 a fireball of fire photographs that swells, rises, boils and cools to soot, smoke lit from inside
 while the fire lasts, dust rolled out along the floor and a ring of it, sparks and embers, the
@@ -211,7 +224,8 @@ the lobby screen says so while it waits.
 | Move / look | WASD / mouse | left stick / drag |
 | Fire / scope or suppressor | left click / right click | FIRE / ZOOM |
 | Jump / crouch / walk | Space / C or Ctrl / Shift | JUMP / DUCK |
-| Reload / use | R / E (plant, disarm) | RLD / USE |
+| Reload / use | R / E (plant, disarm, pick up a gun) | RLD / USE |
+| Drop the gun in hand | G | DROP |
 | Inspect weapon | F | — |
 | Armory / weapons | B / 1 2 3, 4 (grenades), Q, wheel | BUY / SWAP |
 | Throw a grenade | left click (overarm), right click (lob), both | FIRE / ZOOM |
@@ -237,6 +251,6 @@ rewinds targets to what the shooter saw when testing hits.
 
 ## Not built yet
 
-Weapon drops, overtime, online matches larger than 1v1, reconnecting to a match,
-direction-specific strafe animations, and audio compressed for download size (sounds ship
+Overtime, online matches larger than 1v1, reconnecting to a match,
+strafe animations of their own (other players' legs turn toward a strafe; walking and crouching backwards already have their own movements), and audio compressed for download size (sounds ship
 mostly as WAV).

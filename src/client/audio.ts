@@ -117,6 +117,8 @@ export const CUES: Record<string, Cue> = {
   'nade.fire': { files: ['nade_fire'], level: -23, ref: 5, wet: 0.12 },
   'nade.pin': { files: ['nade_pin'], level: -29, ...HANDLE },
   'nade.bounce': { files: numbered('nade_bounce', 3), level: -27, ref: 6, wet: 0.08, jitter: 0.1 },
+  // ---- weapons on the floor: a gun striking concrete (recorded), and one taken up into the hands ----
+  'gun.drop': { files: numbered('gun_drop', 3), level: -25, ref: 6, wet: 0.1, jitter: 0.08 },
   // ---- interface ----
   'ui.click': { files: ['ui_click_002'], level: -35, ref: 1, wet: 0 },
   'ui.tick': { files: ['ui_tick_001'], level: -36, ref: 1, wet: 0 },
@@ -495,6 +497,15 @@ export class GameAudio {
   }
   nadeBounce(x: number, y: number, z: number, speed: number): void {
     this.play('nade.bounce', x, y, z, Math.min(1.2, 0.35 + speed * 0.12));
+  }
+
+  /** A gun thrown down striking the floor (louder the harder), and one taken up off it (`x` null: by you). */
+  gunDrop(x: number, y: number, z: number, speed: number): void {
+    this.play('gun.drop', x, y, z, Math.min(1.1, 0.3 + speed * 0.16));
+  }
+  pickup(x: number | null, y = 0, z = 0): void {
+    this.play('fol.catch', x, y, z, 1.2);
+    this.play('draw_metal', x, y, z, 0.8, 0.05);
   }
 
   /** Sounds that go on until stopped (a fire), by key, kept placed as the listener moves. */

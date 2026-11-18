@@ -457,8 +457,15 @@ export class Hud {
     let hint = '';
     const useKey = touch ? 'USE' : 'E';
     if (me && me.alive) {
+      const loose = this.buyOpen || me.useTime > 0 || sim.canPlant(me) || sim.canDisarm(me) ? null : sim.dropInReach(me);
       if (this.buyOpen) hint = '';
-      else if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : 'Press <b>B</b> to open the armory';
+      else if (loose) {
+        // A weapon on the floor in reach: what E would do with it.
+        const def = loose.weapon.def;
+        const held = def.kind === 'grenade' ? null : me.weapons[def.slot];
+        const empty = def.magSize > 0 && loose.weapon.mag + loose.weapon.reserve <= 0 ? ' <span class="dim">(empty)</span>' : '';
+        hint = held ? `<b>${useKey}</b> Swap your ${held.def.name} for the ${def.name}${empty}` : `<b>${useKey}</b> Pick up the ${def.name}${empty}`;
+      } else if (sim.phase === 'freeze') hint = touch ? 'Tap <b>BUY</b> to open the armory' : 'Press <b>B</b> to open the armory';
       else if (me.useTime > 0) hint = '';
       else if (sim.canPlant(me)) hint = `Hold <b>${useKey}</b> to plant the charge`;
       else if (sim.canDisarm(me)) hint = `Hold <b>${useKey}</b> to disarm`;

@@ -50,6 +50,10 @@ function prepare(assets: CharacterAssets): Shared {
   add('run', pick('jogF', 'run'));
   add('crouchIdle', pick('crouchIdle'));
   add('crouchWalk', pick('crouchWalk', 'crouchF'));
+  // Walking and crouching backwards have their own movements in the shared library (rather than
+  // the forward ones played in reverse, which put the heel down last).
+  add('walkBack', pick('walkB'));
+  add('crouchBack', pick('crouchB'));
   add('air', pick('jumpLoop'));
 
   const mats: Map<THREE.Material, THREE.Material>[] = [new Map(), new Map()];
@@ -126,6 +130,31 @@ function dressGun(s: Shared, key: string, obj: THREE.Object3D): void {
     }
     mesh.material = m;
   }
+}
+
+/**
+ * A copy of a weapon's world model in its skin, on its own, for one lying on the floor (a pair
+ * of guns comes as both). Null until the models have loaded. `userData.cans` are its suppressors.
+ */
+export function looseGun(weaponId: string): THREE.Object3D | null {
+  const assets = getCharacters();
+  if (!assets) return null;
+  if (!shared || shared.assets !== assets) shared = prepare(assets);
+  const key = WEAPON_LOOK[weaponId]?.world;
+  const gun = key ? assets.guns.get(key) : undefined;
+  if (!key || !gun) return null;
+  const obj = gun.scene.clone(true);
+  dressGun(shared, key, obj);
+  if (gun.carry !== 'dual') return obj;
+  const pair = new THREE.Group();
+  const other = gun.scene.clone(true);
+  dressGun(shared, key, other);
+  // (side by side, the second a little turned)
+  other.position.z = 0.07;
+  other.rotation.y = 0.25;
+  pair.add(obj, other);
+  pair.userData['cans'] = [...(obj.userData['cans'] as THREE.Object3D[]), ...(other.userData['cans'] as THREE.Object3D[])];
+  return pair;
 }
 
 /** Where the hands go on a gun: the middle of each palm, in the gun's own space, and its rear end. */
@@ -599,9 +628,13 @@ export class CharacterView {
     const tucked = !p.onGround && p.ducked;
     if (!p.onGround && !tucked) this.play('air', 1, dt);
     else if (crouch > 0.5) {
-      if (speed > 0.4 && !tucked) this.play('crouchWalk', reverse * Math.min(1.8, Math.max(0.5, speed / 1.5)), dt);
+      // (each clip played so its feet move against the ground as the forward one's do: the
+      // backward clips step out 1.65 times as fast at their own pace)
+      if (speed > 0.4 && !tucked && reverse < 0 && this.actions.has('crouchBack')) this.play('crouchBack', Math.min(1.6, Math.max(0.4, speed / 2.5)), dt);
+      else if (speed > 0.4 && !tucked) this.play('crouchWalk', reverse * Math.min(1.8, Math.max(0.5, speed / 1.5)), dt);
       else this.play('crouchIdle', 1, dt);
     } else if (speed > 3.6) this.play('run', reverse * Math.min(1.5, Math.max(0.7, speed / 5.4)), dt);
+    else if (speed > 0.4 && reverse < 0 && this.actions.has('walkBack')) this.play('walkBack', Math.min(1.8, Math.max(0.5, speed / 2.4)), dt);
     else if (speed > 0.4) this.play('walk', reverse * Math.min(1.8, Math.max(0.6, speed / 1.9)), dt);
     else this.play('idle', 1, dt);
     // The aim twist below is added on top of the animated pose every frame, so start from a

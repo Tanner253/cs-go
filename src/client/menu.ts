@@ -60,11 +60,11 @@ export class Menu {
     this.buildSettings($('pause-settings'), false);
 
     const keys: [string, string][] = touch
-      ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim) · throw a grenade'], ['ZOOM', 'scope / suppressor · lob a grenade'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold)'], ['SWAP', 'next weapon or grenade'], ['BUY', 'armory'], ['II', 'pause']]
+      ? [['Left side', 'move'], ['Drag elsewhere', 'look'], ['FIRE', 'shoot (drag to aim) · throw a grenade'], ['ZOOM', 'scope / suppressor · lob a grenade'], ['RLD', 'reload'], ['USE', 'plant / disarm (hold) · pick up a gun'], ['DROP', 'throw down the gun in hand'], ['SWAP', 'next weapon or grenade'], ['BUY', 'armory'], ['II', 'pause']]
       : [
           ['W A S D', 'move'], ['Mouse', 'aim'], ['Left click', 'fire · throw a grenade'], ['Right click', 'scope / suppressor · lob a grenade'],
           ['Both buttons', 'grenade: a middle throw'], ['Space', 'jump (crouch in the air to jump higher)'],
-          ['C / Ctrl', 'crouch'], ['Shift', 'walk (silent)'], ['R', 'reload'], ['E', 'plant / disarm (hold)'], ['F', 'inspect weapon'],
+          ['C / Ctrl', 'crouch'], ['Shift', 'walk (silent)'], ['R', 'reload'], ['E', 'plant / disarm (hold) · pick up the gun looked at'], ['G', 'drop the gun in hand'], ['F', 'inspect weapon'],
           ['B', 'armory'], ['1 2 3', 'primary / sidearm / knife'], ['4', 'grenades (again: next kind)'], ['Q', 'last weapon'],
           ['Wheel', 'cycle weapons'], ['Tab', 'scoreboard'], ['Esc', 'pause'],
         ];

@@ -17,6 +17,8 @@ export const BTN_WALK = 16;
 export const BTN_RELOAD = 32;
 export const BTN_USE = 64;
 export const BTN_GRAPPLE = 128;
+/** Throw the weapon in hand to the floor. */
+export const BTN_DROP = 256;
 
 /** One tick of player intent. This is the only thing a client would send to a server. */
 export interface Cmd {
@@ -210,6 +212,11 @@ export type SimEvent =
   | { type: 'detonated'; x: number; y: number; z: number }
   | { type: 'chargeDrop'; x: number; y: number; z: number }
   | { type: 'chargePickup'; player: number }
+  /** A weapon leaving someone's hands for the floor, and one picked up off it. */
+  | { type: 'drop'; player: number; weapon: string }
+  | { type: 'pickup'; player: number; weapon: string }
+  /** A weapon on the floor striking it (or a wall) hard enough to be heard. */
+  | { type: 'clatter'; id: number; x: number; y: number; z: number; speed: number }
   | { type: 'roundStart'; round: number }
   | { type: 'roundLive' }
   | { type: 'roundEnd'; winner: Team; reason: WinReason }

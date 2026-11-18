@@ -30,6 +30,7 @@ import { Thumbs } from './thumbs';
 import { CharacterView } from './characters';
 import { Effects } from './effects';
 import { NadeFx } from './nade-fx';
+import { DropsView } from './drops-view';
 import { Blasts, type Surface } from './blast';
 import { Mat } from '../sim/map';
 import type { Box } from '../sim/world';
@@ -57,6 +58,7 @@ export class GameApp {
   private audio = new GameAudio();
   /** Grenades in the world: in flight, smoke clouds, fires. */
   private nades = new NadeFx(this.fx, this.audio);
+  private dropsView = new DropsView();
   /** Explosions (an HE grenade, the charge), made in layers: see blast.ts. Made once the level is. */
   private blasts: Blasts | null = null;
   /**
@@ -135,6 +137,7 @@ export class GameApp {
     this.gfx = createGfx(this.renderer, this.scene, this.camera, this.vm.scene, this.vm.camera, quality);
     this.scene.add(this.fx.group);
     this.scene.add(this.nades.group);
+    this.scene.add(this.dropsView.group);
     this.veil.position.z = -0.3;
     this.veil.renderOrder = 999;
     this.veil.frustumCulled = false;
@@ -250,7 +253,7 @@ export class GameApp {
     this.deathAt = -99;
     this.ensureChars(sim);
     this.fx.clearRound();
-    this.nades.clear(); this.blasts?.clear();
+    this.nades.clear(); this.blasts?.clear(); this.dropsView.clear();
     this.audio.stopLoops();
     this.menu.show(false);
     this.menu.showPause(false);
@@ -296,7 +299,7 @@ export class GameApp {
     $('touch').classList.remove('live');
     this.ensureChars(this.sim);
     this.fx.clearRound();
-    this.nades.clear(); this.blasts?.clear();
+    this.nades.clear(); this.blasts?.clear(); this.dropsView.clear();
     this.audio.stopLoops();
   }
 
@@ -523,6 +526,20 @@ export class GameApp {
         case 'bounce':
           this.audio.nadeBounce(e.x, e.y, e.z, e.speed);
           break;
+        case 'clatter':
+          this.audio.gunDrop(e.x, e.y, e.z, e.speed);
+          break;
+        case 'pickup': {
+          const p = sim.players[e.player]!;
+          this.audio.pickup(p === view ? null : p.pos.x, p.pos.y + 0.6, p.pos.z);
+          break;
+        }
+        case 'drop': {
+          // (the throw is heard as the gun leaves the hands; it is heard again where it lands)
+          const p = sim.players[e.player]!;
+          if (p.alive) this.audio.nadeThrow(p === view ? null : p.pos.x, p.pos.y + 1.2, p.pos.z);
+          break;
+        }
         case 'boom': {
           this.audio.nade(e.kind, e.x, e.y, e.z);
           const d = Math.hypot(e.x - this.camera.position.x, e.y - this.camera.position.y, e.z - this.camera.position.z);
@@ -570,7 +587,7 @@ export class GameApp {
           break;
         case 'roundStart':
           this.fx.clearRound();
-          this.nades.clear(); this.blasts?.clear();
+          this.nades.clear(); this.blasts?.clear(); this.dropsView.clear();
           this.audio.stopLoops();
           for (const c of this.chars) c.hideCorpse();
           if (me) { this.input.yaw = sim.map.spawnYaw[me.team]; this.input.pitch = 0; }
@@ -675,7 +692,7 @@ export class GameApp {
     let n = 0;
     while (this.acc >= TICK && n++ < 4) { this.acc -= TICK; sim.tick(); }
     for (const e of sim.events) {
-      if (e.type === 'roundStart') { this.fx.clearRound(); this.nades.clear(); this.blasts?.clear(); for (const c of this.chars) c.hideCorpse(); }
+      if (e.type === 'roundStart') { this.fx.clearRound(); this.nades.clear(); this.blasts?.clear(); this.dropsView.clear(); for (const c of this.chars) c.hideCorpse(); }
       else if (e.type === 'detonated') this.blasts?.go(e, 'charge');
       else if (e.type === 'boom') {
         if (e.kind === 'he') this.blasts?.go(e, 'grenade');
@@ -692,6 +709,7 @@ export class GameApp {
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
     this.fx.charge.visible = false;
     this.nades.update(sim, dt, this.acc / TICK, this.camera.position);
+    this.dropsView.update(sim, dt);
     this.blasts?.update(dt, this.camera.position);
     this.veil.visible = false;
     this.fx.update(dt, 0);
@@ -774,6 +792,7 @@ export class GameApp {
     }
     for (let i = sim.players.length; i < this.chars.length; i++) this.chars[i]!.hideCorpse();
     const veil = this.nades.update(sim, dt, alpha, this.camera.position);
+    this.dropsView.update(sim, dt);
     this.shake = Math.max(this.shake, this.blasts?.update(dt, this.camera.position) ?? 0);
     (this.veil.material as THREE.MeshBasicMaterial).opacity = veil * 0.97;
     this.veil.visible = veil > 0.002;

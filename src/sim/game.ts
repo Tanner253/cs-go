@@ -14,8 +14,9 @@ import {
   FIRE_FUSE, FIRE_GROW, FIRE_LIFE, FIRE_R, FUSE, NADE_LEAVE, PIN_TIME, SMOKE_LIFE, SMOKE_RH, THROW_TIME, flyNade, inSmoke, throwFrom,
 } from './grenades';
 import { Bot, assignRoles } from './bot';
+import { DROP_R, MAX_DROPS, REACH, TOSS_SPEED, TOUCH_R, flyDrop, type Drop } from './drops';
 import {
-  ATK, BTN_ALT, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, SLOT_LAST, SLOT_NADE, TICK,
+  ATK, BTN_ALT, BTN_DROP, BTN_FIRE, BTN_RELOAD, BTN_USE, DEF, HIT_NONE, HIT_PLAYER, HIT_WORLD, HULL_HALF, SLOT_LAST, SLOT_NADE, TICK,
   emptyCmd,
   type Charge, type Cmd, type Grenade, type Phase, type Player, type SimEvent, type Team, type WeaponState, type WinReason,
 } from './types';
@@ -131,6 +132,9 @@ export class Sim {
   private nadeId = 0;
   /** Thrown, but not yet out of the hand (server only): player id to the kind thrown. */
   private leaving = new Map<number, number>();
+  /** Weapons lying on the floor (or falling to it) this round. */
+  drops: Drop[] = [];
+  private dropId = 0;
   /** Events produced since the consumer last cleared them. */
   events: SimEvent[] = [];
 
@@ -261,6 +265,7 @@ export class Sim {
     this.intel[0].site = this.intel[1].site = -1;
     this.grenades.length = 0;
     this.leaving.clear();
+    this.drops.length = 0;
 
     const used: [number, number] = [0, 0];
     const offset = this.rng.int(7);
@@ -401,6 +406,9 @@ export class Sim {
       if (def.kind === 'knife' || (def.team !== -1 && def.team !== p.team)) return false;
       if (p.money < def.price || p.weapons[def.slot]?.def.id === def.id) return false;
       p.money -= def.price;
+      // (the gun it replaces is let fall at the buyer's feet, as in Counter-Strike: a teammate may want it)
+      const old = p.weapons[def.slot];
+      if (old) this.spawnDrop(p, old, 'feet');
       p.weapons[def.slot] = this.makeWeapon(item);
       this.switchTo(p, def.slot);
       return true;
@@ -464,7 +472,15 @@ export class Sim {
     }
   }
 
-  private switchTo(p: Player, slot: number): void {
+  /** @param again bring the slot's weapon up even if that slot is already in hand (a new gun put in it) */
+  private switchTo(p: Player, slot: number, again = false): void {
+    if (again && slot === p.active && p.weapons[slot]) {
+      const last = p.lastActive;
+      p.active = -1;
+      this.switchTo(p, slot);
+      p.lastActive = last;
+      return;
+    }
     if (slot === 3 && p.active === 3) {
       // The grenade key again: on to the next kind carried.
       for (let k = 1; k < NADES.length; k++) {
@@ -680,6 +696,137 @@ export class Sim {
     };
     this.grenades.push(g);
     return g;
+  }
+
+  // ---- weapons on the floor ----------------------------------------------------------
+
+  /**
+   * Put a weapon on the floor from a player: thrown out along the aim (G, or one swapped for
+   * another), let fall from the hands (the dead), or set down at the feet (one replaced by buying).
+   */
+  private spawnDrop(p: Player, w: WeaponState, how: 'toss' | 'fall' | 'feet'): Drop {
+    const rng = this.rng;
+    const d: Drop = {
+      id: ++this.dropId, weapon: w, pos: v3(), vel: v3(), yaw: p.yaw + Math.PI / 2 + (rng.next() - 0.5) * 0.8,
+      spin: (rng.next() - 0.5) * 6, state: 0, owner: p.id, ownerUntil: this.time + 1,
+    };
+    if (how === 'toss') {
+      // Out of the hands ahead of the chest, a little up from the aim; never through a wall in the face.
+      forwardFromAngles(p.yaw, Math.max(-1, Math.min(0.9, p.pitch)) + 0.2, fwd);
+      const sy = this.eyeY(p) - 0.3;
+      this.world.traceHull(p.pos.x, sy, p.pos.z, p.pos.x + fwd.x * 0.6, sy + fwd.y * 0.6, p.pos.z + fwd.z * 0.6, DROP_R, 0.03, DROP_R, tr);
+      const f = tr.startSolid ? 0 : Math.max(0, tr.fraction - 0.1);
+      d.pos.x = p.pos.x + fwd.x * 0.6 * f; d.pos.y = sy + fwd.y * 0.6 * f; d.pos.z = p.pos.z + fwd.z * 0.6 * f;
+      d.vel.x = fwd.x * TOSS_SPEED + p.vel.x; d.vel.y = fwd.y * TOSS_SPEED + p.vel.y * 0.5; d.vel.z = fwd.z * TOSS_SPEED + p.vel.z;
+    } else {
+      const a = rng.next() * Math.PI * 2, s = how === 'fall' ? 0.8 : 0.5;
+      d.pos.x = p.pos.x; d.pos.y = p.pos.y + (how === 'fall' ? 1.1 : 0.6); d.pos.z = p.pos.z;
+      d.vel.x = p.vel.x * 0.6 + Math.cos(a) * s; d.vel.y = how === 'fall' ? 1 : 0.5; d.vel.z = p.vel.z * 0.6 + Math.sin(a) * s;
+    }
+    this.drops.push(d);
+    if (this.drops.length > MAX_DROPS) this.drops.shift();
+    this.events.push({ type: 'drop', player: p.id, weapon: w.def.id });
+    return d;
+  }
+
+  /** G: the weapon in hand goes to the floor (never the knife), and the next best comes up. */
+  private dropHeld(p: Player): void {
+    const slot = p.active, w = p.weapons[slot];
+    if (!w || slot === 2 || this.predicting) return;
+    if (slot === 3) {
+      // One grenade of the kind in hand, with its pin in.
+      const i = NADE_INDEX.get(w.def.id)!;
+      if (p.pinAt >= 0 || p.throwAt >= 0 || !(p.nades[i]! > 0)) return;
+      p.nades[i]!--;
+      this.spawnDrop(p, { def: w.def, mag: 1, reserve: 0, quiet: false }, 'toss');
+      this.syncNade(p);
+      if (p.weapons[3]) this.switchTo(p, 3, true);
+      else this.switchTo(p, this.afterNade(p));
+      return;
+    }
+    p.weapons[slot] = null;
+    this.spawnDrop(p, w, 'toss');
+    this.switchTo(p, slot === 0 ? (p.weapons[1] ? 1 : 2) : p.weapons[0] ? 0 : 2);
+    if (!p.weapons[p.lastActive]) p.lastActive = 2;
+  }
+
+  /** Close enough to walk over: under the body, not on a floor far above or below it. */
+  private onDrop(p: Player, d: Drop): boolean {
+    return Math.hypot(d.pos.x - p.pos.x, d.pos.z - p.pos.z) < TOUCH_R && d.pos.y > p.pos.y - 0.45 && d.pos.y < p.pos.y + 1.2;
+  }
+
+  /** Whether this weapon could be taken at all (a grenade needs room on the belt). */
+  private hasRoom(p: Player, w: WeaponState): boolean {
+    if (w.def.kind !== 'grenade') return true;
+    const i = NADE_INDEX.get(w.def.id)!;
+    return p.nades.reduce((a, b) => a + b, 0) < NADE_CARRY && p.nades[i]! < w.def.nade!.max;
+  }
+
+  /**
+   * The weapon on the floor that E would take: the one nearest the crosshair within reach (and
+   * in plain sight), or failing that one being stood on.
+   */
+  dropInReach(p: Player): Drop | null {
+    if (!p.alive || this.drops.length === 0) return null;
+    const ex = p.pos.x, ey = this.eyeY(p), ez = p.pos.z;
+    forwardFromAngles(p.yaw, p.pitch, fwd);
+    let best: Drop | null = null, bestScore = Infinity;
+    for (const d of this.drops) {
+      if (!this.hasRoom(p, d.weapon)) continue;
+      const dx = d.pos.x - ex, dy = d.pos.y - ey, dz = d.pos.z - ez;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > REACH + 0.6) continue;
+      const off = Math.acos(Math.max(-1, Math.min(1, (dx * fwd.x + dy * fwd.y + dz * fwd.z) / Math.max(dist, 1e-3))));
+      // (a gun is a third of a metre long: the closer it is, the wider the angle it fills)
+      const aimed = dist <= REACH && off < Math.atan2(0.3, dist) + 0.06
+        && this.world.lineOfSight(ex, ey, ez, d.pos.x, d.pos.y + 0.05, d.pos.z);
+      const score = aimed ? off : this.onDrop(p, d) ? 10 + dist : Infinity;
+      if (score < bestScore) { bestScore = score; best = d; }
+    }
+    return best;
+  }
+
+  /**
+   * Take a weapon off the floor. Walking over one (`swap` false) only fills an empty slot;
+   * E (`swap` true) also trades the gun in that slot for it, which is thrown down in its place.
+   */
+  private takeDrop(p: Player, d: Drop, swap: boolean): boolean {
+    const w = d.weapon, def = w.def;
+    if (!this.hasRoom(p, w)) return false;
+    if (def.kind === 'grenade') {
+      const i = NADE_INDEX.get(def.id)!;
+      p.nades[i]!++;
+      if (!p.weapons[3]) p.nadeSel = i;
+      this.syncNade(p);
+    } else {
+      const slot = def.slot;
+      const old = p.weapons[slot];
+      if (old && !swap) return false;
+      this.drops.splice(this.drops.indexOf(d), 1);
+      if (old) this.spawnDrop(p, old, 'toss');
+      p.weapons[slot] = w;
+      // Up into the hands if it was asked for, or is better than what they hold (and they are not mid-throw).
+      const busy = p.active === 3 && (p.pinAt >= 0 || p.throwAt >= 0);
+      if (swap || (!busy && slot < p.active)) this.switchTo(p, slot, true);
+      this.events.push({ type: 'pickup', player: p.id, weapon: def.id });
+      return true;
+    }
+    this.drops.splice(this.drops.indexOf(d), 1);
+    this.events.push({ type: 'pickup', player: p.id, weapon: def.id });
+    return true;
+  }
+
+  private updateDrops(): void {
+    for (const d of this.drops) flyDrop(d, this.world, TICK, this.events);
+    if (this.predicting) return;
+    // Walking over one with that slot empty picks it up (its dropper only after a moment).
+    for (let k = this.drops.length - 1; k >= 0; k--) {
+      const d = this.drops[k]!;
+      for (const p of this.players) {
+        if (!p.alive || (p.id === d.owner && this.time < d.ownerUntil) || !this.onDrop(p, d)) continue;
+        if (this.takeDrop(p, d, false)) break;
+      }
+    }
   }
 
   /** True if smoke hides b from a (enough of the line runs through one or more clouds). */
@@ -1089,6 +1236,26 @@ export class Sim {
     v.scope = 0;
     v.useTime = 0;
     v.flashEnd = 0;
+    // The best gun falls from the hands (a pistol only when there is no main gun), and a grenade
+    // that was in hand with its pin still in falls with it.
+    if (!this.predicting) {
+      const slot = v.weapons[0] ? 0 : 1;
+      const best = v.weapons[slot];
+      if (best) {
+        this.spawnDrop(v, best, 'fall');
+        v.weapons[slot] = null;
+      }
+      const held = v.weapons[3];
+      if (v.active === 3 && held && v.pinAt < 0 && v.throwAt < 0) {
+        const i = NADE_INDEX.get(held.def.id)!;
+        if (v.nades[i]! > 0) {
+          v.nades[i]!--;
+          this.spawnDrop(v, { def: held.def, mag: 1, reserve: 0, quiet: false }, 'fall');
+          this.syncNade(v);
+        }
+      }
+      if (!v.weapons[v.active]) v.active = 2;
+    }
     // Killed with the pin out: the grenade falls from the hand and goes off anyway.
     if (v.pinAt >= 0 && v.active === 3 && v.weapons[3] && !this.predicting) {
       const i = NADE_INDEX.get(v.weapons[3].def.id)!;
@@ -1305,6 +1472,7 @@ export class Sim {
 
     this.separate();
     this.updateGrenades();
+    this.updateDrops();
     this.updateCharge();
     this.checkWin();
 
@@ -1350,6 +1518,16 @@ export class Sim {
       if (p.pos.y < -20) { this.kill(p, null, null, false, false); return; }
     }
 
+    // Weapons on the floor: G throws down the one in hand, E takes the one looked at (unless E is
+    // planting or disarming here). Both work in the freeze, to hand a teammate a gun.
+    const pressed = cmd.buttons & ~p.prevButtons;
+    if (!this.predicting && p.useTime <= 0) {
+      if (pressed & BTN_DROP) this.dropHeld(p);
+      if (pressed & BTN_USE && !this.canPlant(p) && !this.canDisarm(p)) {
+        const d = this.dropInReach(p);
+        if (d) this.takeDrop(p, d, true);
+      }
+    }
     this.updateUse(p, cmd);
     this.updateWeapon(p, cmd, !frozenPhase && p.useTime <= 0 && p.mantleT < 0);
     p.prevButtons = cmd.buttons;

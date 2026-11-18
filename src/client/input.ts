@@ -1,7 +1,7 @@
 // Keyboard/mouse (pointer lock, raw input) and touch, both reduced to the same per-tick Cmd.
 
 import {
-  BTN_ALT, BTN_CROUCH, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, SLOT_LAST, type Cmd,
+  BTN_ALT, BTN_CROUCH, BTN_DROP, BTN_FIRE, BTN_JUMP, BTN_RELOAD, BTN_USE, BTN_WALK, SLOT_LAST, type Cmd,
 } from '../sim/types';
 import { settings } from './settings';
 
@@ -196,6 +196,7 @@ export class Input {
       if (k.has('ShiftLeft')) buttons |= BTN_WALK;
       if (k.has('KeyR')) buttons |= BTN_RELOAD;
       if (k.has('KeyE')) buttons |= BTN_USE;
+      if (k.has('KeyG')) buttons |= BTN_DROP;
       if (this.touch) {
         fwd += -this.stickY;
         side += this.stickX;
@@ -232,7 +233,8 @@ export class Input {
       <button class="t-btn t-alt" data-b="${BTN_ALT}">ZOOM</button>
       <button class="t-btn t-swap" data-t="swap">SWAP</button>
       <button class="t-btn t-buy" data-t="buy">BUY</button>
-      <button class="t-btn t-menu" data-t="menu">II</button>`;
+      <button class="t-btn t-menu" data-t="menu">II</button>
+      <button class="t-btn t-drop" data-b="${BTN_DROP}">DROP</button>`;
     this.stickEl = root.querySelector('#t-stick');
     this.knobEl = root.querySelector('#t-knob');
     const touchSens = () => settings.sensitivity * 0.0022 * this.zoomScale;

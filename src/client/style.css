@@ -107,6 +107,7 @@ button { cursor: pointer; }
 #sub { font-size: 18px; font-weight: 600; color: #dbe3ec; letter-spacing: 0.16em; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85); transition: opacity 0.25s; opacity: 0; }
 #hint { position: absolute; bottom: 30%; left: 0; right: 0; text-align: center; font-size: 18px; font-weight: 600; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 #hint b { background: #fff; color: #000; padding: 0 8px; border-radius: 3px; margin: 0 4px; }
+#hint .dim { opacity: 0.6; font-weight: 500; }
 #progress { position: absolute; bottom: 24%; left: 50%; width: 280px; height: 8px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.6); border: 1px solid var(--line); display: none; }
 #progress.on { display: block; }
 #progress-fill { height: 100%; width: 0; background: #fff; }
@@ -311,6 +312,7 @@ h2 { margin: 0 0 6px; font-size: 30px; font-weight: 700; letter-spacing: 0.14em;
 .t-swap { right: calc(20px + var(--safe-r)); top: 70px; width: 50px; height: 50px; border-radius: 10px; }
 .t-buy { right: calc(78px + var(--safe-r)); top: 70px; width: 50px; height: 50px; border-radius: 10px; }
 .t-menu { right: calc(136px + var(--safe-r)); top: 70px; width: 50px; height: 50px; border-radius: 10px; }
+.t-drop { right: calc(194px + var(--safe-r)); top: 70px; width: 50px; height: 50px; border-radius: 10px; }
 
 @media (max-width: 860px), (max-height: 540px) {
   .menu-shell { grid-template-columns: 1fr; }

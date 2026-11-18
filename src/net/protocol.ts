@@ -4,8 +4,9 @@
 import type { Sim } from '../sim/game';
 import { SLOTS, type Charge, type Grenade, type Phase, type Player, type SimEvent, type Team, type WinReason } from '../sim/types';
 import { NADES, WEAPON_LIST } from '../sim/weapons';
+import type { Drop } from '../sim/drops';
 
-export const PROTOCOL = 14;
+export const PROTOCOL = 15;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -65,6 +66,8 @@ export interface Snapshot {
   p: number[][];
   /** Grenades: GRENADE_FIELDS numbers each. */
   g: number[];
+  /** Weapons on the floor: DROP_FIELDS numbers each. */
+  d: number[];
   /** Last input sequence the server has applied, per player id. */
   a: number[];
   e: SimEvent[];
@@ -187,6 +190,7 @@ export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidde
     c: [CHARGE_STATES.indexOf(c.state), c.carrier, r4(c.pos.x), r4(c.pos.y), r4(c.pos.z), r4(c.timer), c.site],
     p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : secret(p) ? encodeEnemy(p) : encodePlayer(p))),
     g: sim.grenades.flatMap(encodeGrenade),
+    d: sim.drops.flatMap(encodeDrop),
     a: acks,
     e: events,
   };
@@ -214,6 +218,34 @@ export function applySnapshot(sim: Sim, s: Snapshot): void {
   c.site = s.c[6]!;
   for (let i = 0; i < s.p.length && i < sim.players.length; i++) decodePlayer(sim.players[i]!, s.p[i]!);
   decodeGrenades(sim.grenades, s.g ?? []);
+  decodeDrops(sim.drops, s.d ?? []);
+}
+
+/** Numbers sent for each weapon on the floor. */
+export const DROP_FIELDS = 14;
+const encodeDrop = (d: Drop): number[] => [
+  d.id, WEAPON_INDEX.get(d.weapon.def.id)!, d.weapon.mag, d.weapon.reserve, d.weapon.quiet ? 1 : 0, d.state,
+  r4(d.pos.x), r4(d.pos.y), r4(d.pos.z), r4(d.vel.x), r4(d.vel.y), r4(d.vel.z), r4(d.yaw), r4(d.spin),
+];
+
+/** Bring a client's list of weapons on the floor in line with the server's, keeping the objects it has. */
+export function decodeDrops(list: Drop[], a: number[]): void {
+  const old = new Map(list.map((d) => [d.id, d]));
+  list.length = 0;
+  for (let i = 0; i + DROP_FIELDS <= a.length; i += DROP_FIELDS) {
+    const id = a[i]!, def = WEAPON_LIST[a[i + 1]!];
+    if (!def) continue;
+    let d = old.get(id);
+    if (!d || d.weapon.def !== def) {
+      d = { id, weapon: { def, mag: 0, reserve: 0, quiet: false }, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, yaw: 0, spin: 0, state: 0, owner: -1, ownerUntil: 0 };
+    }
+    d.weapon.mag = a[i + 2]!; d.weapon.reserve = a[i + 3]!; d.weapon.quiet = a[i + 4] === 1;
+    d.state = a[i + 5]! as 0 | 1;
+    d.pos.x = a[i + 6]!; d.pos.y = a[i + 7]!; d.pos.z = a[i + 8]!;
+    d.vel.x = a[i + 9]!; d.vel.y = a[i + 10]!; d.vel.z = a[i + 11]!;
+    d.yaw = a[i + 12]!; d.spin = a[i + 13]!;
+    list.push(d);
+  }
 }
 
 /** Numbers sent for each grenade. */

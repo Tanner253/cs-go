@@ -13,6 +13,7 @@ import {
 import type { Sim } from './game';
 import { NADE_INDEX } from './weapons';
 import { PIN_TIME } from './grenades';
+import { worth } from './drops';
 import { solveThrow, type ThrowPlan } from './bot-nades';
 
 export type BotMode =
@@ -216,6 +217,10 @@ export class Bot {
   private spotKind = '';
   private ready = false;
   private wantsUse = false;
+  /** A gun on the floor being gone for: which, since when, and ones given up on this round. */
+  private lootId = -1;
+  private lootSince = 0;
+  private lootSkip = new Set<number>();
   private fakeUntil = -99;
   private nextFake = 0;
   private walk = false;
@@ -269,6 +274,8 @@ export class Bot {
     this.stagePos = null;
     this.ready = false;
     this.wantsUse = false;
+    this.lootId = -1;
+    this.lootSkip.clear();
     this.fakeUntil = -99;
     this.bursting = false;
     this.pauseUntil = 0;
@@ -729,12 +736,42 @@ export class Bot {
 
     if (me.team === ATK) this.decideAttack();
     else this.decideDefend();
+    this.loot();
 
     // Move quietly when an unseen enemy is close and there is no clock pressure.
     if (!this.hurry && this.skill > 0.3 && (this.mode === 'move' || this.mode === 'fight')) {
       const t = this.threat(5, 17);
       if (t && !this.visible) this.walk = true;
     }
+  }
+
+  /**
+   * A much better gun on the floor close by and nothing pressing (no enemy in sight or heard of
+   * lately, nothing to plant or disarm): go over and take it, as players pick up the rifle of
+   * someone just killed.
+   */
+  private loot(): void {
+    const sim = this.sim, me = this.me, now = sim.time;
+    if (this.visible || now - this.lastSeenAt < 2.5 || this.wantsUse || this.mode === 'cover' || this.mode === 'save'
+      || this.mode === 'plant' || this.mode === 'disarm' || sim.drops.length === 0
+      || (me.hasCharge && sim.siteAt(me.pos.x, me.pos.z) >= 0)) { this.lootId = -1; return; }
+    let best = null as (typeof sim.drops)[number] | null, bestScore = 0;
+    for (const d of sim.drops) {
+      const w = d.weapon;
+      if (w.def.kind === 'grenade' || this.lootSkip.has(d.id)) continue;
+      const gain = worth(w) - worth(me.weapons[w.def.slot]);
+      const dist = Math.hypot(d.pos.x - me.pos.x, d.pos.z - me.pos.z);
+      if (gain < 600 || dist > 10 || Math.abs(d.pos.y - me.pos.y) > 1.3) continue;
+      const score = gain - dist * 110;
+      if (score > bestScore && this.los(me.pos.x, this.eye(), me.pos.z, d.pos.x, d.pos.y + 0.1, d.pos.z)) { best = d; bestScore = score; }
+    }
+    if (!best) { this.lootId = -1; return; }
+    if (best.id !== this.lootId) { this.lootId = best.id; this.lootSince = now; }
+    else if (now - this.lootSince > 5) { this.lootSkip.add(best.id); this.lootId = -1; return; } // (cannot get to it)
+    this.mode = 'move';
+    this.walk = false;
+    this.setGoal({ x: best.pos.x, y: best.pos.y, z: best.pos.z });
+    if (Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z) < 0.6) this.wantsUse = true;
   }
 
   /** Should the bot go to where it last saw / heard its target? */
