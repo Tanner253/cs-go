@@ -28,6 +28,15 @@ URL flags: `?spectate=1` (watch bots), `?nolock=1` (no pointer lock, for automat
   starts when two players are in one. First to 7 rounds, sides swap after 6.
 - **Practice** — the full round loop offline against bots, 1v1 up to 5v5.
 
+A match level at full time (12–12, or 6–6 in a duel) goes to overtime as Counter-Strike's does:
+six rounds on the same sides, first to 16 (then 19, ...), everyone given $10,000 at the start of
+each overtime half, and the sides swapped after three. The scoreboard (Tab) is Counter-Strike's
+too: kills, assists (more than 40 damage to, or a flashbang on, someone a teammate killed),
+deaths, round MVP stars, damage per round and points (2 a kill, 1 an assist, 2 for planting or
+disarming), and under it a mark for every round in the winner's colour saying how it was won.
+The round's MVP is named as it ends: the planter of a charge that went off, whoever disarmed one,
+or else the winner with the most kills that round.
+
 ## The level
 
 "Relay" (`src/sim/map.ts`): attackers spawn south, defenders north, three lanes between them.
@@ -258,6 +267,6 @@ rewinds targets to what the shooter saw when testing hits.
 
 ## Not built yet
 
-Overtime, online matches larger than 1v1, reconnecting to a match,
+Online matches larger than 1v1, reconnecting to a match,
 strafe animations of their own (other players' legs turn toward a strafe; walking and crouching backwards already have their own movements), and audio compressed for download size (sounds ship
 mostly as WAV).

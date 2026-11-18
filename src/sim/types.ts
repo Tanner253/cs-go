@@ -77,6 +77,14 @@ export interface Player {
   money: number;
   kills: number;
   deaths: number;
+  /** Kills helped with: more than 40 damage dealt to, or a flashbang on, someone a teammate killed. */
+  assists: number;
+  /** Rounds this player was the most valuable of. */
+  mvps: number;
+  /** Points, as Counter-Strike scores them: 2 a kill, 1 an assist, 2 for planting or disarming. */
+  points: number;
+  /** Damage dealt to enemies this match (each hit counted up to the health it took). */
+  damage: number;
   hasCharge: boolean;
 
   pos: Vec3; // feet
@@ -219,7 +227,9 @@ export type SimEvent =
   | { type: 'clatter'; id: number; x: number; y: number; z: number; speed: number }
   | { type: 'roundStart'; round: number }
   | { type: 'roundLive' }
-  | { type: 'roundEnd'; winner: Team; reason: WinReason }
+  | { type: 'roundEnd'; winner: Team; reason: WinReason; mvp: number; mvpFor: 'kills' | 'plant' | 'disarm' | '' }
+  /** The match went to overtime (`period` 1 for the first). */
+  | { type: 'overtime'; period: number }
   | { type: 'halftime' }
   | { type: 'matchEnd'; winner: -1 | Team };
 

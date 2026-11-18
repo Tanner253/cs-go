@@ -40,6 +40,9 @@ export const RULES = {
   verticalKit: false,
   /** Bullets passing through thin cover. Off: any wall stops any bullet. */
   wallbang: false,
+  /** A match level at full time goes to overtime periods this many rounds long (0: it is drawn), each half begun with this much money. */
+  overtimeRounds: 6,
+  overtimeMoney: 10000,
 };
 
 export interface SimOptions {
@@ -59,6 +62,9 @@ export interface SimOptions {
 
 /** Ticks of position history kept for lag compensation (1 second). */
 const HISTORY = 64;
+
+/** Every way a round can end, in the order the round log numbers them. */
+export const WIN_REASONS: WinReason[] = ['elimination', 'time', 'detonation', 'disarm'];
 
 const BOT_NAMES = ['Vex', 'Ion', 'Nyx', 'Rook', 'Quill', 'Tarn', 'Juno', 'Kade', 'Lyra', 'Moss', 'Orin', 'Pax'];
 
@@ -156,6 +162,18 @@ export class Sim {
   lastWinner: Team = ATK;
   lastReason: WinReason = 'elimination';
   matchWinner: -1 | Team = -1;
+  /** Overtime period being played (0 = full time not yet reached). */
+  overtime = 0;
+  /** How each round went, in order: the winning side * 4 + the reason's index (see WIN_REASONS). */
+  roundLog: number[] = [];
+  /** This round (server only): damage each player has dealt each other (attacker * n + victim), kills, and who flashed whom until when. */
+  private hurt = new Float32Array(0);
+  private roundKills: number[] = [];
+  private roundDamage: number[] = [];
+  private flashedBy = new Map<number, { by: number; until: number }>();
+  /** Who planted, and who disarmed, the charge this round. */
+  private planter = -1;
+  private disarmer = -1;
   /** Shared bot knowledge: where each team last saw the enemy push. */
   intel: [{ site: number; time: number }, { site: number; time: number }] = [{ site: -1, time: -99 }, { site: -1, time: -99 }];
   botSkill: number;
@@ -204,7 +222,7 @@ export class Sim {
     const p: Player = {
       id: this.players.length, name, team, isBot,
       alive: false, hp: 100, armor: 0, helmet: false, kit: false, money: this.rules.startMoney,
-      kills: 0, deaths: 0, hasCharge: false,
+      kills: 0, deaths: 0, assists: 0, mvps: 0, points: 0, damage: 0, hasCharge: false,
       pos: v3(), prevPos: v3(), vel: v3(), yaw: 0, pitch: 0,
       onGround: true, ducked: false, crouchT: 0, prevCrouchT: 0, stepDist: 0, fallSpeed: 0, stamina: 0, tag: 1, duckSpeed: DUCK_FULL,
       wallJumps: 0, lastWallNx: 0, lastWallNz: 0,
@@ -270,6 +288,13 @@ export class Sim {
     this.grenades.length = 0;
     this.leaving.clear();
     this.drops.length = 0;
+    const n = this.players.length;
+    if (this.hurt.length !== n * n) this.hurt = new Float32Array(n * n);
+    this.hurt.fill(0);
+    this.roundKills = this.players.map(() => 0);
+    this.roundDamage = this.players.map(() => 0);
+    this.flashedBy.clear();
+    this.planter = this.disarmer = -1;
 
     const used: [number, number] = [0, 0];
     const offset = this.rng.int(7);
@@ -345,6 +370,23 @@ export class Sim {
     this.lossStreak[winner] = 0;
     this.lossStreak[loser] = Math.min(5, this.lossStreak[loser] + 1);
 
+    // The round's most valuable player: whoever planted a charge that went off, or disarmed it;
+    // otherwise the winner with the most kills this round (then the most damage).
+    let mvp = -1;
+    let mvpFor: 'kills' | 'plant' | 'disarm' | '' = '';
+    if (reason === 'detonation' && this.planter >= 0) { mvp = this.planter; mvpFor = 'plant'; }
+    else if (reason === 'disarm' && this.disarmer >= 0) { mvp = this.disarmer; mvpFor = 'disarm'; }
+    else {
+      let best = 0, bestDmg = 0;
+      for (const p of this.players) {
+        if (p.team !== winner) continue;
+        const k = this.roundKills[p.id] ?? 0, d = this.roundDamage[p.id] ?? 0;
+        if (k > best || (k === best && k > 0 && d > bestDmg)) { best = k; bestDmg = d; mvp = p.id; }
+      }
+      if (mvp >= 0) mvpFor = 'kills';
+    }
+    if (mvp >= 0) this.players[mvp]!.mvps++;
+    this.roundLog.push(winner * 4 + WIN_REASONS.indexOf(reason));
     const winBonus = reason === 'detonation' || reason === 'disarm' ? 3500 : 3250;
     const lossBonus = 900 + 500 * this.lossStreak[loser];
     for (const p of this.players) {
@@ -356,22 +398,45 @@ export class Sim {
         this.addMoney(p, lossBonus + (p.team === ATK && this.planted ? 800 : 0));
       }
     }
-    this.events.push({ type: 'roundEnd', winner, reason });
+    this.events.push({ type: 'roundEnd', winner, reason, mvp, mvpFor });
+  }
+
+  /** Score that wins the period being played: the match itself, or the overtime under way. */
+  get winScore(): number {
+    if (this.overtime === 0) return this.rules.roundsToWin;
+    return this.rules.maxRounds / 2 + (this.overtime * this.rules.overtimeRounds) / 2 + 1;
+  }
+
+  /** The round on which the period being played ends. */
+  get lastRound(): number {
+    return this.rules.maxRounds + this.overtime * this.rules.overtimeRounds;
   }
 
   private afterRound(): void {
-    const { roundsToWin, maxRounds } = this.rules;
-    if (this.score[0] >= roundsToWin || this.score[1] >= roundsToWin || this.round >= maxRounds) {
+    const { maxRounds, overtimeRounds } = this.rules;
+    const need = this.winScore;
+    if (this.score[0] >= need || this.score[1] >= need || this.round >= this.lastRound) {
+      if (this.score[0] === this.score[1] && overtimeRounds > 0) {
+        // Level at full time (or at the end of an overtime): another overtime, on the same sides,
+        // everyone starting it with the overtime money.
+        this.overtime++;
+        for (const p of this.players) { p.money = this.rules.overtimeMoney; p.alive = false; }
+        this.lossStreak = [0, 0];
+        this.events.push({ type: 'overtime', period: this.overtime });
+        this.startRound(true);
+        return;
+      }
       this.phase = 'over';
       this.matchWinner = this.score[0] === this.score[1] ? -1 : this.score[0] > this.score[1] ? 0 : 1;
       this.events.push({ type: 'matchEnd', winner: this.matchWinner });
       return;
     }
-    if (this.round === maxRounds / 2) {
+    const half = this.overtime === 0 ? maxRounds / 2 : maxRounds + (this.overtime - 1) * overtimeRounds + overtimeRounds / 2;
+    if (this.round === half) {
       // Half time: swap sides, reset the economy.
       for (const p of this.players) {
         p.team = (1 - p.team) as Team;
-        p.money = this.rules.startMoney;
+        p.money = this.overtime === 0 ? this.rules.startMoney : this.rules.overtimeMoney;
         p.alive = false;
       }
       this.score = [this.score[1], this.score[0]];
@@ -969,6 +1034,7 @@ export class Sim {
           v.flashLen = seconds;
         }
         this.events.push({ type: 'flashed', player: v.id, by: g.owner, seconds });
+        if (owner && owner.team !== v.team) this.flashedBy.set(v.id, { by: owner.id, until: now + seconds });
       }
     }
   }
@@ -1233,6 +1299,14 @@ export class Sim {
       dmg = through;
     }
     const dealt = Math.max(1, Math.round(dmg));
+    if (attacker && attacker.team !== v.team) {
+      // (counted up to the health the hit took, as Counter-Strike's damage per round is)
+      const took = Math.min(dealt, Math.max(0, v.hp));
+      attacker.damage += took;
+      this.roundDamage[attacker.id] = (this.roundDamage[attacker.id] ?? 0) + took;
+      const n = this.players.length;
+      if (this.hurt.length === n * n) this.hurt[attacker.id * n + v.id]! += took;
+    }
     v.hp -= dealt;
     // "Tagging": getting hit slows you down, at once and for a second or so after; a heavy hit
     // more than a light one.
@@ -1297,6 +1371,19 @@ export class Sim {
     if (killer && killer !== v) {
       killer.kills++;
       if (def) this.addMoney(killer, def.killReward);
+      if (killer.team !== v.team) {
+        killer.points += 2;
+        this.roundKills[killer.id] = (this.roundKills[killer.id] ?? 0) + 1;
+      }
+    }
+    // Assists: the victim's other enemies who did it more than 40 damage this round, or had it
+    // blinded by their flashbang when it died.
+    const n = this.players.length;
+    const flash = this.flashedBy.get(v.id);
+    for (const a of this.players) {
+      if (a === killer || a === v || a.team === v.team) continue;
+      const hurt = this.hurt.length === n * n ? this.hurt[a.id * n + v.id]! : 0;
+      if (hurt > 40 || (flash && flash.by === a.id && this.time < flash.until)) { a.assists++; a.points++; }
     }
     if (v.hasCharge) {
       v.hasCharge = false;
@@ -1357,6 +1444,8 @@ export class Sim {
         c.timer = this.rules.chargeTime;
         c.site = this.siteAt(p.pos.x, p.pos.z);
         this.planted = true;
+        this.planter = p.id;
+        p.points += 2;
         this.phase = 'planted';
         this.phaseTime = this.rules.chargeTime;
         this.addMoney(p, 300);
@@ -1369,6 +1458,8 @@ export class Sim {
       if (p.useTime >= this.disarmDuration(p)) {
         p.useTime = 0;
         this.charge.state = 'disarmed';
+        this.disarmer = p.id;
+        p.points += 2;
         this.addMoney(p, 300);
         this.events.push({ type: 'disarmed', player: p.id });
         this.endRound(DEF, 'disarm');
@@ -1556,9 +1647,11 @@ export class Sim {
   restart(): void {
     for (const p of this.players) {
       p.money = this.rules.startMoney;
-      p.kills = p.deaths = 0;
+      p.kills = p.deaths = p.assists = p.mvps = p.points = p.damage = 0;
       p.alive = false;
     }
+    this.overtime = 0;
+    this.roundLog = [];
     this.score = [0, 0];
     this.lossStreak = [0, 0];
     this.round = 0;

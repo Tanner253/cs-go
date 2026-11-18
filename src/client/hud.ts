@@ -375,12 +375,28 @@ export class Hud {
   }
 
   private renderBoard(sim: Sim, me: Player | null): void {
+    // As Counter-Strike's: each side by points, with kills, assists, deaths, round MVPs, damage
+    // per round and points; and under it how every round so far was won.
+    const played = Math.max(1, sim.roundLog.length);
     const rows = (team: number): string => {
-      const ps = sim.players.filter((p) => p.team === team).sort((a, b) => b.kills - a.kills);
-      return `<tr class="th-team"><td class="t${team}" colspan="2">${team === ATK ? 'ATTACK' : 'DEFENCE'} — ${sim.score[team]}</td><td></td><td></td></tr>` +
-        ps.map((p) => `<tr class="${p.alive ? '' : 'dead'}${p === me ? ' me' : ''}"><td>${p.name}${p.hasCharge && me?.team === ATK ? ' ◆' : ''}</td><td>$${me && p.team === me.team ? p.money : '—'}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`).join('');
+      const ps = sim.players.filter((p) => p.team === team).sort((a, b) => b.points - a.points || b.kills - a.kills);
+      return `<tr class="th-team"><td class="t${team}" colspan="2">${team === ATK ? 'ATTACK' : 'DEFENCE'} — ${sim.score[team]}</td><td colspan="6"></td></tr>` +
+        ps.map((p) => `<tr class="${p.alive ? '' : 'dead'}${p === me ? ' me' : ''}"><td>${p.name}${p.hasCharge && me?.team === ATK ? ' ◆' : ''}</td>` +
+          `<td>${me && p.team === me.team ? `$${p.money}` : ''}</td><td>${p.kills}</td><td>${p.assists}</td><td>${p.deaths}</td>` +
+          `<td class="mvp">${p.mvps > 0 ? `★${p.mvps > 1 ? p.mvps : ''}` : ''}</td><td>${Math.round(p.damage / played)}</td><td>${p.points}</td></tr>`).join('');
     };
-    const html = `<table><tr><th>PLAYER</th><th>MONEY</th><th>K</th><th>D</th></tr>${rows(ATK)}${rows(DEF)}</table>`;
+    // (the round strip: each round a mark in the winner's colour, saying how it was won; a gap at half time)
+    const marks = ['✕', '◷', '✹', '✓'];
+    const half = sim.rules.maxRounds / 2;
+    let strip = '';
+    sim.roundLog.forEach((r, i) => {
+      const gap = i === half || (i > sim.rules.maxRounds && (i - sim.rules.maxRounds) % (sim.rules.overtimeRounds / 2) === 0) ? ' gap' : '';
+      const winner = r >> 2, how = r & 3;
+      strip += `<span class="rd t${winner}${gap}" title="Round ${i + 1}">${marks[how]}</span>`;
+    });
+    const ot = sim.overtime > 0 ? `<div class="ot">OVERTIME ${sim.overtime} · first to ${sim.winScore}</div>` : '';
+    const html = `<table><tr><th>PLAYER</th><th>MONEY</th><th>K</th><th>A</th><th>D</th><th>MVP</th><th>ADR</th><th>SCORE</th></tr>${rows(ATK)}${rows(DEF)}</table>` +
+      `<div class="rounds">${strip}</div>${ot}`;
     if (this.k.board.v !== html) {
       this.k.board.v = html;
       this.el.board.innerHTML = html;
@@ -443,7 +459,7 @@ export class Hud {
     const secs = Math.ceil(t);
     text(e.timer, k.timer, sim.phase === 'planted' ? `◆ ${secs}` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`);
     e.timer.classList.toggle('danger', sim.phase === 'planted' || (sim.phase === 'live' && secs <= 10));
-    text(e.round, k.round, sim.phase === 'freeze' ? 'BUY PHASE' : `ROUND ${sim.round}`);
+    text(e.round, k.round, sim.phase === 'freeze' ? 'BUY PHASE' : sim.overtime > 0 ? `OVERTIME · ROUND ${sim.round}` : `ROUND ${sim.round}`);
     text(e.sAtk, k.sAtk, String(sim.score[ATK]));
     text(e.sDef, k.sDef, String(sim.score[DEF]));
     const size = sim.players.length / 2;

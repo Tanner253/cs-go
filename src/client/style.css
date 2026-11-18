@@ -204,6 +204,12 @@ button { cursor: pointer; }
 #scoreboard tr.dead td { opacity: 0.4; }
 #scoreboard tr.me td { background: rgba(255, 255, 255, 0.1); }
 #scoreboard .th-team td { font-weight: 700; letter-spacing: 0.18em; padding-top: 10px; border-bottom: 1px solid var(--line); }
+#scoreboard th, #scoreboard td { padding-left: 10px; padding-right: 10px; }
+#scoreboard td.mvp { color: #ffd84a; }
+#scoreboard .rounds { display: flex; flex-wrap: wrap; gap: 3px; padding: 12px 16px 2px; }
+#scoreboard .rd { width: 17px; height: 19px; line-height: 19px; text-align: center; font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, 0.05); border-bottom: 2px solid currentColor; }
+#scoreboard .rd.gap { margin-left: 9px; }
+#scoreboard .ot { padding: 6px 16px 0; font-size: 11px; letter-spacing: 0.18em; color: var(--dim); font-weight: 700; }
 
 /* ---------- overlays ---------- */
 .overlay { position: fixed; inset: 0; display: flex; background: linear-gradient(100deg, rgba(6, 8, 12, 0.95) 0%, rgba(6, 8, 12, 0.9) 55%, rgba(6, 8, 12, 0.72) 100%); z-index: 20; overflow: auto; }

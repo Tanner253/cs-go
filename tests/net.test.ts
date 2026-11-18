@@ -68,7 +68,7 @@ describe('server-side cheat resistance', () => {
     expect(canSee(sim, a, b)).toBe(false);
     const snap = takeSnapshot(sim, [0, 0], [], [false, true]);
     expect(snap.p[1]).toEqual(encodeHidden(b));
-    expect(snap.p[1]!.length).toBe(4);
+    expect(snap.p[1]!.length).toBe(8); // (side, alive, and the scoreboard: nothing about where they are)
     expect(JSON.stringify(snap.p[1])).not.toContain(String(b.pos.z));
     // Face to face down a lane they can.
     a.pos.x = 24; a.pos.z = 20; b.pos.x = 24; b.pos.z = 4;

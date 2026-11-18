@@ -602,12 +602,19 @@ export class GameApp {
         case 'roundEnd': {
           const reasons = { elimination: 'Enemy eliminated', time: 'Time ran out', detonation: 'The charge detonated', disarm: 'The charge was disarmed' };
           const won = me ? e.winner === me.team : null;
-          this.hud.message(won === null ? (e.winner === ATK ? 'ATTACK WINS' : 'DEFENCE WINS') : won ? 'ROUND WON' : 'ROUND LOST', reasons[e.reason], 4);
+          // (and the round's most valuable player, as Counter-Strike names one)
+          const mvp = e.mvp >= 0 ? sim.players[e.mvp] : null;
+          const why = { kills: 'for the most eliminations', plant: 'for planting the charge', disarm: 'for disarming the charge', '': '' }[e.mvpFor];
+          const sub = mvp ? `${reasons[e.reason]} · MVP ${mvp === me ? 'you' : mvp.name}, ${why}` : reasons[e.reason];
+          this.hud.message(won === null ? (e.winner === ATK ? 'ATTACK WINS' : 'DEFENCE WINS') : won ? 'ROUND WON' : 'ROUND LOST', sub, 4);
           this.audio.ui(won === false ? 'lose' : 'win');
           break;
         }
         case 'halftime':
           this.hud.message('HALF TIME', 'Switching sides', 4);
+          break;
+        case 'overtime':
+          this.hud.message(e.period > 1 ? `OVERTIME ${e.period}` : 'OVERTIME', `First to ${sim.winScore} · $${sim.rules.overtimeMoney.toLocaleString('en-US')} each half`, 5);
           break;
         case 'matchEnd': {
           const won = me ? (e.winner === -1 ? null : e.winner === me.team) : null;

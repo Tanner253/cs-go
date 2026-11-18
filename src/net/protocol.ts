@@ -6,7 +6,7 @@ import { SLOTS, type Charge, type Grenade, type Phase, type Player, type SimEven
 import { NADES, WEAPON_LIST } from '../sim/weapons';
 import type { Drop } from '../sim/drops';
 
-export const PROTOCOL = 15;
+export const PROTOCOL = 16;
 export const MAX_LOBBIES = 5;
 /** A snapshot is sent every this many ticks (64 Hz sim -> 32 Hz snapshots). */
 export const SNAP_EVERY = 2;
@@ -60,6 +60,9 @@ export interface Snapshot {
   lw: number;
   lr: number;
   mw: number;
+  /** Overtime period (0: none yet), and how each round went (winner * 4 + reason). */
+  ot: number;
+  rh: number[];
   /** Charge: state, carrier, x, y, z, timer, site. */
   c: number[];
   /** One encoded player per id. */
@@ -85,7 +88,8 @@ export const SLOT_FIELDS = 4;
 
 export function encodePlayer(p: Player): number[] {
   const out: number[] = [
-    p.team, p.alive ? 1 : 0, p.hp, r4(p.armor), p.helmet ? 1 : 0, p.kit ? 1 : 0, p.money, p.kills, p.deaths, p.hasCharge ? 1 : 0,
+    p.team, p.alive ? 1 : 0, p.hp, r4(p.armor), p.helmet ? 1 : 0, p.kit ? 1 : 0, p.money, p.kills, p.deaths,
+    p.assists, p.mvps, p.points, p.damage, p.hasCharge ? 1 : 0,
     r4(p.pos.x), r4(p.pos.y), r4(p.pos.z), r4(p.vel.x), r4(p.vel.y), r4(p.vel.z), r4(p.yaw), r4(p.pitch),
     p.onGround ? 1 : 0, p.ducked ? 1 : 0, r4(p.crouchT), r4(p.stepDist), r4(p.fallSpeed), r4(p.stamina), r4(p.tag), r4(p.duckSpeed),
     p.wallJumps, p.lastWallNx, p.lastWallNz,
@@ -109,9 +113,9 @@ export function encodePlayer(p: Player): number[] {
  * scoreboard, and nothing that would let a modified client draw them through walls.
  */
 export function encodeHidden(p: Player): number[] {
-  return [p.team, p.alive ? 1 : 0, p.kills, p.deaths];
+  return [p.team, p.alive ? 1 : 0, p.kills, p.deaths, p.assists, p.mvps, p.points, p.damage];
 }
-export const isHidden = (a: number[]): boolean => a.length <= 4;
+export const isHidden = (a: number[]): boolean => a.length <= 8;
 
 /**
  * What a living player is told about an enemy they can see: where they are, how they are
@@ -139,10 +143,12 @@ export function decodePlayer(p: Player, a: number[]): void {
   const n = (): number => a[i++]!;
   if (isHidden(a)) {
     p.team = n() as Team; p.alive = n() === 1; p.kills = n(); p.deaths = n();
+    p.assists = n(); p.mvps = n(); p.points = n(); p.damage = n();
     return;
   }
   p.team = n() as Team; p.alive = n() === 1; p.hp = n(); p.armor = n(); p.helmet = n() === 1; p.kit = n() === 1;
-  p.money = n(); p.kills = n(); p.deaths = n(); p.hasCharge = n() === 1;
+  p.money = n(); p.kills = n(); p.deaths = n();
+  p.assists = n(); p.mvps = n(); p.points = n(); p.damage = n(); p.hasCharge = n() === 1;
   p.pos.x = n(); p.pos.y = n(); p.pos.z = n(); p.vel.x = n(); p.vel.y = n(); p.vel.z = n(); p.yaw = n(); p.pitch = n();
   p.onGround = n() === 1; p.ducked = n() === 1; p.crouchT = n(); p.stepDist = n(); p.fallSpeed = n(); p.stamina = n(); p.tag = n(); p.duckSpeed = n();
   p.wallJumps = n(); p.lastWallNx = n(); p.lastWallNz = n();
@@ -187,6 +193,8 @@ export function takeSnapshot(sim: Sim, acks: number[], events: SimEvent[], hidde
     lw: sim.lastWinner,
     lr: REASONS.indexOf(sim.lastReason),
     mw: sim.matchWinner,
+    ot: sim.overtime,
+    rh: sim.roundLog.slice(),
     c: [CHARGE_STATES.indexOf(c.state), c.carrier, r4(c.pos.x), r4(c.pos.y), r4(c.pos.z), r4(c.timer), c.site],
     p: sim.players.map((p) => (hidden?.[p.id] ? encodeHidden(p) : secret(p) ? encodeEnemy(p) : encodePlayer(p))),
     g: sim.grenades.flatMap(encodeGrenade),
@@ -210,6 +218,8 @@ export function applySnapshot(sim: Sim, s: Snapshot): void {
   sim.lastWinner = s.lw as Team;
   sim.lastReason = REASONS[s.lr]!;
   sim.matchWinner = s.mw as -1 | Team;
+  sim.overtime = s.ot ?? 0;
+  sim.roundLog = s.rh ?? [];
   const c = sim.charge;
   c.state = CHARGE_STATES[s.c[0]!]!;
   c.carrier = s.c[1]!;
