@@ -71,6 +71,8 @@ const punch = { pitch: 0, yaw: 0 };
 /** How fast the aim comes back after a spray (per second, exponential): most of the way in a third of a second. */
 const RECOIL_RETURN = 9;
 const pHit = { t: 0, group: 0 };
+/** How far a knife stab reaches from the eye (a slash reaches the knife's own range). */
+const KNIFE_STAB_RANGE = 1.3;
 
 /** Ray vs a vertical cylinder segment. Returns entry distance or -1. */
 function rayCylinder(
@@ -135,6 +137,8 @@ export class Sim {
   /** Weapons lying on the floor (or falling to it) this round. */
   drops: Drop[] = [];
   private dropId = 0;
+  /** When each player last slashed (server only): slashes in a row hit for less. */
+  private slashAt = new Map<number, number>();
   /** Events produced since the consumer last cleared them. */
   events: SimEvent[] = [];
 
@@ -607,15 +611,20 @@ export class Sim {
       }
     }
 
+    // The knife: a slash (fire), or a stab (alt), slower and heavier, that reaches less far.
+    if (def.kind === 'knife') {
+      const slash = (cmd.buttons & BTN_FIRE) !== 0, stab = (cmd.buttons & BTN_ALT) !== 0;
+      if ((!slash && !stab) || now < p.nextFireAt) return;
+      this.rewind(p, cmd.lag);
+      this.knife(p, def, stab && !slash);
+      this.restore(p, cmd.lag);
+      return;
+    }
     if (!def.auto && pressed & BTN_FIRE) p.fireBuffer = now + 0.12;
     const wantFire = def.auto ? cmd.buttons & BTN_FIRE : pressed & BTN_FIRE || now < p.fireBuffer;
     if (!wantFire || now < p.nextFireAt) return;
     p.fireBuffer = 0;
-    if (def.kind === 'knife') {
-      this.rewind(p, cmd.lag);
-      this.knife(p, def);
-      this.restore(p, cmd.lag);
-    } else if (w.mag <= 0) {
+    if (w.mag <= 0) {
       if (pressed & BTN_FIRE) this.events.push({ type: 'dry', player: p.id });
       if (w.reserve > 0) this.startReload(p, w);
       else p.nextFireAt = now + 0.2;
@@ -1171,26 +1180,36 @@ export class Sim {
     }
   }
 
-  private knife(p: Player, def: WeaponDef): void {
-    p.nextFireAt = this.time + 60 / def.rpm;
+  /**
+   * A knife attack, as Counter-Strike's. A slash does 40, 25 for each slash that follows within
+   * a second (90 from behind), every 0.4 s (0.5 s after a hit); a stab does 65 (180 from behind)
+   * once a second and reaches less far. Armour takes its share of either. "From behind" is where
+   * the attacker stands, not which way they face: within about 60 degrees of the victim's back.
+   */
+  private knife(p: Player, def: WeaponDef, heavy: boolean): void {
+    const now = this.time;
     const ox = p.pos.x, oy = this.eyeY(p), oz = p.pos.z;
     forwardFromAngles(p.yaw, p.pitch, fwd);
-    this.world.raycast(ox, oy, oz, fwd.x, fwd.y, fwd.z, def.range, ray);
+    const range = heavy ? KNIFE_STAB_RANGE : def.range;
+    this.world.raycast(ox, oy, oz, fwd.x, fwd.y, fwd.z, range, ray);
     let best: Player | null = null;
-    let bt = ray.dist;
+    let bt = Math.min(ray.dist, range);
     for (const v of this.players) {
       if (!v.alive || v.team === p.team) continue;
       // Generous: test a fat cylinder so melee does not need pixel aim.
       const t = rayCylinder(ox, oy, oz, fwd.x, fwd.y, fwd.z, v.pos.x, v.pos.z, v.pos.y, v.pos.y + 1.85, 0.5);
       if (t >= 0 && t < bt) { best = v; bt = t; }
     }
-    this.events.push({ type: 'knife', player: p.id, hit: best !== null });
-    if (best) {
-      // Backstab: victim is facing roughly the same way as the attacker.
-      const back = Math.cos(best.yaw - p.yaw) > 0.5;
-      const hx = ox + fwd.x * bt, hy = oy + fwd.y * bt, hz = oz + fwd.z * bt;
-      this.damage(best, p, def, back ? 180 : def.damage, CHEST, 0, hx, hy, hz, false);
-    }
+    const chained = !heavy && now - (this.slashAt.get(p.id) ?? -99) < 1;
+    if (!heavy) this.slashAt.set(p.id, now);
+    p.nextFireAt = now + (heavy ? 1 : best ? 0.5 : 0.4);
+    this.events.push({ type: 'knife', player: p.id, hit: best !== null, heavy });
+    if (!best) return;
+    const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z, d = Math.hypot(dx, dz) || 1;
+    const back = (dx * -Math.sin(best.yaw) + dz * -Math.cos(best.yaw)) / d > 0.475;
+    const dmg = heavy ? (back ? 180 : 65) : back ? 90 : chained ? 25 : 40;
+    const hx = ox + fwd.x * bt, hy = oy + fwd.y * bt, hz = oz + fwd.z * bt;
+    this.damage(best, p, def, dmg, CHEST, 0, hx, hy, hz, false);
   }
 
   private damage(

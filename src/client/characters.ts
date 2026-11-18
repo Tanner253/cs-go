@@ -328,6 +328,8 @@ export class CharacterView {
   /** Seconds since this player last fired (for the pump that follows a shot), and how far into a knife swing (1 -> 0). */
   private sinceShot = 9;
   private slash = 0;
+  /** The swing under way is a stab (a lunge straight ahead) rather than a slash. */
+  private stab = false;
   /** A grenade: how far the arm is wound back with the pin out (eased), and how far through a throw (1 -> 0). */
   private wind = 0;
   private tossT = 0;
@@ -686,7 +688,7 @@ export class CharacterView {
     for (const can of (this.guns.get(this.gunKey)?.userData['cans'] as THREE.Object3D[] | undefined) ?? []) can.visible = quiet;
     this.kick *= Math.exp(-dt * 16);
     this.sinceShot += dt;
-    this.slash = Math.max(0, this.slash - dt / 0.36);
+    this.slash = Math.max(0, this.slash - dt / (this.stab ? 0.55 : 0.36));
     this.tossT = Math.max(0, this.tossT - dt / 0.45);
     this.wind += ((p.pinAt >= 0 ? 1 : 0) - this.wind) * Math.min(1, dt * 9);
 
@@ -725,7 +727,10 @@ export class CharacterView {
         const at = gun.grip ?? [0, 0, 0];
         // (a swing takes the hand out across the body and back)
         const cut = Math.sin(Math.PI * (1 - this.slash)) * (this.slash > 0 ? 1 : 0);
-        _b.set(KNIFE_CARRY[0] - 0.26 * cut, KNIFE_CARRY[1] + 0.06 * cut, KNIFE_CARRY[2] - 0.3 * cut);
+        // (a stab drives it straight out ahead, fast, and draws it back slowly)
+        const lunge = this.stab && this.slash > 0 ? Math.min(1, (1 - this.slash) / 0.22) * Math.min(1, this.slash / 0.78) : 0;
+        if (this.stab) _b.set(KNIFE_CARRY[0] - 0.12 * lunge, KNIFE_CARRY[1] + 0.03 * lunge, KNIFE_CARRY[2] - 0.42 * lunge);
+        else _b.set(KNIFE_CARRY[0] - 0.26 * cut, KNIFE_CARRY[1] + 0.06 * cut, KNIFE_CARRY[2] - 0.3 * cut);
         if (gun.carry === 'nade') {
           // Wound back above the shoulder with the pin out; thrown over and forward, then the hand comes back.
           _b.lerp(_c.set(...NADE_WOUND), this.wind);
@@ -879,8 +884,9 @@ export class CharacterView {
   }
 
   /** This player swung their knife. */
-  swing(): void {
+  swing(heavy = false): void {
     this.slash = 1;
+    this.stab = heavy;
   }
 
   /** This player threw a grenade. */

@@ -305,8 +305,9 @@ export class GameAudio {
    * @param mul extra gain
    * @param delay seconds from now
    * @param fit play it over this many seconds (speed changed within reason)
+   * @param pace played this much faster (below 1: slower and deeper)
    */
-  private play(name: string, x: number | null, y = 0, z = 0, mul = 1, delay = 0, fit = 0): Voice | null {
+  private play(name: string, x: number | null, y = 0, z = 0, mul = 1, delay = 0, fit = 0, pace = 1): Voice | null {
     const cue = CUES[name];
     const ctx = this.ctx;
     if (!cue || !ctx) return null;
@@ -320,6 +321,7 @@ export class GameAudio {
     src.buffer = sample.buf;
     let rate = (cue.rate ?? 1) * (1 + (Math.random() * 2 - 1) * (cue.jitter ?? 0));
     if (fit > 0) rate = Math.min(1.45, Math.max(0.7, sample.buf.duration / fit));
+    rate *= pace;
     src.playbackRate.value = rate;
     const g = ctx.createGain();
     g.gain.value = Math.pow(10, (cue.level - sample.loud) / 20) * mul;
@@ -398,9 +400,10 @@ export class GameAudio {
     this.play('dry', null);
   }
 
-  knife(hit: boolean, x: number | null, y = 0, z = 0): void {
-    this.play('knife.slash', x, y, z);
-    if (hit) this.play('knife.hit', x, y, z, 1, 0.06);
+  /** A slash, or (`heavy`) a stab: the same recordings, the stab's swing slower and its hit harder. */
+  knife(hit: boolean, x: number | null, y = 0, z = 0, heavy = false): void {
+    this.play('knife.slash', x, y, z, heavy ? 1.15 : 1, 0, 0, heavy ? 0.82 : 1);
+    if (hit) this.play('knife.hit', x, y, z, heavy ? 1.3 : 1, heavy ? 0.09 : 0.06, 0, heavy ? 0.9 : 1);
   }
 
   /** Feedback when one of your bullets lands. */

@@ -1135,6 +1135,8 @@ export class Viewmodel {
   private meleeT = -1;
   private meleeClip = 'cutA';
   private meleeI = 0;
+  /** Seconds the knife movement under way takes. */
+  private meleeDur = 0.4;
   private inspectT = -1;
 
   /** Muzzle position in viewmodel-camera space (for tracers). */
@@ -1269,11 +1271,20 @@ export class Viewmodel {
     if (!worked && def.kind !== 'shotgun') this.ejectShell();
   }
 
-  onMelee(): void {
+  /**
+   * A knife attack: a slash is one of the pack's two cuts in turn, played quick; a stab is its
+   * thrust, a lunge that strikes a tenth of a second in, played at its own pace.
+   */
+  onMelee(heavy = false): void {
     this.meleeT = 0;
     this.inspectT = -1;
-    const order = ['cutA', 'cutB', 'cutA', 'stab'];
-    this.meleeClip = order[this.meleeI++ % order.length]!;
+    if (heavy) {
+      this.meleeClip = 'thrust';
+      this.meleeDur = 0.7;
+      return;
+    }
+    this.meleeClip = this.meleeI++ % 2 ? 'cutB' : 'cutA';
+    this.meleeDur = 0.4;
   }
 
   /** Play the weapon inspect animation (cosmetic). */
@@ -1377,7 +1388,7 @@ export class Viewmodel {
         moveK = st.reloadT;
         this.fireT = -1;
       } else if (this.meleeT >= 0) {
-        this.meleeT += dt / 0.4;
+        this.meleeT += dt / this.meleeDur;
         if (this.meleeT >= 1) this.meleeT = -1;
         else r.pose(r.has(this.meleeClip) ? this.meleeClip : 'melee', this.meleeT);
       } else if (this.fireT >= 0) {

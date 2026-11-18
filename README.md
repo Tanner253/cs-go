@@ -77,6 +77,13 @@ run speed, and a scoped sniper is slower again. Walking (shift) and crouching ar
 | Sniper | Colossus .50 (M82, semi-automatic) | Longsight AWP (bolt-action) |
 | Both sides | Maul .50 (Desert Eagle), Edge knife | |
 
+The knife works as Counter-Strike's: left click slashes (40, then 25 for each slash that follows
+within a second, 90 from behind; one every 0.4 s, 0.5 s after a hit), right click stabs (65, or
+180 from behind; once a second, and it reaches less far). "From behind" is judged by where the
+attacker stands, within about 60 degrees of the victim's back. In first person a slash is one
+of the pack's two cuts in turn and a stab its forward thrust; bots stab when it will kill or
+when they are at someone's back.
+
 Either sniper kills with one shot to the body or head; bots buy them too (one a side, when the
 team can afford it) and fight from the scope. A shotgun's pellets fill a cone of fixed size,
 thickest in the middle; moving and jumping throw the whole cone off the aim. The twin guns fire
@@ -222,7 +229,7 @@ the lobby screen says so while it waits.
 | Action | Desktop | Touch |
 |---|---|---|
 | Move / look | WASD / mouse | left stick / drag |
-| Fire / scope or suppressor | left click / right click | FIRE / ZOOM |
+| Fire / scope or suppressor (knife: slash / stab) | left click / right click | FIRE / ZOOM |
 | Jump / crouch / walk | Space / C or Ctrl / Shift | JUMP / DUCK |
 | Reload / use | R / E (plant, disarm, pick up a gun) | RLD / USE |
 | Drop the gun in hand | G | DROP |

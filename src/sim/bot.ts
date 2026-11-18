@@ -1479,7 +1479,11 @@ export class Bot {
       Math.abs(angleDelta(this.aimYaw, this.wantYaw)) < tol && Math.abs(this.aimPitch - this.wantPitch) < tol * 1.5;
 
     if (def.kind === 'knife') {
-      if (dist < 1.8 && aligned) cmd.buttons |= BTN_FIRE;
+      if (dist < 1.8 && aligned) {
+        // A stab when it will kill or comes from behind and is in reach; a slash otherwise.
+        const behind = ((tgt.pos.x - me.pos.x) * -Math.sin(tgt.yaw) + (tgt.pos.z - me.pos.z) * -Math.cos(tgt.yaw)) / Math.max(dist, 0.1) > 0.475;
+        cmd.buttons |= dist < 1.15 && (behind || tgt.hp <= 55) ? BTN_ALT : BTN_FIRE;
+      }
       if (!moveLocked) this.steer(cmd, -Math.sin(idealYaw), -Math.cos(idealYaw));
       return;
     }

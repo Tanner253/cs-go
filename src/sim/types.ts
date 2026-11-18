@@ -206,7 +206,7 @@ export type SimEvent =
   /** A grenade going off: kind 'out' is a fire put out (or landing in smoke). */
   | { type: 'boom'; id: number; kind: 'he' | 'flash' | 'smoke' | 'fire' | 'out'; x: number; y: number; z: number }
   | { type: 'flashed'; player: number; by: number; seconds: number }
-  | { type: 'knife'; player: number; hit: boolean }
+  | { type: 'knife'; player: number; hit: boolean; heavy: boolean }
   | { type: 'planted'; player: number; site: number; x: number; y: number; z: number }
   | { type: 'disarmed'; player: number }
   | { type: 'detonated'; x: number; y: number; z: number }

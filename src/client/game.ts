@@ -558,9 +558,9 @@ export class GameApp {
           break;
         case 'knife': {
           const p = sim.players[e.player]!;
-          if (p === view) this.vm.onMelee();
-          else this.chars[p.id]?.swing();
-          this.audio.knife(e.hit, p === view ? null : p.pos.x, p.pos.y, p.pos.z);
+          if (p === view) this.vm.onMelee(e.heavy);
+          else this.chars[p.id]?.swing(e.heavy);
+          this.audio.knife(e.hit, p === view ? null : p.pos.x, p.pos.y, p.pos.z, e.heavy);
           break;
         }
         case 'planted':

@@ -118,7 +118,7 @@ function grenade(
 const defs: WeaponDef[] = [
   {
     id: 'edge', name: 'Edge', kind: 'knife', slot: 2, price: 0, killReward: 1500, team: -1,
-    damage: 45, armorPen: 0.85, rangeMod: 1, headMult: 1, rpm: 130, auto: true, pellets: 1,
+    damage: 40, armorPen: 0.85, rangeMod: 1, headMult: 1, rpm: 130, auto: true, pellets: 1,
     magSize: -1, reserve: 0, reloadTime: 0, drawTime: 0.35, maxSpeed: KNIFE_SPEED,
     spreadStand: 0, spreadCrouch: 0, spreadMove: 0, spreadAir: 0, spreadPerShot: 0, spreadDecay: 10,
     pattern: new Float32Array(2), penetration: 0, kick: 0, range: 1.75,
